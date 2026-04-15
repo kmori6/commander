@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+pub mod agent_cli;
+
 #[derive(Parser, Debug)]
 pub struct Cli {
     #[command(subcommand)]
