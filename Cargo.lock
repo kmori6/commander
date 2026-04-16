@@ -2978,6 +2978,7 @@ dependencies = [
  "ignore",
  "log",
  "reedline",
+ "regex",
  "serde_json",
  "tavily",
  "thiserror",
