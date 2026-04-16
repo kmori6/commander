@@ -1,9 +1,11 @@
 use clap::Parser;
 use dotenvy::dotenv;
 use log::info;
+use std::env;
 use std::sync::Arc;
 use work_agent::domain::service::agent_service::AgentService;
 use work_agent::domain::service::tool_service::ToolExecutor;
+use work_agent::infrastructure::tool::file_search_tool::FileSearchTool;
 use work_agent::infrastructure::tool::web_search_tool::WebSearchTool;
 use work_agent::{
     application::usecase::agent_usecase::AgentUsecase,
@@ -26,7 +28,11 @@ async fn main() -> Result<(), AgentCliError> {
         Commands::Agent => {
             info!("Starting agent...");
             let llm_client = BedrockLlmProvider::from_default_config().await;
-            let tool_executor = ToolExecutor::new(vec![Arc::new(WebSearchTool::from_env()?)]);
+            let workspace_root = env::current_dir()?;
+            let tool_executor = ToolExecutor::new(vec![
+                Arc::new(FileSearchTool::new(workspace_root)?),
+                Arc::new(WebSearchTool::from_env()?),
+            ]);
             let agent_service = AgentService::new(llm_client, tool_executor);
             let usecase = AgentUsecase::new(agent_service);
             agent_cli::run(&usecase).await?;
