@@ -106,10 +106,14 @@ impl<L: LlmProvider> AgentService<L> {
                 response.tool_calls.clone(),
             ));
 
+            let mut tool_results = Vec::with_capacity(response.tool_calls.len());
+
             for call in response.tool_calls {
                 let result = self.tool_executor.execute(call).await;
-                messages.push(Message::tool_result(Role::Tool, result));
+                tool_results.push(result);
             }
+
+            messages.push(Message::tool_results(tool_results));
         }
 
         Err(AgentError::MaxToolIterations(self.max_tool_iterations))
@@ -162,6 +166,8 @@ impl<L: LlmProvider> AgentService<L> {
                 response.tool_calls.clone(),
             ));
 
+            let mut tool_results = Vec::with_capacity(response.tool_calls.len());
+
             for call in response.tool_calls {
                 emit(AgentProgressEvent::ToolCallRequested {
                     call_id: call.id.clone(),
@@ -182,8 +188,10 @@ impl<L: LlmProvider> AgentService<L> {
                     success,
                 });
 
-                messages.push(Message::tool_result(Role::Tool, result));
+                tool_results.push(result);
             }
+
+            messages.push(Message::tool_results(tool_results));
         }
 
         Err(AgentError::MaxToolIterations(self.max_tool_iterations))

@@ -15,7 +15,7 @@ pub enum MessageContent {
         text: Option<String>,
         tool_calls: Vec<ToolCall>,
     },
-    ToolResult(ToolResultMessage),
+    ToolResults(Vec<ToolResultMessage>),
 }
 
 impl Message {
@@ -26,10 +26,10 @@ impl Message {
         }
     }
 
-    pub fn tool_result(role: Role, tool_result: ToolResultMessage) -> Self {
+    pub fn tool_results(tool_results: Vec<ToolResultMessage>) -> Self {
         Self {
-            role,
-            content: MessageContent::ToolResult(tool_result),
+            role: Role::Tool,
+            content: MessageContent::ToolResults(tool_results),
         }
     }
 

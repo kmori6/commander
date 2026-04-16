@@ -131,7 +131,7 @@ fn build_system_content_blocks(
             MessageContent::ToolCall { .. } => Err(LlmClientError::RequestBuild(
                 "System messages cannot contain tool calls".to_string(),
             )),
-            MessageContent::ToolResult(_) => Err(LlmClientError::RequestBuild(
+            MessageContent::ToolResults(_) => Err(LlmClientError::RequestBuild(
                 "System messages cannot contain tool results".to_string(),
             )),
         })
@@ -181,44 +181,37 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                     LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
                 })?
             }
-            MessageContent::ToolResult(tool_result) => {
-                let result_content = ToolResultContentBlock::Text(
-                    serde_json::to_string(&tool_result.output).map_err(|e| {
-                        LlmClientError::RequestBuild(format!(
-                            "Failed to serialize tool result output: {}",
-                            e
-                        ))
-                    })?,
-                );
+            MessageContent::ToolResults(tool_results) => {
+                let mut builder = BedrockMessage::builder().role(ConversationRole::User);
 
-                let status = if tool_result.is_error {
-                    ToolResultStatus::Error
-                } else {
-                    ToolResultStatus::Success
-                };
+                for tool_result in tool_results {
+                    let status = if tool_result.is_error {
+                        ToolResultStatus::Error
+                    } else {
+                        ToolResultStatus::Success
+                    };
 
-                let block = ToolResultBlock::builder()
-                    .tool_use_id(tool_result.tool_call_id.clone())
-                    .content(result_content)
-                    .status(status)
-                    .build()
-                    .map_err(|e| {
-                        LlmClientError::RequestBuild(format!(
-                            "Error building Bedrock tool result block: {}",
-                            e
-                        ))
-                    })?;
+                    let result_content =
+                        ToolResultContentBlock::Json(json_to_document(&tool_result.output)?);
 
-                BedrockMessage::builder()
-                    .role(role.clone())
-                    .content(ContentBlock::ToolResult(block))
-                    .build()
-                    .map_err(|e| {
-                        LlmClientError::RequestBuild(format!(
-                            "Error building Bedrock message: {}",
-                            e
-                        ))
-                    })?
+                    let block = ToolResultBlock::builder()
+                        .tool_use_id(tool_result.tool_call_id.clone())
+                        .content(result_content)
+                        .status(status)
+                        .build()
+                        .map_err(|e| {
+                            LlmClientError::RequestBuild(format!(
+                                "Error building Bedrock tool result block: {}",
+                                e
+                            ))
+                        })?;
+
+                    builder = builder.content(ContentBlock::ToolResult(block));
+                }
+
+                builder.build().map_err(|e| {
+                    LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
+                })?
             }
         };
         message_blocks.push(msg);
