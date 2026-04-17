@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-recursion = "1.1.1"
 async-trait = "0.1.89"
 aws-config = { version = "1.8.15", features = ["behavior-version-latest"] }
 aws-sdk-bedrockruntime = { version = "1.129.0", features = ["behavior-version-latest"] }

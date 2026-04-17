@@ -16,6 +16,7 @@ use aws_sdk_bedrockruntime::{
 use aws_smithy_types::{Document, Number};
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct BedrockLlmProvider {
     client: Client,
 }

@@ -7,6 +7,7 @@ use work_agent::domain::service::agent_service::AgentService;
 use work_agent::domain::service::tool_service::ToolExecutor;
 use work_agent::infrastructure::tool::asr_tool::AsrTool;
 use work_agent::infrastructure::tool::file_search_tool::FileSearchTool;
+use work_agent::infrastructure::tool::research_tool::ResearchTool;
 use work_agent::infrastructure::tool::text_file_edit_tool::TextFileEditTool;
 use work_agent::infrastructure::tool::text_file_read_tool::TextFileReadTool;
 use work_agent::infrastructure::tool::text_file_write_tool::TextFileWriteTool;
@@ -34,10 +35,12 @@ async fn main() -> Result<(), AgentCliError> {
         Commands::Agent => {
             info!("Starting agent...");
             let llm_client = BedrockLlmProvider::from_default_config().await;
+            let research_tool = ResearchTool::from_env(llm_client.clone())?;
             let workspace_root = env::current_dir()?;
             let tool_executor = ToolExecutor::new(vec![
                 Arc::new(AsrTool::from_env(workspace_root.clone())?),
                 Arc::new(FileSearchTool::new(workspace_root.clone(), 200)?),
+                Arc::new(research_tool),
                 Arc::new(TextFileWriteTool::new(workspace_root.clone())?),
                 Arc::new(TextFileEditTool::new(workspace_root.clone(), 1_048_576)?),
                 Arc::new(TextFileReadTool::new(
