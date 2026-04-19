@@ -2,6 +2,8 @@ use crate::application::usecase::agent_usecase::{
     AgentEvent, AgentUsecase, HandleAgentInput, HandleAgentOutput,
 };
 use crate::domain::port::llm_provider::LlmProvider;
+use crate::domain::repository::chat_message_repository::ChatMessageRepository;
+use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::service::agent_service::AgentProgressEvent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use reedline::{
@@ -15,17 +17,25 @@ use termimad::print_text;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, MissedTickBehavior, interval};
+use uuid::Uuid;
 
 const SPINNER_TICK_MS: u64 = 120;
 const MAX_ARGUMENT_PREVIEW_CHARS: usize = 800;
 const SPINNER_FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
 
-pub async fn run<L: LlmProvider>(usecase: &AgentUsecase<L>) -> Result<(), AgentCliError> {
+pub async fn run<L, S, M>(usecase: &AgentUsecase<L, S, M>) -> Result<(), AgentCliError>
+where
+    L: LlmProvider,
+    S: ChatSessionRepository,
+    M: ChatMessageRepository,
+{
     println!("Agent mock CLI");
     println!("type /help for commands");
 
     let mut line_editor = build_line_editor();
     let prompt = AgentPrompt;
+    let mut current_session = usecase.start_session().await?;
+    println!("session: {}", current_session.id);
 
     loop {
         let Some(line) = read_command(&mut line_editor, &prompt)? else {
@@ -39,11 +49,14 @@ pub async fn run<L: LlmProvider>(usecase: &AgentUsecase<L>) -> Result<(), AgentC
 
         match command {
             CliCommand::Help => print_help(),
-            CliCommand::Reset => println!("mock session reset"),
+            CliCommand::Reset => {
+                current_session = usecase.start_session().await?;
+                println!("session: {}", current_session.id);
+            }
             CliCommand::Exit => break,
             CliCommand::Unknown(name) => println!("unknown command: {name}"),
             CliCommand::UserMessage(message) => {
-                handle_user_message(usecase, message).await?;
+                handle_user_message(usecase, current_session.id, message).await?;
             }
         }
     }
@@ -208,19 +221,26 @@ fn parse_command(line: String) -> Option<CliCommand> {
     })
 }
 
-async fn handle_user_message<L: LlmProvider>(
-    usecase: &AgentUsecase<L>,
+async fn handle_user_message<L, S, M>(
+    usecase: &AgentUsecase<L, S, M>,
+    session_id: Uuid,
     message: String,
-) -> Result<(), AgentCliError> {
+) -> Result<(), AgentCliError>
+where
+    L: LlmProvider,
+    S: ChatSessionRepository,
+    M: ChatMessageRepository,
+{
     let status_renderer = CliStatusRenderer::spawn();
     let progress_tx = status_renderer.sender();
 
     let result = usecase
         .handle_with_progress(
             HandleAgentInput {
+                session_id,
                 user_input: message,
             },
-            move |event| {
+            move |event: AgentProgressEvent| {
                 let _ = progress_tx.send(event.into());
             },
         )
@@ -360,6 +380,6 @@ fn truncate_for_cli(text: String, max_chars: usize) -> String {
 
 fn print_help() {
     println!("/help  show help");
-    println!("/reset reset mock session");
+    println!("/reset start a new session");
     println!("/exit  quit");
 }

@@ -16,4 +16,7 @@ pub enum AgentCliError {
 
     #[error("failed to read or write cli input/output: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("failed to connect to database: {0}")]
+    Database(#[from] sqlx::Error),
 }

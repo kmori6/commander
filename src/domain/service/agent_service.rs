@@ -9,9 +9,9 @@ const DEFAULT_MODEL: &str = "global.anthropic.claude-sonnet-4-6";
 const DEFAULT_MAX_TOOL_ITERATIONS: usize = 20;
 const DEFAULT_SYSTEM_PROMPT: &str = "\
 You are a helpful assistant.
-Use the web_search tool when the user asks for recent, current, or web-based information.
-Use the research tool when the user asks for thorough or multi-angle research on a topic.
-After receiving tool results, answer clearly in Japanese.
+Answer clearly and directly in Japanese.
+Use available tools when they improve accuracy, especially for recent, external, or uncertain information.
+After gathering what you need, respond concisely and naturally.
 ";
 
 #[derive(Debug, Clone)]
@@ -72,67 +72,25 @@ impl<L: LlmProvider> AgentService<L> {
     }
 
     pub async fn run(&self, user_input: impl Into<String>) -> Result<AgentResult, AgentError> {
-        let mut messages = vec![
-            Message::text(Role::System, self.system_prompt.clone()),
-            Message::text(Role::User, user_input.into()),
-        ];
-
-        let tool_specs = self.tool_executor.specs();
-
-        for _ in 0..self.max_tool_iterations {
-            let response = self
-                .llm_provider
-                .response_with_tool(messages.clone(), tool_specs.clone(), &self.model)
-                .await?;
-
-            if response.tool_calls.is_empty() {
-                let final_text = response.text;
-
-                if !final_text.is_empty() {
-                    messages.push(Message::text(Role::Assistant, final_text.clone()));
-                }
-
-                return Ok(AgentResult {
-                    final_text,
-                    messages,
-                });
-            }
-
-            messages.push(Message::tool_call(
-                if response.text.is_empty() {
-                    None
-                } else {
-                    Some(response.text.clone())
-                },
-                response.tool_calls.clone(),
-            ));
-
-            let mut tool_results = Vec::with_capacity(response.tool_calls.len());
-
-            for call in response.tool_calls {
-                let result = self.tool_executor.execute(call).await;
-                tool_results.push(result);
-            }
-
-            messages.push(Message::tool_results(tool_results));
-        }
-
-        Err(AgentError::MaxToolIterations(self.max_tool_iterations))
+        self.run_with_progress(Vec::new(), user_input, |_| {}).await
     }
 
     pub async fn run_with_progress<F>(
         &self,
+        history: Vec<Message>,
         user_input: impl Into<String>,
         mut emit: F,
     ) -> Result<AgentResult, AgentError>
     where
         F: FnMut(AgentProgressEvent),
     {
-        let mut messages = vec![
-            Message::text(Role::System, self.system_prompt.clone()),
-            Message::text(Role::User, user_input.into()),
-        ];
+        let user_input = user_input.into();
 
+        let mut messages = vec![Message::text(Role::System, self.system_prompt.clone())];
+        messages.extend(history);
+        messages.push(Message::text(Role::User, user_input));
+
+        let mut turn_messages = Vec::new();
         let tool_specs = self.tool_executor.specs();
 
         for _ in 0..self.max_tool_iterations {
@@ -149,23 +107,28 @@ impl<L: LlmProvider> AgentService<L> {
                 let final_text = response.text;
 
                 if !final_text.is_empty() {
-                    messages.push(Message::text(Role::Assistant, final_text.clone()));
+                    let assistant_message = Message::text(Role::Assistant, final_text.clone());
+                    messages.push(assistant_message.clone());
+                    turn_messages.push(assistant_message);
                 }
 
                 return Ok(AgentResult {
                     final_text,
-                    messages,
+                    messages: turn_messages,
                 });
             }
 
-            messages.push(Message::tool_call(
+            let tool_call_message = Message::tool_call(
                 if response.text.is_empty() {
                     None
                 } else {
                     Some(response.text.clone())
                 },
                 response.tool_calls.clone(),
-            ));
+            );
+
+            messages.push(tool_call_message.clone());
+            turn_messages.push(tool_call_message);
 
             let mut tool_results = Vec::with_capacity(response.tool_calls.len());
 
@@ -180,7 +143,6 @@ impl<L: LlmProvider> AgentService<L> {
                 let tool_name = call.name.clone();
 
                 let result = self.tool_executor.execute(call).await;
-
                 let success = !result.is_error;
 
                 emit(AgentProgressEvent::ToolExecutionFinished {
@@ -192,7 +154,9 @@ impl<L: LlmProvider> AgentService<L> {
                 tool_results.push(result);
             }
 
-            messages.push(Message::tool_results(tool_results));
+            let tool_result_message = Message::tool_results(tool_results);
+            messages.push(tool_result_message.clone());
+            turn_messages.push(tool_result_message);
         }
 
         Err(AgentError::MaxToolIterations(self.max_tool_iterations))

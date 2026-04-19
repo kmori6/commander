@@ -1,17 +1,19 @@
 use clap::Parser;
 use dotenvy::dotenv;
 use log::info;
+use sqlx::PgPool;
 use std::env;
 use std::sync::Arc;
 use work_agent::domain::service::agent_service::AgentService;
 use work_agent::domain::service::tool_service::ToolExecutor;
+use work_agent::infrastructure::persistence::postgres_chat_message_repository::PostgresChatMessageRepository;
+use work_agent::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
 use work_agent::infrastructure::tool::asr_tool::AsrTool;
 use work_agent::infrastructure::tool::file_edit_tool::FileEditTool;
 use work_agent::infrastructure::tool::file_read_tool::FileReadTool;
 use work_agent::infrastructure::tool::file_search_tool::FileSearchTool;
 use work_agent::infrastructure::tool::file_write_tool::FileWriteTool;
 use work_agent::infrastructure::tool::ocr_tool::OcrTool;
-use work_agent::infrastructure::tool::research_tool::ResearchTool;
 use work_agent::infrastructure::tool::shell_exec_tool::ShellExecTool;
 use work_agent::infrastructure::tool::text_search_tool::TextSearchTool;
 use work_agent::infrastructure::tool::web_fetch_tool::WebFetchTool;
@@ -28,7 +30,6 @@ use work_agent::{
 #[tokio::main]
 async fn main() -> Result<(), AgentCliError> {
     dotenv().ok();
-
     env_logger::init();
 
     let cli = Cli::parse();
@@ -36,14 +37,17 @@ async fn main() -> Result<(), AgentCliError> {
     match cli.command {
         Commands::Agent => {
             info!("Starting agent...");
+
+            let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+            let pool = PgPool::connect(&database_url).await?;
+
             let llm_client = BedrockLlmProvider::from_default_config().await;
-            let research_tool = ResearchTool::from_env(llm_client.clone())?;
             let workspace_root = env::current_dir()?;
+
             let tool_executor = ToolExecutor::new(vec![
                 Arc::new(AsrTool::from_env(workspace_root.clone())?),
                 Arc::new(FileSearchTool::new(workspace_root.clone(), 200)?),
                 Arc::new(OcrTool::new(workspace_root.clone())?),
-                Arc::new(research_tool),
                 Arc::new(ShellExecTool::new(workspace_root.clone())?),
                 Arc::new(FileWriteTool::new(workspace_root.clone())?),
                 Arc::new(FileEditTool::new(workspace_root.clone(), 1_048_576)?),
@@ -52,8 +56,18 @@ async fn main() -> Result<(), AgentCliError> {
                 Arc::new(WebFetchTool::new()?),
                 Arc::new(WebSearchTool::from_env()?),
             ]);
+
             let agent_service = AgentService::new(llm_client, tool_executor);
-            let usecase = AgentUsecase::new(agent_service);
+
+            let chat_session_repository = PostgresChatSessionRepository::new(pool.clone());
+            let chat_message_repository = PostgresChatMessageRepository::new(pool);
+
+            let usecase = AgentUsecase::new(
+                agent_service,
+                chat_session_repository,
+                chat_message_repository,
+            );
+
             agent_cli::run(&usecase).await?;
         }
     }
