@@ -1,27 +1,25 @@
 use crate::application::usecase::agent_usecase::{
     AgentEvent, AgentUsecase, HandleAgentInput, HandleAgentOutput,
 };
+use crate::domain::model::chat_session::ChatSession;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::service::agent_service::AgentProgressEvent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
+use indicatif::{ProgressBar, ProgressStyle};
 use reedline::{
     MouseClickMode, Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus,
     Reedline, Signal,
 };
 use serde_json::Value;
 use std::borrow::Cow;
-use std::io::{Write, stderr};
+use std::time::Duration;
 use termimad::print_text;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-use tokio::time::{Duration, MissedTickBehavior, interval};
 use uuid::Uuid;
 
-const SPINNER_TICK_MS: u64 = 120;
 const MAX_ARGUMENT_PREVIEW_CHARS: usize = 800;
-const SPINNER_FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+const SESSION_LIST_LIMIT: usize = 10;
 
 pub async fn run<L, S, M>(usecase: &AgentUsecase<L, S, M>) -> Result<(), AgentCliError>
 where
@@ -29,13 +27,13 @@ where
     S: ChatSessionRepository,
     M: ChatMessageRepository,
 {
-    println!("Agent mock CLI");
+    println!("Agent CLI");
     println!("type /help for commands");
 
     let mut line_editor = build_line_editor();
     let prompt = AgentPrompt;
     let mut current_session = usecase.start_session().await?;
-    println!("session: {}", current_session.id);
+    print_current_session(current_session.id);
 
     loop {
         let Some(line) = read_command(&mut line_editor, &prompt)? else {
@@ -49,9 +47,19 @@ where
 
         match command {
             CliCommand::Help => print_help(),
-            CliCommand::Reset => {
+            CliCommand::NewSession => {
                 current_session = usecase.start_session().await?;
-                println!("session: {}", current_session.id);
+                print_current_session(current_session.id);
+            }
+            CliCommand::Sessions => {
+                let sessions = usecase.list_sessions(SESSION_LIST_LIMIT).await?;
+                print_sessions(&sessions, current_session.id);
+            }
+            CliCommand::Use(raw_id) => {
+                if let Some(session) = switch_session(usecase, &raw_id).await? {
+                    current_session = session;
+                    print_current_session(current_session.id);
+                }
             }
             CliCommand::Exit => break,
             CliCommand::Unknown(name) => println!("unknown command: {name}"),
@@ -64,14 +72,11 @@ where
     Ok(())
 }
 
-// This prompt keeps the terminal UI simple and predictable.
-// We intentionally use ASCII markers so the prompt is easy to read
-// even when the terminal mixes English and Japanese input.
 struct AgentPrompt;
 
 impl Prompt for AgentPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        Cow::Borrowed("agent")
+        Cow::Borrowed("commander")
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
@@ -102,78 +107,84 @@ impl Prompt for AgentPrompt {
 #[derive(Debug)]
 enum CliCommand {
     Help,
-    Reset,
+    NewSession,
+    Sessions,
+    Use(String),
     Exit,
     Unknown(String),
     UserMessage(String),
 }
 
-#[derive(Debug)]
-enum CliStatusEvent {
-    ThinkingStarted,
-    ThinkingFinished,
-    ToolCallRequested {
-        call_id: String,
-        tool_name: String,
-        arguments: Value,
-    },
-    ToolExecutionFinished {
-        call_id: String,
-        tool_name: String,
-        success: bool,
-    },
-    Shutdown,
+struct CliProgressReporter {
+    spinner: Option<ProgressBar>,
 }
 
-impl From<AgentProgressEvent> for CliStatusEvent {
-    fn from(value: AgentProgressEvent) -> Self {
-        match value {
-            AgentProgressEvent::LlmThinkingStarted => Self::ThinkingStarted,
-            AgentProgressEvent::LlmThinkingFinished => Self::ThinkingFinished,
+impl CliProgressReporter {
+    fn new() -> Self {
+        Self { spinner: None }
+    }
+
+    fn handle(&mut self, event: AgentProgressEvent) {
+        match event {
+            AgentProgressEvent::LlmThinkingStarted => self.start_thinking(),
+            AgentProgressEvent::LlmThinkingFinished => self.stop_thinking(),
             AgentProgressEvent::ToolCallRequested {
                 call_id,
                 tool_name,
                 arguments,
-            } => Self::ToolCallRequested {
-                call_id,
-                tool_name,
-                arguments,
-            },
+            } => {
+                self.stop_thinking();
+                self.println(format!("[tool call] {tool_name} ({call_id})"));
+                self.println(format_arguments(&arguments));
+            }
             AgentProgressEvent::ToolExecutionFinished {
                 call_id,
                 tool_name,
                 success,
-            } => Self::ToolExecutionFinished {
-                call_id,
-                tool_name,
-                success,
-            },
+            } => {
+                self.stop_thinking();
+                self.println(format!(
+                    "[tool result] {tool_name} ({call_id}): {}",
+                    if success { "success" } else { "failed" }
+                ));
+            }
         }
     }
-}
 
-// The renderer owns the temporary "thinking..." UI so the main CLI loop
-// can stay focused on commands and use case calls.
-struct CliStatusRenderer {
-    tx: mpsc::UnboundedSender<CliStatusEvent>,
-    task: JoinHandle<()>,
-}
-
-impl CliStatusRenderer {
-    fn spawn() -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let task = tokio::spawn(render_status(rx));
-
-        Self { tx, task }
+    fn finish(&mut self) {
+        self.stop_thinking();
     }
 
-    fn sender(&self) -> mpsc::UnboundedSender<CliStatusEvent> {
-        self.tx.clone()
+    fn start_thinking(&mut self) {
+        if self.spinner.is_some() {
+            return;
+        }
+
+        let spinner = ProgressBar::new_spinner();
+        let style = ProgressStyle::with_template("{spinner} {msg}")
+            .expect("spinner template should be valid")
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+
+        spinner.set_style(style);
+        spinner.set_message("Thinking...");
+        spinner.enable_steady_tick(Duration::from_millis(120));
+        self.spinner = Some(spinner);
     }
 
-    async fn shutdown(self) {
-        let _ = self.tx.send(CliStatusEvent::Shutdown);
-        let _ = self.task.await;
+    fn stop_thinking(&mut self) {
+        if let Some(spinner) = self.spinner.take() {
+            spinner.finish_and_clear();
+        }
+    }
+
+    fn println(&self, message: impl Into<String>) {
+        let message = message.into();
+
+        if let Some(spinner) = &self.spinner {
+            spinner.println(message);
+        } else {
+            println!("{message}");
+        }
     }
 }
 
@@ -196,8 +207,6 @@ fn read_command(
             Ok(Some(String::new()))
         }
         Signal::CtrlD => Ok(None),
-        // Treat an external break as a normal line so we do not discard
-        // the user's buffer unexpectedly.
         Signal::ExternalBreak(line) => Ok(Some(line)),
         other => Err(AgentCliError::Readline(format!(
             "unsupported reedline signal: {other:?}"
@@ -214,11 +223,38 @@ fn parse_command(line: String) -> Option<CliCommand> {
 
     Some(match input {
         "/help" => CliCommand::Help,
-        "/reset" => CliCommand::Reset,
+        "/reset" | "/new" => CliCommand::NewSession,
+        "/sessions" => CliCommand::Sessions,
         "/exit" | "/quit" => CliCommand::Exit,
+        _ if input.starts_with("/use ") => {
+            CliCommand::Use(input.trim_start_matches("/use ").trim().to_string())
+        }
         _ if input.starts_with('/') => CliCommand::Unknown(input.to_string()),
         _ => CliCommand::UserMessage(input.to_string()),
     })
+}
+
+async fn switch_session<L, S, M>(
+    usecase: &AgentUsecase<L, S, M>,
+    raw_id: &str,
+) -> Result<Option<ChatSession>, AgentCliError>
+where
+    L: LlmProvider,
+    S: ChatSessionRepository,
+    M: ChatMessageRepository,
+{
+    let Ok(session_id) = Uuid::parse_str(raw_id) else {
+        println!("invalid session id: {raw_id}");
+        return Ok(None);
+    };
+
+    match usecase.find_session(session_id).await? {
+        Some(session) => Ok(Some(session)),
+        None => {
+            println!("session not found: {session_id}");
+            Ok(None)
+        }
+    }
 }
 
 async fn handle_user_message<L, S, M>(
@@ -231,24 +267,19 @@ where
     S: ChatSessionRepository,
     M: ChatMessageRepository,
 {
-    let status_renderer = CliStatusRenderer::spawn();
-    let progress_tx = status_renderer.sender();
+    let mut reporter = CliProgressReporter::new();
 
-    let result = usecase
+    let output = usecase
         .handle_with_progress(
             HandleAgentInput {
                 session_id,
                 user_input: message,
             },
-            move |event: AgentProgressEvent| {
-                let _ = progress_tx.send(event.into());
-            },
+            |event| reporter.handle(event),
         )
-        .await;
+        .await?;
 
-    status_renderer.shutdown().await;
-
-    let output = result?;
+    reporter.finish();
     print_agent_output(output);
 
     Ok(())
@@ -262,110 +293,31 @@ fn print_agent_output(output: HandleAgentOutput) {
     }
 }
 
-async fn render_status(mut rx: mpsc::UnboundedReceiver<CliStatusEvent>) {
-    let mut spinner_active = false;
-    let mut frame_index = 0;
+fn print_current_session(session_id: Uuid) {
+    println!("session: {session_id}");
+}
 
-    let mut ticker = interval(Duration::from_millis(SPINNER_TICK_MS));
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    loop {
-        tokio::select! {
-            _ = ticker.tick(), if spinner_active => {
-                render_spinner_frame(&mut frame_index);
-            }
-            maybe_event = rx.recv() => {
-                let Some(event) = maybe_event else {
-                    clear_status_line_silent();
-                    break;
-                };
-
-                if handle_status_event(event, &mut spinner_active, &mut frame_index) {
-                    break;
-                }
-            }
-        }
+fn print_sessions(sessions: &[ChatSession], current_session_id: Uuid) {
+    if sessions.is_empty() {
+        println!("no sessions");
+        return;
     }
-}
 
-fn handle_status_event(
-    event: CliStatusEvent,
-    spinner_active: &mut bool,
-    frame_index: &mut usize,
-) -> bool {
-    match event {
-        CliStatusEvent::ThinkingStarted => {
-            *spinner_active = true;
-            *frame_index = 0;
-            false
-        }
-        CliStatusEvent::ThinkingFinished => {
-            *spinner_active = false;
-            clear_status_line_silent();
-            false
-        }
-        CliStatusEvent::ToolCallRequested {
-            call_id,
-            tool_name,
-            arguments,
-        } => {
-            *spinner_active = false;
-            clear_status_line_silent();
-            print_tool_call(&call_id, &tool_name, &arguments);
-            false
-        }
-        CliStatusEvent::ToolExecutionFinished {
-            call_id,
-            tool_name,
-            success,
-        } => {
-            *spinner_active = false;
-            clear_status_line_silent();
-            print_tool_result(&call_id, &tool_name, success);
-            false
-        }
-        CliStatusEvent::Shutdown => {
-            *spinner_active = false;
-            clear_status_line_silent();
-            true
-        }
+    for session in sessions {
+        let marker = if session.id == current_session_id {
+            "*"
+        } else {
+            " "
+        };
+        println!(
+            "{marker} {}  updated_at={}  created_at={}",
+            session.id, session.updated_at, session.created_at
+        );
     }
-}
-
-fn render_spinner_frame(frame_index: &mut usize) {
-    eprint!(
-        "\rThinking... {}",
-        SPINNER_FRAMES[*frame_index % SPINNER_FRAMES.len()]
-    );
-    let _ = stderr().flush();
-    *frame_index += 1;
-}
-
-fn print_tool_call(call_id: &str, tool_name: &str, arguments: &Value) {
-    eprintln!("[tool call] {tool_name} ({call_id})");
-    eprintln!("{}", format_arguments(arguments));
-}
-
-fn print_tool_result(call_id: &str, tool_name: &str, success: bool) {
-    eprintln!(
-        "[tool result] {tool_name} ({call_id}): {}",
-        if success { "success" } else { "failed" }
-    );
-}
-
-fn clear_status_line() -> Result<(), AgentCliError> {
-    eprint!("\r\x1b[2K");
-    stderr().flush()?;
-    Ok(())
-}
-
-fn clear_status_line_silent() {
-    let _ = clear_status_line();
 }
 
 fn format_arguments(arguments: &Value) -> String {
     let pretty = serde_json::to_string_pretty(arguments).unwrap_or_else(|_| arguments.to_string());
-
     truncate_for_cli(pretty, MAX_ARGUMENT_PREVIEW_CHARS)
 }
 
@@ -379,7 +331,10 @@ fn truncate_for_cli(text: String, max_chars: usize) -> String {
 }
 
 fn print_help() {
-    println!("/help  show help");
-    println!("/reset start a new session");
-    println!("/exit  quit");
+    println!("/help      show help");
+    println!("/new       start a new session");
+    println!("/reset     alias of /new");
+    println!("/sessions  show recent sessions");
+    println!("/use <id>  switch to a session");
+    println!("/exit      quit");
 }

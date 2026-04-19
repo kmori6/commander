@@ -55,6 +55,23 @@ where
             .map_err(Into::into)
     }
 
+    pub async fn find_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<ChatSession>, AgentUsecaseError> {
+        self.chat_session_repository
+            .find_by_id(session_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn list_sessions(&self, limit: usize) -> Result<Vec<ChatSession>, AgentUsecaseError> {
+        self.chat_session_repository
+            .list_recent(limit)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn handle(
         &self,
         input: HandleAgentInput,
