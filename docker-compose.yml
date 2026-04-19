@@ -39,5 +39,21 @@ services:
       FLYWAY_CONNECT_RETRIES: 60
     command: migrate
 
+  flyway-agent:
+    image: flyway/flyway:12.4
+    depends_on:
+      postgres:
+        condition: service_started
+      flyway-admin:
+        condition: service_completed_successfully
+    volumes:
+      - ./db/migration/agent:/flyway/sql
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/agent
+      FLYWAY_USER: postgres
+      FLYWAY_PASSWORD: example
+      FLYWAY_CONNECT_RETRIES: 60
+    command: migrate
+
 volumes:
   postgres_data:
