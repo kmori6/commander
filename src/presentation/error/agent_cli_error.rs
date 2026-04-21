@@ -16,6 +16,9 @@ pub enum AgentCliError {
     #[error("failed to execute survey use case: {0}")]
     SurveyUsecase(#[from] crate::application::error::survey_usecase_error::SurveyUsecaseError),
 
+    #[error("failed to execute digest use case: {0}")]
+    DigestUsecase(#[from] crate::application::error::digest_usecase_error::DigestUsecaseError),
+
     #[error("failed to initialize tooling: {0}")]
     Tool(#[from] crate::domain::error::tool_error::ToolError),
 

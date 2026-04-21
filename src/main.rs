@@ -17,12 +17,12 @@ use commander::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use commander::infrastructure::tool::web_search_tool::WebSearchTool;
 use commander::{
     application::usecase::{
-        agent_usecase::AgentUsecase, research_usecase::ResearchUsecase,
-        survey_usecase::SurveyUsecase,
+        agent_usecase::AgentUsecase, digest_usecase::DigestUsecase,
+        research_usecase::ResearchUsecase, survey_usecase::SurveyUsecase,
     },
     infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider,
     presentation::{
-        cli::{Cli, Commands, agent_cli, research_cli, survey_cli},
+        cli::{Cli, Commands, agent_cli, digest_cli, research_cli, survey_cli},
         error::agent_cli_error::AgentCliError,
     },
 };
@@ -88,6 +88,12 @@ async fn main() -> Result<(), AgentCliError> {
             let llm_client = BedrockLlmProvider::from_default_config().await;
             let usecase = SurveyUsecase::new(llm_client);
             survey_cli::run(&usecase, &source, output).await?;
+        }
+        Commands::Digest { output } => {
+            info!("Starting digest...");
+            let llm_client = BedrockLlmProvider::from_default_config().await;
+            let usecase = DigestUsecase::new(llm_client);
+            digest_cli::run(&usecase, output).await?;
         }
     }
 
