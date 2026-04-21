@@ -12,7 +12,9 @@ Extract all articles from both. Skip sponsors and advertisements. \
 If the same story appears in both newsletters, merge them into one entry. \
 Select the 20 most important and newsworthy articles. \
 Prioritize AI, developer tools, major business deals, and significant product launches. \
-Do not use sub-headings or any additional section markers inside the output.
+IMPORTANT: Do NOT use sub-headings, category labels, or any ## headings other than \"## Business (Global)\". \
+All articles must appear as a single flat list directly under the \"## Business (Global)\" heading. \
+Using sub-headings will be considered an error.
 
 Produce a Markdown section in exactly this format:
 
@@ -21,6 +23,7 @@ Produce a Markdown section in exactly this format:
 ### {title translated to Japanese}
 {url}
 {2-3 sentence summary in Japanese}
+
 ---
 
 Output only the Markdown, no additional commentary.";
@@ -31,7 +34,10 @@ ITmedia News (general tech) and ITmedia AI+ (AI-focused). \
 Extract all articles. If the same story appears in both feeds, merge into one entry. \
 Select the 20 most important and newsworthy articles. \
 Prioritize AI, major business news, technology policy, and significant product announcements. \
-Exclude trivial news, weather events, and unrelated lifestyle content.
+Exclude trivial news, weather events, and unrelated lifestyle content. \
+IMPORTANT: Do NOT use sub-headings, category labels, or any ## headings other than \"## Business (Domestic)\". \
+All articles must appear as a single flat list directly under the \"## Business (Domestic)\" heading. \
+Using sub-headings will be considered an error.
 
 Produce a Markdown section in exactly this format:
 
@@ -40,6 +46,7 @@ Produce a Markdown section in exactly this format:
 ### {article title in Japanese}
 {url}
 {2-3 sentence summary in Japanese based on the title and description}
+
 ---
 
 Output only the Markdown, no additional commentary.";
@@ -59,6 +66,7 @@ Produce a Markdown section in exactly this format:
 ### {title translated to Japanese}
 {url}
 {2-3 sentence summary in Japanese}
+
 ---
 
 Output only the Markdown, no additional commentary.";
@@ -77,6 +85,7 @@ Produce a Markdown section in exactly this format:
 ### {title translated to Japanese}
 {url}
 {2 sentence summary in Japanese: proposed approach and key results}
+
 ---
 
 Output only the Markdown, no additional commentary.";
