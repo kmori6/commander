@@ -89,11 +89,11 @@ async fn main() -> Result<(), AgentCliError> {
             let usecase = SurveyUsecase::new(llm_client);
             survey_cli::run(&usecase, &source, output).await?;
         }
-        Commands::Digest { output } => {
+        Commands::Digest { date, output } => {
             info!("Starting digest...");
             let llm_client = BedrockLlmProvider::from_default_config().await;
             let usecase = DigestUsecase::new(llm_client);
-            digest_cli::run(&usecase, output).await?;
+            digest_cli::run(&usecase, date, output).await?;
         }
     }
 

@@ -9,9 +9,10 @@ const DIGEST_OUTPUT_DIR: &str = "outputs/digest";
 
 pub async fn run<L: LlmProvider>(
     usecase: &DigestUsecase<L>,
+    date: Option<String>,
     output: Option<PathBuf>,
 ) -> Result<(), AgentCliError> {
-    let date = Local::now().format("%Y-%m-%d").to_string();
+    let date = date.unwrap_or_else(|| Local::now().format("%Y-%m-%d").to_string());
 
     let output_path =
         output.unwrap_or_else(|| PathBuf::from(format!("{DIGEST_OUTPUT_DIR}/{date}.md")));

@@ -26,6 +26,9 @@ pub enum Commands {
     },
     /// Curate daily papers and tech news into a digest
     Digest {
+        /// Date to fetch (YYYY-MM-DD, default: today)
+        #[arg(long, short)]
+        date: Option<String>,
         /// Output path for the markdown digest (default: outputs/digest/{date}.md)
         #[arg(long, short)]
         output: Option<PathBuf>,
