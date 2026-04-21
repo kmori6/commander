@@ -36,3 +36,29 @@ target
 
 # Ignore the outputs directory, which may contain generated files or logs
 /outputs/
+
+# Confidential document files
+# Microsoft Office
+**/*.xlsx
+**/*.xlsm
+**/*.xlsb
+**/*.xls
+**/*.docx
+**/*.docm
+**/*.doc
+**/*.pptx
+**/*.pptm
+**/*.ppt
+# PDF
+**/*.pdf
+# Apple iWork
+**/*.pages
+**/*.numbers
+**/*.key
+# OpenDocument
+**/*.ods
+**/*.odt
+**/*.odp
+# CSV / TSV (may contain personal or business data)
+**/*.csv
+**/*.tsv

@@ -1,6 +1,7 @@
 use crate::application::usecase::agent_usecase::{
     AgentEvent, AgentUsecase, HandleAgentInput, HandleAgentOutput,
 };
+use crate::domain::model::attachment::Attachment;
 use crate::domain::model::chat_session::ChatSession;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
@@ -64,7 +65,10 @@ where
             CliCommand::Exit => break,
             CliCommand::Unknown(name) => println!("unknown command: {name}"),
             CliCommand::UserMessage(message) => {
-                handle_user_message(usecase, current_session.id, message).await?;
+                handle_user_message(usecase, current_session.id, message, vec![]).await?;
+            }
+            CliCommand::UserMessageWithAttachments { text, attachments } => {
+                handle_user_message(usecase, current_session.id, text, attachments).await?;
             }
         }
     }
@@ -113,6 +117,10 @@ enum CliCommand {
     Exit,
     Unknown(String),
     UserMessage(String),
+    UserMessageWithAttachments {
+        text: String,
+        attachments: Vec<Attachment>,
+    },
 }
 
 struct CliProgressReporter {
@@ -230,7 +238,14 @@ fn parse_command(line: String) -> Option<CliCommand> {
             CliCommand::Use(input.trim_start_matches("/use ").trim().to_string())
         }
         _ if input.starts_with('/') => CliCommand::Unknown(input.to_string()),
-        _ => CliCommand::UserMessage(input.to_string()),
+        _ => {
+            let (text, attachments) = parse_attachments(input);
+            if attachments.is_empty() {
+                CliCommand::UserMessage(text)
+            } else {
+                CliCommand::UserMessageWithAttachments { text, attachments }
+            }
+        }
     })
 }
 
@@ -261,6 +276,7 @@ async fn handle_user_message<L, S, M>(
     usecase: &AgentUsecase<L, S, M>,
     session_id: Uuid,
     message: String,
+    attachments: Vec<Attachment>,
 ) -> Result<(), AgentCliError>
 where
     L: LlmProvider,
@@ -274,6 +290,7 @@ where
             HandleAgentInput {
                 session_id,
                 user_input: message,
+                attachments,
             },
             |event| reporter.handle(event),
         )
@@ -337,4 +354,57 @@ fn print_help() {
     println!("/sessions  show recent sessions");
     println!("/use <id>  switch to a session");
     println!("/exit      quit");
+}
+
+/// Parses `@path` tokens from the input line.
+/// Returns (text_without_at_tokens, loaded_attachments).
+fn parse_attachments(input: &str) -> (String, Vec<Attachment>) {
+    let mut text_parts: Vec<&str> = Vec::new();
+    let mut attachments: Vec<Attachment> = Vec::new();
+
+    for token in input.split_whitespace() {
+        if let Some(path_str) = token.strip_prefix('@') {
+            let path = std::path::Path::new(path_str);
+            match load_attachment(path) {
+                Ok(attachment) => attachments.push(attachment),
+                Err(e) => println!("warning: failed to load {path_str}: {e}"),
+            }
+        } else {
+            text_parts.push(token);
+        }
+    }
+
+    (text_parts.join(" "), attachments)
+}
+
+fn load_attachment(path: &std::path::Path) -> Result<Attachment, String> {
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+
+    let mime_type = mime_type_from_path(path);
+
+    let data = std::fs::read(path).map_err(|e| format!("cannot read file: {e}"))?;
+
+    Ok(Attachment::new(filename, mime_type, data))
+}
+
+fn mime_type_from_path(path: &std::path::Path) -> String {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("pdf") => "application/pdf",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("csv") => "text/csv",
+        Some("txt") => "text/plain",
+        Some("md") => "text/markdown",
+        Some("html") => "text/html",
+        _ => "application/octet-stream",
+    }
+    .to_string()
 }

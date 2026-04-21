@@ -1,4 +1,5 @@
 use crate::application::error::agent_usecase_error::AgentUsecaseError;
+use crate::domain::model::attachment::Attachment;
 use crate::domain::model::chat_session::ChatSession;
 use crate::domain::model::message::Message;
 use crate::domain::model::role::Role;
@@ -12,6 +13,7 @@ use uuid::Uuid;
 pub struct HandleAgentInput {
     pub session_id: Uuid,
     pub user_input: String,
+    pub attachments: Vec<Attachment>,
 }
 
 #[derive(Debug)]
@@ -84,16 +86,22 @@ where
             .map(|entry| entry.message)
             .collect::<Vec<Message>>();
 
-        self.chat_message_repository
-            .append(
-                input.session_id,
-                Message::text(Role::User, input.user_input.clone()),
+        let user_message = if input.attachments.is_empty() {
+            Message::text(Role::User, input.user_input.clone())
+        } else {
+            Message::multimodal(
+                Role::User,
+                input.user_input.clone(),
+                input.attachments.clone(),
             )
+        };
+        self.chat_message_repository
+            .append(input.session_id, user_message.clone())
             .await?;
 
         let result = self
             .agent_service
-            .run_with_progress(history, input.user_input, |_| {})
+            .run_with_progress(history, user_message, |_| {})
             .await?;
 
         for message in result.messages {
@@ -124,16 +132,23 @@ where
             .map(|entry| entry.message)
             .collect::<Vec<Message>>();
 
-        self.chat_message_repository
-            .append(
-                input.session_id,
-                Message::text(Role::User, input.user_input.clone()),
+        let user_message = if input.attachments.is_empty() {
+            Message::text(Role::User, input.user_input.clone())
+        } else {
+            Message::multimodal(
+                Role::User,
+                input.user_input.clone(),
+                input.attachments.clone(),
             )
+        };
+
+        self.chat_message_repository
+            .append(input.session_id, user_message.clone())
             .await?;
 
         let result = self
             .agent_service
-            .run_with_progress(history, input.user_input, emit)
+            .run_with_progress(history, user_message, emit)
             .await?;
 
         for message in result.messages {

@@ -16,10 +16,13 @@ use commander::infrastructure::tool::text_search_tool::TextSearchTool;
 use commander::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use commander::infrastructure::tool::web_search_tool::WebSearchTool;
 use commander::{
-    application::usecase::{agent_usecase::AgentUsecase, research_usecase::ResearchUsecase},
+    application::usecase::{
+        agent_usecase::AgentUsecase, research_usecase::ResearchUsecase,
+        survey_usecase::SurveyUsecase,
+    },
     infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider,
     presentation::{
-        cli::{Cli, Commands, agent_cli, research_cli},
+        cli::{Cli, Commands, agent_cli, research_cli, survey_cli},
         error::agent_cli_error::AgentCliError,
     },
 };
@@ -79,6 +82,12 @@ async fn main() -> Result<(), AgentCliError> {
             let usecase =
                 ResearchUsecase::new(DeepResearchService::new(llm_client, search_provider));
             research_cli::run(&usecase).await?;
+        }
+        Commands::Survey { source, output } => {
+            info!("Starting survey...");
+            let llm_client = BedrockLlmProvider::from_default_config().await;
+            let usecase = SurveyUsecase::new(llm_client);
+            survey_cli::run(&usecase, &source, output).await?;
         }
     }
 

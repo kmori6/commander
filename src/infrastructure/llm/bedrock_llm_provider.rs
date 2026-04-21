@@ -1,4 +1,5 @@
 use crate::application::error::llm_client_error::LlmClientError;
+use crate::domain::model::attachment::Attachment;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
 use crate::domain::model::tool::{ToolCall, ToolSpec};
@@ -11,11 +12,13 @@ use aws_sdk_bedrockruntime::types::{
 use aws_sdk_bedrockruntime::{
     Client,
     types::{
-        ContentBlock, ConversationRole, Message as BedrockMessage, SystemContentBlock, Tool,
+        ContentBlock, ConversationRole, DocumentBlock, DocumentFormat, DocumentSource, ImageBlock,
+        ImageFormat, ImageSource, Message as BedrockMessage, SystemContentBlock, Tool,
         ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock,
         ToolResultStatus, ToolSpecification, ToolUseBlock,
     },
 };
+use aws_smithy_types::Blob;
 use aws_smithy_types::error::metadata::ProvideErrorMetadata;
 use aws_smithy_types::{Document, Number};
 use std::collections::HashMap;
@@ -210,6 +213,9 @@ fn build_system_content_blocks(
         .filter(|m| m.role == Role::System)
         .map(|m| match &m.content {
             MessageContent::Text(text) => Ok(SystemContentBlock::Text(text.clone())),
+            MessageContent::Multimodal { .. } => Err(LlmClientError::RequestBuild(
+                "System messages cannot contain attachments".to_string(),
+            )),
             MessageContent::ToolCall { .. } => Err(LlmClientError::RequestBuild(
                 "System messages cannot contain tool calls".to_string(),
             )),
@@ -236,6 +242,22 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                 .map_err(|e| {
                     LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
                 })?,
+            MessageContent::Multimodal { text, attachments } => {
+                let mut builder = BedrockMessage::builder().role(role.clone());
+
+                if !text.is_empty() {
+                    builder = builder.content(ContentBlock::Text(text.clone()));
+                }
+
+                for attachment in attachments {
+                    let block = attachment_to_content_block(attachment)?;
+                    builder = builder.content(block);
+                }
+
+                builder.build().map_err(|e| {
+                    LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
+                })?
+            }
             MessageContent::ToolCall { text, tool_calls } => {
                 let mut builder = BedrockMessage::builder().role(ConversationRole::Assistant);
 
@@ -422,4 +444,53 @@ fn structured_output_config(
         .map_err(|e| LlmClientError::RequestBuild(format!("Failed to build output format: {e}")))?;
 
     Ok(OutputConfig::builder().text_format(text_format).build())
+}
+
+/// Converts Attachment to a Bedrock ContentBlock.
+fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, LlmClientError> {
+    if attachment.is_image() {
+        let format = match attachment.mime_type.as_str() {
+            "image/png" => ImageFormat::Png,
+            "image/jpeg" | "image/jpg" => ImageFormat::Jpeg,
+            "image/gif" => ImageFormat::Gif,
+            "image/webp" => ImageFormat::Webp,
+            other => {
+                return Err(LlmClientError::RequestBuild(format!(
+                    "Unsupported image format: {other}"
+                )));
+            }
+        };
+        let image_block = ImageBlock::builder()
+            .format(format)
+            .source(ImageSource::Bytes(Blob::new(attachment.data.clone())))
+            .build()
+            .map_err(|e| LlmClientError::RequestBuild(format!("Error building ImageBlock: {e}")))?;
+        Ok(ContentBlock::Image(image_block))
+    } else {
+        let format = match attachment.mime_type.as_str() {
+            "application/pdf" => DocumentFormat::Pdf,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "application/msword" => DocumentFormat::Docx,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            | "application/vnd.ms-excel" => DocumentFormat::Xlsx,
+            "text/html" => DocumentFormat::Html,
+            "text/markdown" | "text/x-markdown" => DocumentFormat::Md,
+            "text/plain" => DocumentFormat::Txt,
+            "text/csv" => DocumentFormat::Csv,
+            other => {
+                return Err(LlmClientError::RequestBuild(format!(
+                    "Unsupported document format: {other}"
+                )));
+            }
+        };
+        let doc_block = DocumentBlock::builder()
+            .format(format)
+            .name("attachment")
+            .source(DocumentSource::Bytes(Blob::new(attachment.data.clone())))
+            .build()
+            .map_err(|e| {
+                LlmClientError::RequestBuild(format!("Error building DocumentBlock: {e}"))
+            })?;
+        Ok(ContentBlock::Document(doc_block))
+    }
 }

@@ -71,24 +71,26 @@ impl<L: LlmProvider> AgentService<L> {
         }
     }
 
-    pub async fn run(&self, user_input: impl Into<String>) -> Result<AgentResult, AgentError> {
-        self.run_with_progress(Vec::new(), user_input, |_| {}).await
+    pub async fn run(
+        &self,
+        history: Vec<Message>,
+        user_message: Message,
+    ) -> Result<AgentResult, AgentError> {
+        self.run_with_progress(history, user_message, |_| {}).await
     }
 
     pub async fn run_with_progress<F>(
         &self,
         history: Vec<Message>,
-        user_input: impl Into<String>,
+        user_message: Message,
         mut emit: F,
     ) -> Result<AgentResult, AgentError>
     where
         F: FnMut(AgentProgressEvent),
     {
-        let user_input = user_input.into();
-
         let mut messages = vec![Message::text(Role::System, self.system_prompt.clone())];
         messages.extend(history);
-        messages.push(Message::text(Role::User, user_input));
+        messages.push(user_message);
 
         let mut turn_messages = Vec::new();
         let tool_specs = self.tool_executor.specs();

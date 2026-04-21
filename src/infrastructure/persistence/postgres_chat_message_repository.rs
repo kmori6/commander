@@ -74,6 +74,7 @@ fn role_from_db(value: &str) -> Result<Role, ChatRepositoryError> {
 fn split_message(message: &Message) -> (String, Option<String>, Option<Value>) {
     match &message.content {
         MessageContent::Text(text) => ("text".to_string(), Some(text.clone()), None),
+        MessageContent::Multimodal { text, .. } => ("text".to_string(), Some(text.clone()), None),
         MessageContent::ToolCall { text, tool_calls } => (
             "tool_call".to_string(),
             text.clone(),

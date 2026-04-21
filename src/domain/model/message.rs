@@ -1,3 +1,4 @@
+use crate::domain::model::attachment::Attachment;
 use crate::domain::model::role::Role;
 use crate::domain::model::tool::ToolCall;
 use crate::domain::model::tool::ToolResultMessage;
@@ -11,6 +12,10 @@ pub struct Message {
 #[derive(Debug, Clone)]
 pub enum MessageContent {
     Text(String),
+    Multimodal {
+        text: String,
+        attachments: Vec<Attachment>,
+    },
     ToolCall {
         text: Option<String>,
         tool_calls: Vec<ToolCall>,
@@ -23,6 +28,16 @@ impl Message {
         Self {
             role,
             content: MessageContent::Text(content.into()),
+        }
+    }
+
+    pub fn multimodal(role: Role, text: impl Into<String>, attachments: Vec<Attachment>) -> Self {
+        Self {
+            role,
+            content: MessageContent::Multimodal {
+                text: text.into(),
+                attachments,
+            },
         }
     }
 
