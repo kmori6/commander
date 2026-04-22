@@ -1,9 +1,11 @@
 use clap::Parser;
 use commander::domain::service::agent_service::AgentService;
+use commander::domain::service::context_service::ContextService;
 use commander::domain::service::deep_research_service::DeepResearchService;
 use commander::domain::service::tool_service::ToolExecutor;
 use commander::infrastructure::persistence::postgres_chat_message_repository::PostgresChatMessageRepository;
 use commander::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
+use commander::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use commander::infrastructure::search::tavily_search_provider::TavilySearchProvider;
 use commander::infrastructure::tool::asr_tool::AsrTool;
 use commander::infrastructure::tool::file_edit_tool::FileEditTool;
@@ -62,15 +64,19 @@ async fn main() -> Result<(), AgentCliError> {
                 Arc::new(WebSearchTool::from_env()?),
             ]);
 
+            let context_service = ContextService::new(llm_client.clone());
             let agent_service = AgentService::new(llm_client, tool_executor);
 
             let chat_session_repository = PostgresChatSessionRepository::new(pool.clone());
-            let chat_message_repository = PostgresChatMessageRepository::new(pool);
+            let chat_message_repository = PostgresChatMessageRepository::new(pool.clone());
+            let token_usage_repository = PostgresTokenUsageRepository::new(pool);
 
             let usecase = AgentUsecase::new(
                 agent_service,
+                context_service,
                 chat_session_repository,
                 chat_message_repository,
+                token_usage_repository,
             );
 
             agent_cli::run(&usecase).await?;

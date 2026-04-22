@@ -3,6 +3,7 @@ use crate::domain::port::tool::Tool;
 use serde_json::json;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct ToolExecutor {
     tools: Vec<Arc<dyn Tool>>,
 }

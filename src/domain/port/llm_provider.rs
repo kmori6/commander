@@ -1,5 +1,6 @@
 use crate::application::error::llm_client_error::LlmClientError;
 use crate::domain::model::message::Message;
+use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool::{ToolCall, ToolSpec};
 use async_trait::async_trait;
 
@@ -7,6 +8,7 @@ use async_trait::async_trait;
 pub struct LlmResponse {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
+    pub usage: TokenUsage,
 }
 
 #[derive(Debug, Clone)]

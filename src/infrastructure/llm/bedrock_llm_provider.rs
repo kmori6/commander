@@ -2,6 +2,7 @@ use crate::application::error::llm_client_error::LlmClientError;
 use crate::domain::model::attachment::Attachment;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
+use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool::{ToolCall, ToolSpec};
 use crate::domain::port::llm_provider::{LlmProvider, LlmResponse, StructuredOutputSchema};
 use async_trait::async_trait;
@@ -13,9 +14,9 @@ use aws_sdk_bedrockruntime::{
     Client,
     types::{
         ContentBlock, ConversationRole, DocumentBlock, DocumentFormat, DocumentSource, ImageBlock,
-        ImageFormat, ImageSource, Message as BedrockMessage, SystemContentBlock, Tool,
-        ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock,
-        ToolResultStatus, ToolSpecification, ToolUseBlock,
+        ImageFormat, ImageSource, Message as BedrockMessage, SystemContentBlock,
+        TokenUsage as BedrockTokenUsage, Tool, ToolConfiguration, ToolInputSchema, ToolResultBlock,
+        ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
     },
 };
 use aws_smithy_types::Blob;
@@ -31,6 +32,7 @@ struct ConverseOptions {
 struct ConverseResult {
     text_blocks: Vec<String>,
     tool_calls: Vec<ToolCall>,
+    usage: TokenUsage,
 }
 
 impl ConverseResult {
@@ -101,6 +103,8 @@ impl BedrockLlmProvider {
             ))
         })?;
 
+        let usage = convert_token_usage(output.usage());
+
         let output_blocks = output
             .output()
             .ok_or_else(|| {
@@ -136,6 +140,7 @@ impl BedrockLlmProvider {
         Ok(ConverseResult {
             text_blocks,
             tool_calls,
+            usage,
         })
     }
 }
@@ -179,6 +184,7 @@ impl LlmProvider for BedrockLlmProvider {
         Ok(LlmResponse {
             text: result.plain_text(),
             tool_calls: result.tool_calls,
+            usage: result.usage,
         })
     }
 
@@ -492,5 +498,18 @@ fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, 
                 LlmClientError::RequestBuild(format!("Error building DocumentBlock: {e}"))
             })?;
         Ok(ContentBlock::Document(doc_block))
+    }
+}
+
+fn convert_token_usage(usage: Option<&BedrockTokenUsage>) -> TokenUsage {
+    let Some(usage) = usage else {
+        return TokenUsage::default();
+    };
+
+    TokenUsage {
+        input_tokens: usage.input_tokens().max(0) as u64,
+        output_tokens: usage.output_tokens().max(0) as u64,
+        cache_read_tokens: usage.cache_read_input_tokens().unwrap_or_default().max(0) as u64,
+        cache_write_tokens: usage.cache_write_input_tokens().unwrap_or_default().max(0) as u64,
     }
 }

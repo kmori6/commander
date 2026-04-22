@@ -3,9 +3,11 @@ use crate::application::usecase::agent_usecase::{
 };
 use crate::domain::model::attachment::Attachment;
 use crate::domain::model::chat_session::ChatSession;
+use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
+use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::service::agent_service::AgentProgressEvent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -22,11 +24,12 @@ use uuid::Uuid;
 const MAX_ARGUMENT_PREVIEW_CHARS: usize = 800;
 const SESSION_LIST_LIMIT: usize = 10;
 
-pub async fn run<L, S, M>(usecase: &AgentUsecase<L, S, M>) -> Result<(), AgentCliError>
+pub async fn run<L, S, M, T>(usecase: &AgentUsecase<L, S, M, T>) -> Result<(), AgentCliError>
 where
     L: LlmProvider,
     S: ChatSessionRepository,
     M: ChatMessageRepository,
+    T: TokenUsageRepository,
 {
     println!("Agent CLI");
     println!("type /help for commands");
@@ -249,14 +252,15 @@ fn parse_command(line: String) -> Option<CliCommand> {
     })
 }
 
-async fn switch_session<L, S, M>(
-    usecase: &AgentUsecase<L, S, M>,
+async fn switch_session<L, S, M, T>(
+    usecase: &AgentUsecase<L, S, M, T>,
     raw_id: &str,
 ) -> Result<Option<ChatSession>, AgentCliError>
 where
     L: LlmProvider,
     S: ChatSessionRepository,
     M: ChatMessageRepository,
+    T: TokenUsageRepository,
 {
     let Ok(session_id) = Uuid::parse_str(raw_id) else {
         println!("invalid session id: {raw_id}");
@@ -272,8 +276,8 @@ where
     }
 }
 
-async fn handle_user_message<L, S, M>(
-    usecase: &AgentUsecase<L, S, M>,
+async fn handle_user_message<L, S, M, T>(
+    usecase: &AgentUsecase<L, S, M, T>,
     session_id: Uuid,
     message: String,
     attachments: Vec<Attachment>,
@@ -282,22 +286,29 @@ where
     L: LlmProvider,
     S: ChatSessionRepository,
     M: ChatMessageRepository,
+    T: TokenUsageRepository,
 {
     let mut reporter = CliProgressReporter::new();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
 
-    let output = usecase
-        .handle_with_progress(
+    let (output_result, _) = tokio::join!(
+        usecase.handle(
             HandleAgentInput {
                 session_id,
                 user_input: message,
                 attachments,
             },
-            |event| reporter.handle(event),
-        )
-        .await?;
+            tx,
+        ),
+        async {
+            while let Some(event) = rx.recv().await {
+                reporter.handle(event);
+            }
+        },
+    );
 
     reporter.finish();
-    print_agent_output(output);
+    print_agent_output(output_result?);
 
     Ok(())
 }
@@ -308,6 +319,32 @@ fn print_agent_output(output: HandleAgentOutput) {
             AgentEvent::AssistantMessage(message) => print_text(&message),
         }
     }
+
+    print_token_usage(
+        output.usage,
+        output.context_input_tokens,
+        output.context_window_tokens,
+        output.context_percent_used,
+    );
+}
+
+fn print_token_usage(
+    usage: TokenUsage,
+    context_input_tokens: u64,
+    context_window_tokens: u64,
+    context_percent_used: u64,
+) {
+    println!(
+        "[tokens] input={} output={} total={} cache_read={} cache_write={} context={}/{} ({}%)",
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.total_tokens(),
+        usage.cache_read_tokens,
+        usage.cache_write_tokens,
+        context_input_tokens,
+        context_window_tokens,
+        context_percent_used,
+    );
 }
 
 fn print_current_session(session_id: Uuid) {

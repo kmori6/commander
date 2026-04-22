@@ -24,7 +24,7 @@ services:
     environment:
       POSTGRES_PASSWORD: example
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
 
   flyway-admin:
     image: flyway/flyway:12.4
