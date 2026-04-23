@@ -4,8 +4,9 @@ use crate::domain::model::chat_session::ChatSession;
 use crate::domain::model::message::Message;
 use crate::domain::model::role::Role;
 use crate::domain::model::token_usage::TokenUsage;
+use crate::domain::model::tool::{ToolExecutionResult, ToolResultMessage};
 use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalDecision};
-use crate::domain::model::tool_execution_rule::ToolExecutionRuleAction;
+use crate::domain::model::tool_execution_rules::ToolExecutionRules;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::port::tool::ToolExecutionPolicy;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
@@ -14,9 +15,10 @@ use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_execution_rule_repository::ToolExecutionRuleRepository;
 use crate::domain::service::agent_service::{
-    AgentApprovalRequest, AgentOutput, AgentProgressEvent, AgentService,
+    AgentApprovalRequest, AgentOutput, AgentProgressEvent, AgentService, AgentTurnMessage,
 };
 use crate::domain::service::context_service::ContextService;
+use serde_json::json;
 use std::collections::HashMap;
 use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
@@ -182,20 +184,7 @@ where
                 let context_window_tokens = self.context_service.context_window_tokens();
                 let context_percent_used = self.context_service.percent_used(context_input_tokens);
 
-                for turn_message in result.messages {
-                    let saved_message = self
-                        .chat_message_repository
-                        .append(session_id, turn_message.message)
-                        .await?;
-
-                    if let Some(usage) = turn_message.usage
-                        && !usage.tokens.is_empty()
-                    {
-                        self.token_usage_repository
-                            .record_for_message(saved_message.id, &usage.model, usage.tokens)
-                            .await?;
-                    }
-                }
+                self.save_turn_messages(session_id, result.messages).await?;
 
                 Ok(HandleAgentOutput {
                     events: vec![AgentEvent::AssistantMessage(result.final_text)],
@@ -251,6 +240,12 @@ where
         let request = self.take_pending_approval(session_id).await?;
 
         self.record_tool_approval(session_id, &request, ToolApprovalDecision::Denied)
+            .await?;
+
+        self.save_turn_messages(session_id, request.turn_messages.clone())
+            .await?;
+
+        self.save_tool_results(session_id, denied_tool_results(&request))
             .await?;
 
         self.save_user_text(session_id, "/deny").await?;
@@ -337,14 +332,69 @@ where
         Ok(())
     }
 
-    async fn load_tool_execution_rules(
-        &self,
-    ) -> Result<HashMap<String, ToolExecutionRuleAction>, AgentUsecaseError> {
+    async fn load_tool_execution_rules(&self) -> Result<ToolExecutionRules, AgentUsecaseError> {
         let rules = self.tool_execution_rule_repository.list_all().await?;
-
-        Ok(rules
-            .into_iter()
-            .map(|rule| (rule.tool_name, rule.action))
-            .collect())
+        Ok(ToolExecutionRules::from_rules(rules))
     }
+
+    async fn save_turn_messages(
+        &self,
+        session_id: Uuid,
+        turn_messages: Vec<AgentTurnMessage>,
+    ) -> Result<(), AgentUsecaseError> {
+        for turn_message in turn_messages {
+            let saved_message = self
+                .chat_message_repository
+                .append(session_id, turn_message.message)
+                .await?;
+
+            if let Some(usage) = turn_message.usage
+                && !usage.tokens.is_empty()
+            {
+                self.token_usage_repository
+                    .record_for_message(saved_message.id, &usage.model, usage.tokens)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn save_tool_results(
+        &self,
+        session_id: Uuid,
+        tool_results: Vec<ToolResultMessage>,
+    ) -> Result<(), AgentUsecaseError> {
+        if tool_results.is_empty() {
+            return Ok(());
+        }
+
+        self.chat_message_repository
+            .append(session_id, Message::tool_results(tool_results))
+            .await?;
+
+        Ok(())
+    }
+}
+
+fn denied_tool_results(request: &AgentApprovalRequest) -> Vec<ToolResultMessage> {
+    let mut results = request.accumulated_tool_results.clone();
+
+    results.push(ToolResultMessage::from_execution(
+        request.pending_tool_call.id.clone(),
+        ToolExecutionResult::error(json!({
+            "message": "tool execution was denied by user"
+        })),
+    ));
+
+    for call in &request.remaining_tool_calls {
+        results.push(ToolResultMessage::from_execution(
+            call.id.clone(),
+            ToolExecutionResult::error(json!({
+                "message": "tool execution was skipped because a previous tool execution was denied"
+            })),
+        ));
+    }
+
+    results
 }

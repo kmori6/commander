@@ -4,14 +4,13 @@ use crate::domain::model::role::Role;
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool::{ToolCall, ToolExecutionResult, ToolResultMessage};
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
-use crate::domain::model::tool_execution_rule::ToolExecutionRuleAction;
+use crate::domain::model::tool_execution_rules::ToolExecutionRules;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::port::tool::ToolExecutionPolicy;
 use crate::domain::service::tool_service::ToolExecutor;
 use futures::future::join_all;
 use serde_json::Value;
 use serde_json::json;
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 const DEFAULT_MODEL: &str = "global.anthropic.claude-sonnet-4-6";
@@ -68,8 +67,13 @@ pub struct AgentApprovalRequest {
 }
 
 struct ToolCallBatchPlan {
-    runnable_tool_calls: Vec<ToolCall>,
+    planned_tool_calls: Vec<PlannedToolCall>,
     pending_approval: Option<PendingToolApproval>,
+}
+
+enum PlannedToolCall {
+    Run(ToolCall),
+    Block { tool_call: ToolCall, reason: String },
 }
 
 struct PendingToolApproval {
@@ -122,7 +126,7 @@ impl<L: LlmProvider> AgentService<L> {
         &self,
         history: Vec<Message>,
         user_message: Message,
-        tool_execution_rules: HashMap<String, ToolExecutionRuleAction>,
+        tool_execution_rules: ToolExecutionRules,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentOutput, AgentError> {
         let mut messages = vec![Message::text(Role::System, self.system_prompt.clone())];
@@ -144,7 +148,7 @@ impl<L: LlmProvider> AgentService<L> {
         mut messages: Vec<Message>,
         mut turn_messages: Vec<AgentTurnMessage>,
         mut usage: TokenUsage,
-        tool_execution_rules: HashMap<String, ToolExecutionRuleAction>,
+        tool_execution_rules: ToolExecutionRules,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentOutput, AgentError> {
         let tool_specs = self.tool_executor.specs();
@@ -216,7 +220,7 @@ impl<L: LlmProvider> AgentService<L> {
                 .await
             {
                 ToolCallBatchOutput::Completed(tool_results) => {
-                    Self::append_tool_results(&mut messages, &mut turn_messages, tool_results);
+                    append_tool_results(&mut messages, &mut turn_messages, tool_results);
                 }
                 ToolCallBatchOutput::ApprovalRequired(request) => {
                     return Ok(AgentOutput::ApprovalRequested(request));
@@ -235,16 +239,18 @@ impl<L: LlmProvider> AgentService<L> {
         turn_messages: &[AgentTurnMessage],
         usage: TokenUsage,
         last_input_tokens: u64,
-        tool_execution_rules: &HashMap<String, ToolExecutionRuleAction>,
+        tool_execution_rules: &ToolExecutionRules,
         tx: &mpsc::Sender<AgentProgressEvent>,
     ) -> ToolCallBatchOutput {
         let plan = self.plan_tool_call_batch(tool_calls, tool_execution_rules);
 
-        accumulated_tool_results
-            .extend(self.parallel_tool_calls(plan.runnable_tool_calls, tx).await);
+        accumulated_tool_results.extend(
+            self.execute_planned_tool_calls(plan.planned_tool_calls, tx)
+                .await,
+        );
 
         match plan.pending_approval {
-            Some(pending) => ToolCallBatchOutput::ApprovalRequired(self.build_approval_request(
+            Some(pending) => ToolCallBatchOutput::ApprovalRequired(build_approval_request(
                 pending,
                 accumulated_tool_results,
                 resume_messages,
@@ -254,44 +260,6 @@ impl<L: LlmProvider> AgentService<L> {
             )),
             None => ToolCallBatchOutput::Completed(accumulated_tool_results),
         }
-    }
-
-    fn build_approval_request(
-        &self,
-        pending: PendingToolApproval,
-        accumulated_tool_results: Vec<ToolResultMessage>,
-        resume_messages: &[Message],
-        turn_messages: &[AgentTurnMessage],
-        usage: TokenUsage,
-        last_input_tokens: u64,
-    ) -> AgentApprovalRequest {
-        AgentApprovalRequest {
-            call_id: pending.tool_call.id.clone(),
-            tool_name: pending.tool_call.name.clone(),
-            arguments: pending.tool_call.arguments.clone(),
-            policy: pending.policy,
-            pending_tool_call: pending.tool_call,
-            remaining_tool_calls: pending.remaining_tool_calls,
-            accumulated_tool_results,
-            resume_messages: resume_messages.to_vec(),
-            turn_messages: turn_messages.to_vec(),
-            usage,
-            last_input_tokens,
-        }
-    }
-
-    fn append_tool_results(
-        messages: &mut Vec<Message>,
-        turn_messages: &mut Vec<AgentTurnMessage>,
-        tool_results: Vec<ToolResultMessage>,
-    ) {
-        let tool_result_message = Message::tool_results(tool_results);
-
-        messages.push(tool_result_message.clone());
-        turn_messages.push(AgentTurnMessage {
-            message: tool_result_message,
-            usage: None,
-        });
     }
 
     /// Executes all tool calls in parallel and sends progress events.
@@ -348,54 +316,91 @@ impl<L: LlmProvider> AgentService<L> {
         tool_results
     }
 
+    async fn execute_planned_tool_calls(
+        &self,
+        planned_tool_calls: Vec<PlannedToolCall>,
+        tx: &mpsc::Sender<AgentProgressEvent>,
+    ) -> Vec<ToolResultMessage> {
+        let mut results = Vec::with_capacity(planned_tool_calls.len());
+        let mut runnable_tool_calls = Vec::new();
+
+        for planned in planned_tool_calls {
+            match planned {
+                PlannedToolCall::Run(call) => {
+                    runnable_tool_calls.push(call);
+                }
+                PlannedToolCall::Block { tool_call, reason } => {
+                    if !runnable_tool_calls.is_empty() {
+                        let batch = std::mem::take(&mut runnable_tool_calls);
+                        results.extend(self.parallel_tool_calls(batch, tx).await);
+                    }
+
+                    results.push(self.block_tool_call(tool_call, reason, tx).await);
+                }
+            }
+        }
+
+        if !runnable_tool_calls.is_empty() {
+            results.extend(self.parallel_tool_calls(runnable_tool_calls, tx).await);
+        }
+
+        results
+    }
+
     fn plan_tool_call_batch(
         &self,
         tool_calls: Vec<ToolCall>,
-        tool_execution_rules: &HashMap<String, ToolExecutionRuleAction>,
+        tool_execution_rules: &ToolExecutionRules,
     ) -> ToolCallBatchPlan {
-        let Some((approval_index, policy)) =
-            self.first_approval_required_tool_call(&tool_calls, tool_execution_rules)
-        else {
-            return ToolCallBatchPlan {
-                runnable_tool_calls: tool_calls,
-                pending_approval: None,
-            };
-        };
+        let mut planned_tool_calls = Vec::new();
 
-        let pending_tool_call = tool_calls[approval_index].clone();
+        for (index, call) in tool_calls.iter().cloned().enumerate() {
+            let policy = match self.tool_executor.check_execution_policy(&call) {
+                Ok(policy) => policy,
+                Err(err) => {
+                    planned_tool_calls.push(PlannedToolCall::Block {
+                        tool_call: call,
+                        reason: err.to_string(),
+                    });
+                    continue;
+                }
+            };
+
+            let decision = tool_execution_rules.decide(&call.name, policy);
+
+            match decision {
+                ToolExecutionDecision::Allow => {
+                    planned_tool_calls.push(PlannedToolCall::Run(call));
+                }
+                ToolExecutionDecision::Deny => {
+                    planned_tool_calls.push(PlannedToolCall::Block {
+                        tool_call: call,
+                        reason: "tool execution was blocked by execution rule".to_string(),
+                    });
+                }
+                ToolExecutionDecision::Ask => {
+                    return ToolCallBatchPlan {
+                        planned_tool_calls,
+                        pending_approval: Some(PendingToolApproval {
+                            tool_call: call,
+                            policy,
+                            remaining_tool_calls: tool_calls[index + 1..].to_vec(),
+                        }),
+                    };
+                }
+            }
+        }
 
         ToolCallBatchPlan {
-            runnable_tool_calls: tool_calls[..approval_index].to_vec(),
-            pending_approval: Some(PendingToolApproval {
-                tool_call: pending_tool_call,
-                policy,
-                remaining_tool_calls: tool_calls[approval_index + 1..].to_vec(),
-            }),
+            planned_tool_calls,
+            pending_approval: None,
         }
-    }
-
-    fn first_approval_required_tool_call(
-        &self,
-        tool_calls: &[ToolCall],
-        tool_execution_rules: &HashMap<String, ToolExecutionRuleAction>,
-    ) -> Option<(usize, ToolExecutionPolicy)> {
-        tool_calls.iter().enumerate().find_map(|(index, call)| {
-            let policy = self.tool_executor.check_execution_policy(call).ok()?;
-            let rule = tool_execution_rules.get(&call.name).copied();
-            let decision = ToolExecutionDecision::decide(policy, rule);
-
-            if matches!(decision, ToolExecutionDecision::Ask) {
-                Some((index, policy))
-            } else {
-                None
-            }
-        })
     }
 
     pub async fn resume_after_approval(
         &self,
         request: AgentApprovalRequest,
-        tool_execution_rules: HashMap<String, ToolExecutionRuleAction>,
+        tool_execution_rules: ToolExecutionRules,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentOutput, AgentError> {
         let AgentApprovalRequest {
@@ -409,8 +414,37 @@ impl<L: LlmProvider> AgentService<L> {
             ..
         } = request;
 
-        accumulated_tool_results
-            .extend(self.parallel_tool_calls(vec![pending_tool_call], &tx).await);
+        let approved_tool_result = match self
+            .tool_executor
+            .check_execution_policy(&pending_tool_call)
+        {
+            Ok(policy) => {
+                let decision = tool_execution_rules.decide(&pending_tool_call.name, policy);
+
+                match decision {
+                    ToolExecutionDecision::Deny => {
+                        self.block_tool_call(
+                            pending_tool_call,
+                            "tool execution was blocked by current execution rule".to_string(),
+                            &tx,
+                        )
+                        .await
+                    }
+                    ToolExecutionDecision::Allow | ToolExecutionDecision::Ask => self
+                        .parallel_tool_calls(vec![pending_tool_call], &tx)
+                        .await
+                        .into_iter()
+                        .next()
+                        .expect("single tool call should produce one tool result"),
+                }
+            }
+            Err(err) => {
+                self.block_tool_call(pending_tool_call, err.to_string(), &tx)
+                    .await
+            }
+        };
+
+        accumulated_tool_results.push(approved_tool_result);
 
         match self
             .process_tool_call_batch(
@@ -426,7 +460,7 @@ impl<L: LlmProvider> AgentService<L> {
             .await
         {
             ToolCallBatchOutput::Completed(tool_results) => {
-                Self::append_tool_results(&mut resume_messages, &mut turn_messages, tool_results);
+                append_tool_results(&mut resume_messages, &mut turn_messages, tool_results);
                 self.agent_loop(
                     resume_messages,
                     turn_messages,
@@ -441,4 +475,73 @@ impl<L: LlmProvider> AgentService<L> {
             }
         }
     }
+
+    async fn block_tool_call(
+        &self,
+        tool_call: ToolCall,
+        reason: String,
+        tx: &mpsc::Sender<AgentProgressEvent>,
+    ) -> ToolResultMessage {
+        let _ = tx
+            .send(AgentProgressEvent::ToolCallRequested {
+                call_id: tool_call.id.clone(),
+                tool_name: tool_call.name.clone(),
+                arguments: tool_call.arguments.clone(),
+            })
+            .await;
+
+        let tool_result = ToolResultMessage::from_execution(
+            tool_call.id.clone(),
+            ToolExecutionResult::error(json!({
+                "message": reason
+            })),
+        );
+
+        let _ = tx
+            .send(AgentProgressEvent::ToolExecutionFinished {
+                call_id: tool_call.id,
+                tool_name: tool_call.name,
+                success: false,
+            })
+            .await;
+
+        tool_result
+    }
+}
+
+fn build_approval_request(
+    pending: PendingToolApproval,
+    accumulated_tool_results: Vec<ToolResultMessage>,
+    resume_messages: &[Message],
+    turn_messages: &[AgentTurnMessage],
+    usage: TokenUsage,
+    last_input_tokens: u64,
+) -> AgentApprovalRequest {
+    AgentApprovalRequest {
+        call_id: pending.tool_call.id.clone(),
+        tool_name: pending.tool_call.name.clone(),
+        arguments: pending.tool_call.arguments.clone(),
+        policy: pending.policy,
+        pending_tool_call: pending.tool_call,
+        remaining_tool_calls: pending.remaining_tool_calls,
+        accumulated_tool_results,
+        resume_messages: resume_messages.to_vec(),
+        turn_messages: turn_messages.to_vec(),
+        usage,
+        last_input_tokens,
+    }
+}
+
+fn append_tool_results(
+    messages: &mut Vec<Message>,
+    turn_messages: &mut Vec<AgentTurnMessage>,
+    tool_results: Vec<ToolResultMessage>,
+) {
+    let tool_result_message = Message::tool_results(tool_results);
+
+    messages.push(tool_result_message.clone());
+    turn_messages.push(AgentTurnMessage {
+        message: tool_result_message,
+        usage: None,
+    });
 }
