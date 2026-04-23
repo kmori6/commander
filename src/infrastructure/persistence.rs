@@ -2,3 +2,4 @@ pub mod postgres_chat_message_repository;
 pub mod postgres_chat_session_repository;
 pub mod postgres_token_usage_repository;
 pub mod postgres_tool_approval_repository;
+pub mod postgres_tool_execution_rule_repository;

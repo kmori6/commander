@@ -8,6 +8,7 @@ use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
+use crate::domain::repository::tool_execution_rule_repository::ToolExecutionRuleRepository;
 use crate::domain::service::agent_service::AgentProgressEvent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -24,13 +25,16 @@ use uuid::Uuid;
 const MAX_ARGUMENT_PREVIEW_CHARS: usize = 800;
 const SESSION_LIST_LIMIT: usize = 10;
 
-pub async fn run<L, S, M, T, A>(usecase: &AgentUsecase<L, S, M, T, A>) -> Result<(), AgentCliError>
+pub async fn run<L, S, M, T, A, R>(
+    usecase: &AgentUsecase<L, S, M, T, A, R>,
+) -> Result<(), AgentCliError>
 where
     L: LlmProvider,
     S: ChatSessionRepository,
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    R: ToolExecutionRuleRepository,
 {
     println!("Agent CLI");
     println!("type /help for commands");
@@ -264,8 +268,8 @@ fn parse_command(line: String) -> Option<CliCommand> {
     })
 }
 
-async fn switch_session<L, S, M, T, A>(
-    usecase: &AgentUsecase<L, S, M, T, A>,
+async fn switch_session<L, S, M, T, A, R>(
+    usecase: &AgentUsecase<L, S, M, T, A, R>,
     raw_id: &str,
 ) -> Result<Option<ChatSession>, AgentCliError>
 where
@@ -274,6 +278,7 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    R: ToolExecutionRuleRepository,
 {
     let Ok(session_id) = Uuid::parse_str(raw_id) else {
         println!("invalid session id: {raw_id}");
@@ -289,8 +294,8 @@ where
     }
 }
 
-async fn handle_user_message<L, S, M, T, A>(
-    usecase: &AgentUsecase<L, S, M, T, A>,
+async fn handle_user_message<L, S, M, T, A, R>(
+    usecase: &AgentUsecase<L, S, M, T, A, R>,
     session_id: Uuid,
     message: String,
     attachments: Vec<Attachment>,
@@ -301,6 +306,7 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    R: ToolExecutionRuleRepository,
 {
     let mut reporter = CliProgressReporter::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
@@ -327,8 +333,8 @@ where
     Ok(())
 }
 
-async fn handle_approval<L, S, M, T, A>(
-    usecase: &AgentUsecase<L, S, M, T, A>,
+async fn handle_approval<L, S, M, T, A, R>(
+    usecase: &AgentUsecase<L, S, M, T, A, R>,
     session_id: Uuid,
 ) -> Result<(), AgentCliError>
 where
@@ -337,6 +343,7 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    R: ToolExecutionRuleRepository,
 {
     let mut reporter = CliProgressReporter::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);

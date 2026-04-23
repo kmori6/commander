@@ -5,12 +5,14 @@ use crate::domain::model::message::Message;
 use crate::domain::model::role::Role;
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalDecision};
+use crate::domain::model::tool_execution_rule::ToolExecutionRuleAction;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::port::tool::ToolExecutionPolicy;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
+use crate::domain::repository::tool_execution_rule_repository::ToolExecutionRuleRepository;
 use crate::domain::service::agent_service::{
     AgentApprovalRequest, AgentOutput, AgentProgressEvent, AgentService,
 };
@@ -46,23 +48,25 @@ pub enum AgentEvent {
     },
 }
 
-pub struct AgentUsecase<L, S, M, T, A> {
+pub struct AgentUsecase<L, S, M, T, A, R> {
     agent_service: AgentService<L>,
     context_service: ContextService<L>,
     chat_session_repository: S,
     chat_message_repository: M,
     token_usage_repository: T,
     tool_approval_repository: A,
+    tool_execution_rule_repository: R,
     pending_approvals: Mutex<HashMap<Uuid, AgentApprovalRequest>>,
 }
 
-impl<L, S, M, T, A> AgentUsecase<L, S, M, T, A>
+impl<L, S, M, T, A, R> AgentUsecase<L, S, M, T, A, R>
 where
     L: LlmProvider,
     S: ChatSessionRepository,
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    R: ToolExecutionRuleRepository,
 {
     pub fn new(
         agent_service: AgentService<L>,
@@ -71,6 +75,7 @@ where
         chat_message_repository: M,
         token_usage_repository: T,
         tool_approval_repository: A,
+        tool_execution_rule_repository: R,
     ) -> Self {
         Self {
             agent_service,
@@ -80,6 +85,7 @@ where
             token_usage_repository,
             tool_approval_repository,
             pending_approvals: Mutex::new(HashMap::new()),
+            tool_execution_rule_repository,
         }
     }
 
@@ -155,9 +161,11 @@ where
             .append(input.session_id, user_message.clone())
             .await?;
 
+        let tool_execution_rules = self.load_tool_execution_rules().await?;
+
         let output = self
             .agent_service
-            .run(context_messages, user_message, tx)
+            .run(context_messages, user_message, tool_execution_rules, tx)
             .await?;
 
         self.handle_agent_output(input.session_id, output).await
@@ -276,9 +284,11 @@ where
 
         self.save_user_text(session_id, "/approve").await?;
 
+        let tool_execution_rules = self.load_tool_execution_rules().await?;
+
         let output = self
             .agent_service
-            .resume_after_approval(request, tx)
+            .resume_after_approval(request, tool_execution_rules, tx)
             .await?;
 
         self.handle_agent_output(session_id, output).await
@@ -325,5 +335,16 @@ where
             .await?;
 
         Ok(())
+    }
+
+    async fn load_tool_execution_rules(
+        &self,
+    ) -> Result<HashMap<String, ToolExecutionRuleAction>, AgentUsecaseError> {
+        let rules = self.tool_execution_rule_repository.list_all().await?;
+
+        Ok(rules
+            .into_iter()
+            .map(|rule| (rule.tool_name, rule.action))
+            .collect())
     }
 }

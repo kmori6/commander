@@ -3,12 +3,15 @@ use crate::domain::model::message::Message;
 use crate::domain::model::role::Role;
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool::{ToolCall, ToolExecutionResult, ToolResultMessage};
+use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
+use crate::domain::model::tool_execution_rule::ToolExecutionRuleAction;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::port::tool::ToolExecutionPolicy;
 use crate::domain::service::tool_service::ToolExecutor;
 use futures::future::join_all;
 use serde_json::Value;
 use serde_json::json;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 const DEFAULT_MODEL: &str = "global.anthropic.claude-sonnet-4-6";
@@ -119,14 +122,21 @@ impl<L: LlmProvider> AgentService<L> {
         &self,
         history: Vec<Message>,
         user_message: Message,
+        tool_execution_rules: HashMap<String, ToolExecutionRuleAction>,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentOutput, AgentError> {
         let mut messages = vec![Message::text(Role::System, self.system_prompt.clone())];
         messages.extend(history);
         messages.push(user_message);
 
-        self.agent_loop(messages, Vec::new(), TokenUsage::default(), tx)
-            .await
+        self.agent_loop(
+            messages,
+            Vec::new(),
+            TokenUsage::default(),
+            tool_execution_rules,
+            tx,
+        )
+        .await
     }
 
     async fn agent_loop(
@@ -134,6 +144,7 @@ impl<L: LlmProvider> AgentService<L> {
         mut messages: Vec<Message>,
         mut turn_messages: Vec<AgentTurnMessage>,
         mut usage: TokenUsage,
+        tool_execution_rules: HashMap<String, ToolExecutionRuleAction>,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentOutput, AgentError> {
         let tool_specs = self.tool_executor.specs();
@@ -199,6 +210,7 @@ impl<L: LlmProvider> AgentService<L> {
                     &turn_messages,
                     usage,
                     response.usage.input_tokens,
+                    &tool_execution_rules,
                     &tx,
                 )
                 .await
@@ -223,9 +235,10 @@ impl<L: LlmProvider> AgentService<L> {
         turn_messages: &[AgentTurnMessage],
         usage: TokenUsage,
         last_input_tokens: u64,
+        tool_execution_rules: &HashMap<String, ToolExecutionRuleAction>,
         tx: &mpsc::Sender<AgentProgressEvent>,
     ) -> ToolCallBatchOutput {
-        let plan = self.plan_tool_call_batch(tool_calls);
+        let plan = self.plan_tool_call_batch(tool_calls, tool_execution_rules);
 
         accumulated_tool_results
             .extend(self.parallel_tool_calls(plan.runnable_tool_calls, tx).await);
@@ -335,8 +348,13 @@ impl<L: LlmProvider> AgentService<L> {
         tool_results
     }
 
-    fn plan_tool_call_batch(&self, tool_calls: Vec<ToolCall>) -> ToolCallBatchPlan {
-        let Some((approval_index, policy)) = self.first_approval_required_tool_call(&tool_calls)
+    fn plan_tool_call_batch(
+        &self,
+        tool_calls: Vec<ToolCall>,
+        tool_execution_rules: &HashMap<String, ToolExecutionRuleAction>,
+    ) -> ToolCallBatchPlan {
+        let Some((approval_index, policy)) =
+            self.first_approval_required_tool_call(&tool_calls, tool_execution_rules)
         else {
             return ToolCallBatchPlan {
                 runnable_tool_calls: tool_calls,
@@ -359,14 +377,14 @@ impl<L: LlmProvider> AgentService<L> {
     fn first_approval_required_tool_call(
         &self,
         tool_calls: &[ToolCall],
+        tool_execution_rules: &HashMap<String, ToolExecutionRuleAction>,
     ) -> Option<(usize, ToolExecutionPolicy)> {
         tool_calls.iter().enumerate().find_map(|(index, call)| {
             let policy = self.tool_executor.check_execution_policy(call).ok()?;
+            let rule = tool_execution_rules.get(&call.name).copied();
+            let decision = ToolExecutionDecision::decide(policy, rule);
 
-            if matches!(
-                policy,
-                ToolExecutionPolicy::Ask | ToolExecutionPolicy::ConfirmEveryTime
-            ) {
+            if matches!(decision, ToolExecutionDecision::Ask) {
                 Some((index, policy))
             } else {
                 None
@@ -377,6 +395,7 @@ impl<L: LlmProvider> AgentService<L> {
     pub async fn resume_after_approval(
         &self,
         request: AgentApprovalRequest,
+        tool_execution_rules: HashMap<String, ToolExecutionRuleAction>,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentOutput, AgentError> {
         let AgentApprovalRequest {
@@ -401,14 +420,21 @@ impl<L: LlmProvider> AgentService<L> {
                 &turn_messages,
                 usage,
                 last_input_tokens,
+                &tool_execution_rules,
                 &tx,
             )
             .await
         {
             ToolCallBatchOutput::Completed(tool_results) => {
                 Self::append_tool_results(&mut resume_messages, &mut turn_messages, tool_results);
-                self.agent_loop(resume_messages, turn_messages, usage, tx)
-                    .await
+                self.agent_loop(
+                    resume_messages,
+                    turn_messages,
+                    usage,
+                    tool_execution_rules,
+                    tx,
+                )
+                .await
             }
             ToolCallBatchOutput::ApprovalRequired(request) => {
                 Ok(AgentOutput::ApprovalRequested(request))
