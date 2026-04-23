@@ -222,22 +222,28 @@ where
         }
     }
 
-    async fn take_pending_approval(
+    async fn get_pending_approval(
         &self,
         session_id: Uuid,
     ) -> Result<AgentApprovalRequest, AgentUsecaseError> {
-        let mut pending_approvals = self.pending_approvals.lock().await;
+        let pending_approvals = self.pending_approvals.lock().await;
 
         pending_approvals
-            .remove(&session_id)
+            .get(&session_id)
+            .cloned()
             .ok_or(AgentUsecaseError::ApprovalNotPending(session_id))
+    }
+
+    async fn clear_pending_approval(&self, session_id: Uuid) {
+        let mut pending_approvals = self.pending_approvals.lock().await;
+        pending_approvals.remove(&session_id);
     }
 
     pub async fn deny_approval(
         &self,
         session_id: Uuid,
     ) -> Result<HandleAgentOutput, AgentUsecaseError> {
-        let request = self.take_pending_approval(session_id).await?;
+        let request = self.get_pending_approval(session_id).await?;
 
         self.record_tool_approval(session_id, &request, ToolApprovalDecision::Denied)
             .await?;
@@ -258,6 +264,8 @@ where
         self.save_assistant_text(session_id, message.clone())
             .await?;
 
+        self.clear_pending_approval(session_id).await;
+
         Ok(HandleAgentOutput {
             events: vec![AgentEvent::AssistantMessage(message)],
             usage: TokenUsage::default(),
@@ -272,7 +280,7 @@ where
         session_id: Uuid,
         tx: mpsc::Sender<AgentProgressEvent>,
     ) -> Result<HandleAgentOutput, AgentUsecaseError> {
-        let request = self.take_pending_approval(session_id).await?;
+        let request = self.get_pending_approval(session_id).await?;
 
         self.record_tool_approval(session_id, &request, ToolApprovalDecision::Approved)
             .await?;
@@ -286,7 +294,14 @@ where
             .resume_after_approval(request, tool_execution_rules, tx)
             .await?;
 
-        self.handle_agent_output(session_id, output).await
+        let should_clear_pending_approval = matches!(output, AgentOutput::Completed(_));
+        let result = self.handle_agent_output(session_id, output).await?;
+
+        if should_clear_pending_approval {
+            self.clear_pending_approval(session_id).await;
+        }
+
+        Ok(result)
     }
 
     async fn save_user_text(

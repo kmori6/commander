@@ -29,3 +29,58 @@ The current source of truth is [src/main.rs](../src/main.rs).
 - The current tool surface is strongest for workspace inspection, text operations, lightweight web access, and basic multimodal extraction.
 - `shell_exec` is available now, but it should still be hardened further for safer command policy and execution boundaries.
 - `research` is useful today, but it is closer to a workflow/skill than a low-level primitive tool.
+
+## Execution policy and approval
+
+Each tool can declare a default `ToolExecutionPolicy`:
+
+- `Auto`
+  - The tool may run automatically.
+- `Ask`
+  - The agent should pause and ask the user before executing the tool.
+- `ConfirmEveryTime`
+  - The agent should ask every time. This is a hard safety floor and should
+    not be bypassed by a stored `allow` rule.
+
+The current defaults are:
+
+- Read/search/extraction tools default to `Auto`.
+- `shell_exec` overrides the default to `Ask`.
+- `file_write` overrides the default to `Ask`.
+- `file_edit` overrides the default to `Ask`.
+
+Persisted tool execution rules are stored in `tool_execution_rules`:
+
+- `allow`
+- `ask`
+- `deny`
+
+At runtime, Commander combines the tool's default policy with the persisted rule
+to produce a final decision:
+
+- `Allow`
+  - Execute the tool.
+- `Ask`
+  - Pause the loop and create a pending approval request.
+- `Deny`
+  - Do not execute the tool. Return an error tool result to the LLM.
+
+Unknown tool calls are treated like blocked calls and returned to the LLM as
+error tool results.
+
+## Approval commands
+
+When a tool requires confirmation, the CLI shows the pending tool call and asks
+the user to run one of these commands:
+
+- `/approve`
+  - Records an approval decision, reloads current tool execution rules, rechecks
+    the pending tool, then resumes the agent loop.
+- `/deny`
+  - Records a denial decision, saves already accumulated tool results, marks the
+    pending tool as denied, marks remaining deferred tools as skipped, and ends
+    the paused turn with a denial message.
+
+Pending approval state is currently in memory. Approval decisions are persisted
+as logs, but pending approval recovery after process restart is not implemented
+yet.
