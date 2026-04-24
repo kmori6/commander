@@ -8,7 +8,7 @@ pub enum AgentCommand {
     SwitchSession(String),
     Approve,
     Deny,
-    ToolRules,
+    Tools,
     SetToolRule {
         tool_name: String,
         action: ToolExecutionRuleAction,
@@ -35,10 +35,8 @@ pub fn parse_command(line: &str) -> Option<AgentCommand> {
         "/sessions" => AgentCommand::Sessions,
         "/approve" => AgentCommand::Approve,
         "/deny" => AgentCommand::Deny,
-        "/tool-rules" => AgentCommand::ToolRules,
-        "/tool-rule" => {
-            AgentCommand::Invalid("usage: /tool-rule <tool_name> <allow|ask|deny>".to_string())
-        }
+        "/tools" => AgentCommand::Tools,
+        "/tool" => AgentCommand::Invalid("usage: /tool <tool_name> <allow|ask|deny>".to_string()),
         "/attach" => AgentCommand::Attach(Vec::new()),
         "/detach" => AgentCommand::Detach(Vec::new()),
         "/attachments" | "/staged" => AgentCommand::Staged,
@@ -48,7 +46,7 @@ pub fn parse_command(line: &str) -> Option<AgentCommand> {
         }
         _ if input.starts_with("/attach ") => AgentCommand::Attach(command_args(input)),
         _ if input.starts_with("/detach ") => AgentCommand::Detach(command_args(input)),
-        _ if input.starts_with("/tool-rule ") => parse_tool_rule_command(input),
+        _ if input.starts_with("/tool ") => parse_tool_rule_command(input),
         _ if input.starts_with('/') => AgentCommand::Unknown(input.to_string()),
         _ => AgentCommand::UserMessage(input.to_string()),
     })
@@ -111,11 +109,11 @@ fn parse_tool_rule_command(input: &str) -> AgentCommand {
     let parts: Vec<&str> = input.split_whitespace().collect();
 
     if parts.len() != 3 {
-        return AgentCommand::Invalid("usage: /tool-rule <tool_name> <allow|ask|deny>".to_string());
+        return AgentCommand::Invalid("usage: /tool <tool_name> <allow|ask|deny>".to_string());
     }
 
     let Some(action) = ToolExecutionRuleAction::from_str(parts[2]) else {
-        return AgentCommand::Invalid("usage: /tool-rule <tool_name> <allow|ask|deny>".to_string());
+        return AgentCommand::Invalid("usage: /tool <tool_name> <allow|ask|deny>".to_string());
     };
 
     AgentCommand::SetToolRule {

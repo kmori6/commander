@@ -115,6 +115,10 @@ where
             .map_err(Into::into)
     }
 
+    pub fn tool_names(&self) -> Vec<String> {
+        self.agent_service.tool_names()
+    }
+
     pub async fn handle(
         &self,
         input: HandleAgentInput,

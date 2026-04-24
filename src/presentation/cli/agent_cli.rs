@@ -154,8 +154,8 @@ where
                     "/session <id>     switch to a session",
                     "/approve          approve pending tool execution",
                     "/deny             deny pending tool execution",
-                    "/tool-rules       show tool approval rules",
-                    "/tool-rule <tool> <allow|ask|deny>  set tool rule",
+                    "/tools            list tools with approval rules",
+                    "/tool <tool> <allow|ask|deny>  set tool rule",
                     "/attach <files>   attach files",
                     "/detach <files|indexes>  detach files",
                     "/attachments      show attachments",
@@ -240,18 +240,21 @@ where
             apply_output(output, false);
         }
 
-        AgentCommand::ToolRules => {
+        AgentCommand::Tools => {
+            let tool_names = usecase.tool_names();
             let rules = tool_execution_rule_usecase.list().await?;
-            let content = if rules.is_empty() {
-                "no tool rules".to_string()
-            } else {
-                rules
-                    .iter()
-                    .map(|r| format!("{} -> {}", r.tool_name, r.action.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            };
-            println!("{content}");
+            let rule_map: std::collections::HashMap<&str, &str> = rules
+                .iter()
+                .map(|r| (r.tool_name.as_str(), r.action.as_str()))
+                .collect();
+            let lines: Vec<String> = tool_names
+                .iter()
+                .map(|name| {
+                    let rule = rule_map.get(name.as_str()).copied().unwrap_or("ask");
+                    format!("  {name:<30} {rule}")
+                })
+                .collect();
+            println!("{}", lines.join("\n"));
         }
 
         AgentCommand::SetToolRule { tool_name, action } => {
