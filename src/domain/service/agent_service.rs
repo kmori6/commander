@@ -122,12 +122,8 @@ impl<L: LlmProvider> AgentService<L> {
         }
     }
 
-    pub fn tool_names(&self) -> Vec<String> {
-        self.tool_executor
-            .specs()
-            .into_iter()
-            .map(|s| s.name)
-            .collect()
+    pub fn tool_executor(&self) -> &ToolExecutor {
+        &self.tool_executor
     }
 
     pub async fn run(

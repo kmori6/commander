@@ -116,7 +116,7 @@ where
     }
 
     pub fn tool_names(&self) -> Vec<String> {
-        self.agent_service.tool_names()
+        self.agent_service.tool_executor().tool_names()
     }
 
     pub async fn handle(

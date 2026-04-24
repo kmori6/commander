@@ -18,6 +18,13 @@ impl ToolExecutor {
         self.tools.iter().map(|tool| tool.spec()).collect()
     }
 
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect()
+    }
+
     pub fn check_execution_policy(
         &self,
         call: &ToolCall,
