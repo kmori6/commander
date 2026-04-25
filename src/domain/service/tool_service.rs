@@ -1,7 +1,8 @@
 use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool::{ToolCall, ToolExecutionResult, ToolSpec};
+use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
+use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use crate::domain::port::tool::Tool;
-use crate::domain::port::tool::ToolExecutionPolicy;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -25,6 +26,21 @@ impl ToolExecutor {
             .collect()
     }
 
+    pub async fn execute(&self, call: ToolCall) -> Result<ToolExecutionResult, ToolError> {
+        let tool = self
+            .tools
+            .iter()
+            .find(|tool| tool.name() == call.name)
+            .ok_or_else(|| ToolError::UnknownTool(call.name.clone()))?;
+
+        tool.execute(call.arguments).await
+    }
+
+    pub fn decide_execution(&self, call: &ToolCall) -> Result<ToolExecutionDecision, ToolError> {
+        let policy = self.check_execution_policy(call)?;
+        Ok(ToolExecutionDecision::decide(policy, None))
+    }
+
     pub fn check_execution_policy(
         &self,
         call: &ToolCall,
@@ -34,15 +50,5 @@ impl ToolExecutor {
             .find(|tool| tool.name() == call.name)
             .map(|tool| tool.execution_policy(&call.arguments))
             .ok_or_else(|| ToolError::UnknownTool(call.name.clone()))
-    }
-
-    pub async fn execute(&self, call: ToolCall) -> Result<ToolExecutionResult, ToolError> {
-        let tool = self
-            .tools
-            .iter()
-            .find(|tool| tool.name() == call.name)
-            .ok_or_else(|| ToolError::UnknownTool(call.name.clone()))?;
-
-        tool.execute(call.arguments).await
     }
 }

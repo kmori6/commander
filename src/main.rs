@@ -84,7 +84,6 @@ async fn main() -> Result<(), AgentCliError> {
                 chat_message_repository,
                 token_usage_repository,
                 tool_approval_repository,
-                tool_execution_rule_repository,
             );
 
             agent_cli::run(&usecase, &tool_execution_rule_usecase).await?;

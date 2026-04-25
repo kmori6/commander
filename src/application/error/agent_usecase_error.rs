@@ -2,7 +2,6 @@ use crate::domain::error::agent_error::AgentError;
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
 use crate::domain::error::token_usage_repository_error::TokenUsageRepositoryError;
 use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
-use crate::domain::error::tool_execution_rule_repository_error::ToolExecutionRuleRepositoryError;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -25,7 +24,4 @@ pub enum AgentUsecaseError {
 
     #[error("failed to access tool approval repository: {0}")]
     ToolApprovalRepository(#[from] ToolApprovalRepositoryError),
-
-    #[error("failed to access tool execution rule repository: {0}")]
-    ToolExecutionRuleRepository(#[from] ToolExecutionRuleRepositoryError),
 }

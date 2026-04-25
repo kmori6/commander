@@ -112,7 +112,7 @@ fn parse_tool_rule_command(input: &str) -> AgentCommand {
         return AgentCommand::Invalid("usage: /tool <tool_name> <allow|ask|deny>".to_string());
     }
 
-    let Some(action) = ToolExecutionRuleAction::from_str(parts[2]) else {
+    let Ok(action) = parts[2].parse::<ToolExecutionRuleAction>() else {
         return AgentCommand::Invalid("usage: /tool <tool_name> <allow|ask|deny>".to_string());
     };
 

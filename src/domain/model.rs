@@ -7,5 +7,5 @@ pub mod token_usage;
 pub mod tool;
 pub mod tool_approval;
 pub mod tool_execution_decision;
+pub mod tool_execution_policy;
 pub mod tool_execution_rule;
-pub mod tool_execution_rules;

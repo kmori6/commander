@@ -19,13 +19,17 @@ impl ToolExecutionRuleAction {
             Self::Deny => "deny",
         }
     }
+}
 
-    pub fn from_str(value: &str) -> Option<Self> {
+impl std::str::FromStr for ToolExecutionRuleAction {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "allow" => Some(Self::Allow),
-            "ask" => Some(Self::Ask),
-            "deny" => Some(Self::Deny),
-            _ => None,
+            "allow" => Ok(Self::Allow),
+            "ask" => Ok(Self::Ask),
+            "deny" => Ok(Self::Deny),
+            _ => Err(()),
         }
     }
 }

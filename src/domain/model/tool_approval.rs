@@ -1,6 +1,15 @@
 // src/domain/model/tool_approval.rs
+use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use serde_json::Value;
 use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub struct ToolApprovalRequest {
+    pub call_id: String,
+    pub tool_name: String,
+    pub arguments: Value,
+    pub policy: ToolExecutionPolicy,
+}
 
 #[derive(Debug, Clone)]
 pub struct ToolApproval {

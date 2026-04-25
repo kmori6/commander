@@ -19,7 +19,7 @@ use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_execution_rule_repository::ToolExecutionRuleRepository;
-use crate::domain::service::agent_service::AgentProgressEvent;
+use crate::domain::service::agent_service::AgentEvent as AgentProgressEvent;
 use crate::presentation::command::agent_command::{AgentCommand, parse_command, shell_words};
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use crate::presentation::util::attachment::load_attachment;
@@ -43,8 +43,8 @@ impl ReplState {
     }
 }
 
-pub async fn run<L, S, M, T, A, R, TR>(
-    usecase: &AgentUsecase<L, S, M, T, A, R>,
+pub async fn run<L, S, M, T, A, TR>(
+    usecase: &AgentUsecase<L, S, M, T, A>,
     tool_execution_rule_usecase: &ToolExecutionRuleUsecase<TR>,
 ) -> Result<(), AgentCliError>
 where
@@ -53,7 +53,6 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
-    R: ToolExecutionRuleRepository,
     TR: ToolExecutionRuleRepository,
 {
     let session = usecase.start_session().await?;
@@ -66,9 +65,9 @@ where
     repl_loop(&mut state, usecase, tool_execution_rule_usecase).await
 }
 
-async fn repl_loop<L, S, M, T, A, R, TR>(
+async fn repl_loop<L, S, M, T, A, TR>(
     state: &mut ReplState,
-    usecase: &AgentUsecase<L, S, M, T, A, R>,
+    usecase: &AgentUsecase<L, S, M, T, A>,
     tool_execution_rule_usecase: &ToolExecutionRuleUsecase<TR>,
 ) -> Result<(), AgentCliError>
 where
@@ -77,7 +76,6 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
-    R: ToolExecutionRuleRepository,
     TR: ToolExecutionRuleRepository,
 {
     let mut line_editor = Reedline::create().with_ansi_colors(true);
@@ -127,10 +125,10 @@ fn read_repl_line(
     }
 }
 
-async fn handle_command<L, S, M, T, A, R, TR>(
+async fn handle_command<L, S, M, T, A, TR>(
     command: AgentCommand,
     state: &mut ReplState,
-    usecase: &AgentUsecase<L, S, M, T, A, R>,
+    usecase: &AgentUsecase<L, S, M, T, A>,
     tool_execution_rule_usecase: &ToolExecutionRuleUsecase<TR>,
 ) -> Result<bool, AgentCliError>
 where
@@ -139,7 +137,6 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
-    R: ToolExecutionRuleRepository,
     TR: ToolExecutionRuleRepository,
 {
     match command {
@@ -236,8 +233,10 @@ where
         }
 
         AgentCommand::Deny => {
-            let output = usecase.deny_approval(state.session_id).await?;
-            apply_output(output, false);
+            let session_id = state.session_id;
+            let (output, printed_progress_events) =
+                run_with_progress(|tx| usecase.deny_approval(session_id, tx)).await?;
+            apply_output(output, printed_progress_events);
         }
 
         AgentCommand::Tools => {
@@ -581,24 +580,16 @@ where
 
 fn handle_progress_event(event: AgentProgressEvent, reporter: &mut ProgressReporter) {
     match event {
-        AgentProgressEvent::LlmThinkingStarted => {
+        AgentProgressEvent::LlmStarted => {
             reporter.start_thinking();
         }
-        AgentProgressEvent::LlmThinkingFinished => {
+        AgentProgressEvent::LlmFinished => {
             reporter.stop_thinking();
         }
-        AgentProgressEvent::ToolCallRequested {
-            tool_name,
-            call_id,
-            arguments,
-        } => {
-            let pretty =
-                serde_json::to_string_pretty(&arguments).unwrap_or_else(|_| arguments.to_string());
-            let preview = truncate(pretty, MAX_ARGUMENT_PREVIEW_CHARS);
+        AgentProgressEvent::ToolStarted { tool_name, call_id } => {
             reporter.println(format!("[tool call] {tool_name} ({call_id})"));
-            reporter.println(preview);
         }
-        AgentProgressEvent::ToolExecutionFinished {
+        AgentProgressEvent::ToolFinished {
             tool_name,
             call_id,
             success,

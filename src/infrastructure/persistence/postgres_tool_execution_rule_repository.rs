@@ -26,8 +26,10 @@ impl TryFrom<ToolExecutionRuleRow> for ToolExecutionRule {
     type Error = ToolExecutionRuleRepositoryError;
 
     fn try_from(row: ToolExecutionRuleRow) -> Result<Self, Self::Error> {
-        let action = ToolExecutionRuleAction::from_str(&row.action)
-            .ok_or_else(|| ToolExecutionRuleRepositoryError::InvalidAction(row.action.clone()))?;
+        let action = row
+            .action
+            .parse::<ToolExecutionRuleAction>()
+            .map_err(|_| ToolExecutionRuleRepositoryError::InvalidAction(row.action.clone()))?;
 
         Ok(Self {
             tool_name: row.tool_name,
