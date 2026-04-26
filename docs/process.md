@@ -56,14 +56,14 @@ flowchart TD
 
 ## Tool Execution Decisions
 
-| Tool policy        | Stored rule       | Decision                                        |
-| ------------------ | ----------------- | ----------------------------------------------- |
-| `Auto`             | none              | `Allow`                                         |
-| `Ask`              | none              | `Ask`                                           |
-| `ConfirmEveryTime` | any non-deny rule | `Ask`                                           |
-| any policy         | `allow`           | `Allow` (except `ConfirmEveryTime` stays `Ask`) |
-| any policy         | `ask`             | `Ask`                                           |
-| any policy         | `deny`            | `Deny`                                          |
+| Tool policy          | Stored rule | Decision |
+| -------------------- | ----------- | -------- |
+| `Forbidden`          | any         | `Deny`   |
+| non-forbidden policy | `deny`      | `Deny`   |
+| `Auto`               | none        | `Allow`  |
+| `Ask`                | none        | `Ask`    |
+| non-forbidden policy | `allow`     | `Allow`  |
+| non-forbidden policy | `ask`       | `Ask`    |
 
 Denied and unknown tools return an error result to the LLM without executing.
 

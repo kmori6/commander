@@ -11,8 +11,8 @@ pub enum ToolExecutionDecision {
 impl ToolExecutionDecision {
     pub fn decide(policy: ToolExecutionPolicy, rule: Option<ToolExecutionRuleAction>) -> Self {
         match (policy, rule) {
+            (ToolExecutionPolicy::Forbidden, _) => Self::Deny,
             (_, Some(ToolExecutionRuleAction::Deny)) => Self::Deny,
-            (ToolExecutionPolicy::ConfirmEveryTime, _) => Self::Ask,
             (_, Some(ToolExecutionRuleAction::Allow)) => Self::Allow,
             (_, Some(ToolExecutionRuleAction::Ask)) => Self::Ask,
             (ToolExecutionPolicy::Auto, None) => Self::Allow,

@@ -12,7 +12,8 @@ use tokio::process::Command;
 use tokio::time::Duration;
 use tokio::time::timeout;
 
-const TIMEOUT_SECS: u64 = 60;
+const DEFAULT_TIMEOUT_SECS: u64 = 60;
+const MAX_TIMEOUT_SECS: u64 = 600;
 const MAX_OUTPUT_CHARS: usize = 32_000;
 
 pub struct ShellExecTool {
@@ -56,7 +57,13 @@ impl Tool for ShellExecTool {
                 "workdir": {
                     "type": "string",
                     "description": "Optional subdirectory inside the workspace. Use this instead of `cd`. Example: use `{ \"command\": \"cargo test\", \"workdir\": \"crates/api\" }` instead of `cd crates/api && cargo test`."
-                }
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": format!(
+                        "Optional timeout in seconds. Defaults to {DEFAULT_TIMEOUT_SECS}. Must be between 1 and {MAX_TIMEOUT_SECS}."
+                    )
+                },
             },
             "required": ["command"],
         })
@@ -69,6 +76,7 @@ impl Tool for ShellExecTool {
     async fn execute(&self, arguments: Value) -> Result<ToolExecutionResult, ToolError> {
         let command = parse_command(&arguments)?;
         let workdir = parse_workdir(&arguments, &self.workspace_root)?;
+        let timeout_secs = parse_timeout_secs(&arguments)?;
 
         validate_command(&command)?;
 
@@ -76,7 +84,7 @@ impl Tool for ShellExecTool {
         let command_preview = preview_command(&command);
 
         let output = timeout(
-            Duration::from_secs(TIMEOUT_SECS),
+            Duration::from_secs(timeout_secs),
             Command::new(&shell)
                 .arg("-lc")
                 .arg(&command)
@@ -123,6 +131,31 @@ fn parse_workdir(arguments: &Value, workspace_root: &Path) -> Result<PathBuf, To
             resolve_workspace_directory_path(workspace_root, workdir)
         }
         None => Ok(workspace_root.to_path_buf()),
+    }
+}
+
+fn parse_timeout_secs(arguments: &Value) -> Result<u64, ToolError> {
+    match arguments.get("timeout_secs") {
+        None | Some(Value::Null) => Ok(DEFAULT_TIMEOUT_SECS),
+        Some(value) => {
+            let timeout_secs = value.as_u64().ok_or_else(|| {
+                ToolError::InvalidArguments("'timeout_secs' must be an integer".into())
+            })?;
+
+            if timeout_secs == 0 {
+                return Err(ToolError::InvalidArguments(
+                    "'timeout_secs' must be greater than or equal to 1".into(),
+                ));
+            }
+
+            if timeout_secs > MAX_TIMEOUT_SECS {
+                return Err(ToolError::InvalidArguments(format!(
+                    "'timeout_secs' must be less than or equal to {MAX_TIMEOUT_SECS}"
+                )));
+            }
+
+            Ok(timeout_secs)
+        }
     }
 }
 

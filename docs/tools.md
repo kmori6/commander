@@ -34,9 +34,9 @@ Each tool has a default `ToolExecutionPolicy`:
 
 | Policy             | Behavior                                                                |
 | ------------------ | ----------------------------------------------------------------------- |
-| `Auto`             | Runs automatically                                                      |
-| `Ask`              | Pauses and requests user approval                                       |
-| `ConfirmEveryTime` | Always requests approval; cannot be overridden by a stored `allow` rule |
+| `Auto`             | Runs automatically unless a stored rule asks or denies                  |
+| `Ask`              | Pauses for approval unless a stored rule allows or denies               |
+| `Forbidden`        | Denies execution and cannot be overridden by a stored `allow` rule      |
 
 Defaults:
 

@@ -8,10 +8,10 @@ pub enum ToolExecutionPolicy {
     Auto,
     /// Ask the user before execution unless a persisted rule allows or denies it.
     Ask,
-    /// Always ask before execution unless a persisted rule denies it.
+    /// Never execute this invocation, even when a persisted rule allows it.
     ///
-    /// A stored `allow` rule must not bypass this policy.
-    ConfirmEveryTime,
+    /// This is for operations the tool implementation considers out of bounds.
+    Forbidden,
 }
 
 impl ToolExecutionPolicy {
@@ -19,7 +19,7 @@ impl ToolExecutionPolicy {
         match self {
             Self::Auto => "auto",
             Self::Ask => "ask",
-            Self::ConfirmEveryTime => "confirm",
+            Self::Forbidden => "forbidden",
         }
     }
 }
