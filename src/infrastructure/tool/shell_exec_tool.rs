@@ -2,19 +2,66 @@ use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool::ToolExecutionResult;
 use crate::domain::port::tool::{Tool, ToolExecutionPolicy};
 use crate::infrastructure::util::path::resolve_workspace_directory_path;
+use crate::infrastructure::util::text::truncate_text;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use std::io::ErrorKind;
-use std::path::Path;
-use std::path::PathBuf;
+use std::io::{Error, ErrorKind};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
-use tokio::time::Duration;
-use tokio::time::timeout;
+use tokio::time::{Duration, timeout};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 60;
 const MAX_TIMEOUT_SECS: u64 = 600;
 const MAX_OUTPUT_CHARS: usize = 32_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CommandLine {
+    command: String,
+    args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+enum ShellRiskLevel {
+    // Commands that stay within the workspace boundary. These are allowed to
+    // run automatically so the agent can do routine local work.
+    #[default]
+    Workspace,
+    // Commands that touch external systems, persistent state, or paths outside
+    // the workspace. These require user confirmation.
+    ExternalOrPersistent,
+    // Commands that are outside the shell tool's safety boundary. These are
+    // denied even if the user has generally allowed shell execution.
+    OutOfBounds,
+}
+
+impl ShellRiskLevel {
+    // Convert Commander-specific shell risk into the generic tool policy model.
+    const fn policy(self) -> ToolExecutionPolicy {
+        match self {
+            Self::Workspace => ToolExecutionPolicy::Auto,
+            Self::ExternalOrPersistent => ToolExecutionPolicy::Ask,
+            Self::OutOfBounds => ToolExecutionPolicy::Forbidden,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ShellRiskAssessment {
+    level: ShellRiskLevel,
+    reasons: Vec<&'static str>,
+}
+
+impl ShellRiskAssessment {
+    fn raise(&mut self, level: ShellRiskLevel, reason: &'static str) {
+        self.level = self.level.max(level);
+        self.reasons.push(reason);
+    }
+
+    fn policy(&self) -> ToolExecutionPolicy {
+        self.level.policy()
+    }
+}
 
 pub struct ShellExecTool {
     workspace_root: PathBuf,
@@ -69,8 +116,12 @@ impl Tool for ShellExecTool {
         })
     }
 
-    fn execution_policy(&self, _arguments: &Value) -> ToolExecutionPolicy {
-        ToolExecutionPolicy::Ask
+    fn execution_policy(&self, arguments: &Value) -> ToolExecutionPolicy {
+        let Ok(command) = parse_command(arguments) else {
+            return ToolExecutionPolicy::Ask;
+        };
+
+        assess_command_line(&command).policy()
     }
 
     async fn execute(&self, arguments: Value) -> Result<ToolExecutionResult, ToolError> {
@@ -78,10 +129,9 @@ impl Tool for ShellExecTool {
         let workdir = parse_workdir(&arguments, &self.workspace_root)?;
         let timeout_secs = parse_timeout_secs(&arguments)?;
 
-        validate_command(&command)?;
+        ensure_command_line(&command)?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        let command_preview = preview_command(&command);
 
         let output = timeout(
             Duration::from_secs(timeout_secs),
@@ -97,10 +147,16 @@ impl Tool for ShellExecTool {
         )
         .await
         .map_err(|_| ToolError::Timeout)?
-        .map_err(|err| map_io_error(err, &shell, &workdir, &command_preview))?;
+        .map_err(|err| map_io_error(err, &shell, &workdir, &command))?;
 
-        let stdout = truncate_output(&String::from_utf8_lossy(&output.stdout), MAX_OUTPUT_CHARS);
-        let stderr = truncate_output(&String::from_utf8_lossy(&output.stderr), MAX_OUTPUT_CHARS);
+        let (stdout, _) = truncate_text(
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            MAX_OUTPUT_CHARS,
+        );
+        let (stderr, _) = truncate_text(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+            MAX_OUTPUT_CHARS,
+        );
         let exit_code = output.status.code().unwrap_or(-1);
 
         Ok(ToolExecutionResult::success(json!({
@@ -159,69 +215,350 @@ fn parse_timeout_secs(arguments: &Value) -> Result<u64, ToolError> {
     }
 }
 
-fn validate_command(command: &str) -> Result<(), ToolError> {
-    let lowered = command.to_ascii_lowercase();
+// shell command guardrails
+fn assess_command_line(command: &str) -> ShellRiskAssessment {
+    let mut assessment = ShellRiskAssessment::default();
 
-    // HACK: simple blacklist to prevent obviously dangerous commands. This is not a security boundary, just a best effort to catch common mistakes.
-    let denied = [
-        "sudo ", " ssh ", "scp ", "curl ", "wget ", "rm ", "mv ", "cp ", "chmod ", "chown ",
-        "nohup ", "tmux ", "screen ", "shutdown", "reboot", "mkfs", " dd ", ">", ">>", "tee ",
-        "sed -i", "&",
-    ];
+    let Some(parsed) = parse_command_line(command) else {
+        assessment.raise(
+            ShellRiskLevel::OutOfBounds,
+            "unparseable or non-simple shell command",
+        );
+        return assessment;
+    };
 
-    if denied.iter().any(|token| lowered.contains(token)) {
-        return Err(ToolError::PermissionDenied(
-            "command is not allowed by shell_exec policy".into(),
-        ));
+    // forbidden: out of bounds
+    if is_host_destructive_command(&parsed) {
+        assessment.raise(ShellRiskLevel::OutOfBounds, "host destructive operation");
+    }
+
+    if is_privilege_escalation_command(&parsed) {
+        assessment.raise(ShellRiskLevel::OutOfBounds, "privilege escalation");
+    }
+
+    if is_secret_access_command(&parsed) {
+        assessment.raise(ShellRiskLevel::OutOfBounds, "secret access");
+    }
+
+    if !is_autonomous_allowed_command(&parsed) {
+        assessment.raise(
+            ShellRiskLevel::ExternalOrPersistent,
+            "not a simple workspace-local command",
+        );
+    }
+
+    assessment
+}
+
+fn ensure_command_line(command: &str) -> Result<(), ToolError> {
+    let assessment = assess_command_line(command);
+
+    if assessment.policy() == ToolExecutionPolicy::Forbidden {
+        return Err(ToolError::PermissionDenied(format!(
+            "command is forbidden by shell_exec policy: {}",
+            assessment.reasons.join(", ")
+        )));
     }
 
     Ok(())
 }
 
-fn preview_command(command: &str) -> String {
-    const MAX_LEN: usize = 120;
-    let trimmed = command.trim();
+fn parse_command_line(command: &str) -> Option<CommandLine> {
+    // Parse the input as bash, then accept only one plain command.
+    // Example: `rg TODO src` is accepted; `rg TODO src | head` is rejected.
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_bash::LANGUAGE.into())
+        .ok()?;
 
-    if trimmed.chars().count() <= MAX_LEN {
-        trimmed.to_string()
-    } else {
-        let prefix: String = trimmed.chars().take(MAX_LEN).collect();
-        format!("{prefix}...")
+    let tree = parser.parse(command, None)?;
+    let root = tree.root_node();
+
+    // Syntax errors mean we cannot safely reason about the command.
+    // Example: an unfinished quote like `echo "hello` is rejected.
+    if root.has_error() {
+        return None;
+    }
+
+    // Require exactly one top-level statement. Chained commands are harder to
+    // classify safely, so `pwd && ls` and `echo hi; rm file` are rejected.
+    let mut cursor = root.walk();
+    let stmts: Vec<_> = root.named_children(&mut cursor).collect();
+    let [stmt] = stmts.as_slice() else {
+        return None;
+    };
+
+    // The statement must be a simple command node. Bash compounds such as
+    // pipelines, subshells, loops, redirects, and assignments are rejected.
+    if stmt.kind() != "command" {
+        return None;
+    }
+
+    let bytes = command.as_bytes();
+    let mut child_cursor = stmt.walk();
+    let mut children = stmt.named_children(&mut child_cursor);
+
+    // The first named child is the executable name.
+    // Example: for `git status --short`, this extracts `git`.
+    let name_node = children.next()?;
+    if name_node.kind() != "command_name" {
+        return None;
+    }
+
+    let command = name_node.utf8_text(bytes).ok()?.to_ascii_lowercase();
+
+    // Every argument must be a plain word. Quoted strings, variables, globs,
+    // and command substitutions are rejected, e.g. `echo "$HOME"` or `cat *.rs`.
+    let mut args = Vec::new();
+    for node in children {
+        if node.kind() != "word" {
+            return None;
+        }
+
+        args.push(node.utf8_text(bytes).ok()?.to_ascii_lowercase());
+    }
+
+    Some(CommandLine { command, args })
+}
+
+// 1. forbidden patterns
+fn is_host_destructive_command(command_line: &CommandLine) -> bool {
+    let command = command_line
+        .command
+        .rsplit('/')
+        .next()
+        .unwrap_or(&command_line.command);
+
+    match command {
+        // System power control.
+        "shutdown" | "reboot" | "poweroff" | "halt" => true,
+
+        // Filesystem creation or formatting.
+        "mkfs" => true,
+
+        program if program.starts_with("mkfs.") => true,
+
+        // Block device wiping or discard operations.
+        "wipefs" | "blkdiscard" => true,
+
+        // Service-manager power control.
+        "systemctl" => command_line
+            .args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "reboot" | "poweroff" | "halt")),
+
+        // Raw writes to host-critical targets.
+        "dd" => command_line
+            .args
+            .iter()
+            .any(|arg| arg.strip_prefix("of=").is_some_and(is_host_critical_path)),
+
+        // Removal of host-critical paths.
+        "rm" => command_line
+            .args
+            .iter()
+            .any(|arg| is_host_critical_path(arg)),
+
+        // Recursive permission or ownership changes on host-critical paths.
+        "chmod" | "chown" => {
+            has_recursive_flag(&command_line.args)
+                && command_line
+                    .args
+                    .iter()
+                    .any(|arg| is_host_critical_path(arg))
+        }
+
+        _ => false,
     }
 }
 
-fn map_io_error(
-    err: std::io::Error,
-    shell: &str,
-    workdir: &Path,
-    command_preview: &str,
-) -> ToolError {
+fn is_privilege_escalation_command(command_line: &CommandLine) -> bool {
+    let command = command_line
+        .command
+        .rsplit('/')
+        .next()
+        .unwrap_or(&command_line.command);
+
+    matches!(
+        command,
+        // Run another command as a different user, often root.
+        "sudo" | "doas" | "pkexec"
+        // Switch user shell/session.
+        | "su"
+        // Edit files through sudo privileges.
+        | "sudoedit"
+    )
+}
+
+fn is_secret_access_command(command_line: &CommandLine) -> bool {
+    command_line
+        .args
+        .iter()
+        .any(|arg| is_secret_access_path(arg))
+}
+
+// 2. allowed patterns
+fn is_autonomous_allowed_command(command_line: &CommandLine) -> bool {
+    if command_line.command.contains('/') {
+        return false;
+    }
+
+    let command_is_allowed = match command_line.command.as_str() {
+        "pwd" => command_line.args.is_empty(),
+
+        "ls" | "rg" | "grep" | "cat" | "head" | "tail" | "wc" | "du" | "mkdir" | "touch" | "cp"
+        | "mv" | "rm" => true,
+
+        "sed" => !command_line
+            .args
+            .iter()
+            .any(|arg| arg == "-i" || arg.starts_with("-i")),
+
+        "find" => !command_line
+            .args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "-exec" | "-execdir" | "-delete" | "-ok")),
+
+        "git" => matches!(
+            command_line.args.first().map(String::as_str),
+            Some("status" | "diff" | "log" | "show" | "rev-parse" | "ls-files")
+        ),
+
+        _ => false,
+    };
+
+    if !command_is_allowed {
+        return false;
+    }
+
+    command_line.args.iter().all(|arg| {
+        if arg.is_empty() {
+            return false;
+        }
+
+        if arg.starts_with('-') && !arg.contains('/') && !arg.contains("://") {
+            return true;
+        }
+
+        !arg.starts_with('/')
+            && !arg.starts_with('~')
+            && !arg.split('/').any(|seg| seg == "..")
+            && !arg.contains("://")
+            && !arg.starts_with("git@")
+            && !arg.chars().any(|c| matches!(c, '*' | '?' | '[' | ']'))
+    })
+}
+
+// helpers
+fn map_io_error(err: Error, shell: &str, workdir: &Path, command: &str) -> ToolError {
     match err.kind() {
         ErrorKind::NotFound => ToolError::Unavailable(format!("shell not found: {shell}")),
         ErrorKind::PermissionDenied => ToolError::PermissionDenied(format!(
             "permission denied while executing command in {}: {}",
             workdir.display(),
-            command_preview
+            command
         )),
         _ => ToolError::ExecutionFailed(format!(
             "failed to execute command in {} via {}: {} ({err})",
             workdir.display(),
             shell,
-            command_preview
+            command
         )),
     }
 }
 
-fn truncate_output(output: &str, max_chars: usize) -> String {
-    if output.chars().count() <= max_chars {
-        return output.to_string();
+fn has_recursive_flag(args: &[String]) -> bool {
+    args.iter().any(|arg| {
+        arg == "-r"
+            || arg == "-R"
+            || (arg.starts_with('-') && arg.chars().any(|c| matches!(c, 'r' | 'R')))
+    })
+}
+
+fn is_host_critical_path(path: &str) -> bool {
+    path == "/"
+        || path == "/*"
+        || path == "/bin"
+        || path.starts_with("/bin/")
+        || path == "/boot"
+        || path.starts_with("/boot/")
+        || path == "/dev"
+        || path.starts_with("/dev/")
+        || path == "/etc"
+        || path.starts_with("/etc/")
+        || path == "/lib"
+        || path.starts_with("/lib/")
+        || path == "/lib64"
+        || path.starts_with("/lib64/")
+        || path == "/proc"
+        || path.starts_with("/proc/")
+        || path == "/root"
+        || path.starts_with("/root/")
+        || path == "/sbin"
+        || path.starts_with("/sbin/")
+        || path == "/sys"
+        || path.starts_with("/sys/")
+        || path == "/usr"
+        || path.starts_with("/usr/")
+        || path == "/var"
+        || path.starts_with("/var/")
+        || path == "/home"
+        || path.starts_with("/home/")
+        || path == "/opt"
+        || path.starts_with("/opt/")
+        || path == "/mnt"
+        || path.starts_with("/mnt/")
+        || path == "/media"
+        || path.starts_with("/media/")
+        || path == "/run"
+        || path.starts_with("/run/")
+        || path == "/tmp"
+        || path.starts_with("/tmp/")
+}
+
+fn is_secret_access_path(path: &str) -> bool {
+    if is_safe_secret_example_path(path) {
+        return false;
     }
 
-    const NOTICE: &str = "\n...[truncated]";
-    let notice_len = NOTICE.chars().count();
+    let normalized = path.trim_start_matches("./");
 
-    let keep_len = max_chars - notice_len;
-    let prefix = output.chars().take(keep_len).collect::<String>();
+    normalized == ".env"
+        || normalized.starts_with(".env.")
+        || normalized.contains("/.env")
+        || normalized.contains("/.env.")
+        || normalized == ".ssh"
+        || normalized.starts_with(".ssh/")
+        || normalized.contains("/.ssh/")
+        || normalized == "id_rsa"
+        || normalized.ends_with("/id_rsa")
+        || normalized == "id_ed25519"
+        || normalized.ends_with("/id_ed25519")
+        || normalized == ".aws/credentials"
+        || normalized.ends_with("/.aws/credentials")
+        || normalized == ".gnupg"
+        || normalized.starts_with(".gnupg/")
+        || normalized.contains("/.gnupg/")
+        || normalized == ".netrc"
+        || normalized.ends_with("/.netrc")
+        || normalized == ".npmrc"
+        || normalized.ends_with("/.npmrc")
+        || normalized == ".pypirc"
+        || normalized.ends_with("/.pypirc")
+        || normalized == ".docker/config.json"
+        || normalized.ends_with("/.docker/config.json")
+        || normalized == ".kube/config"
+        || normalized.ends_with("/.kube/config")
+        || normalized.ends_with(".pem")
+        || normalized.ends_with(".key")
+}
 
-    format!("{prefix}{NOTICE}")
+fn is_safe_secret_example_path(path: &str) -> bool {
+    let normalized = path.trim_start_matches("./");
+    let file_name = normalized.rsplit('/').next().unwrap_or(normalized);
+
+    matches!(
+        file_name,
+        ".env.example" | ".env.sample" | ".env.template" | "example.env"
+    )
 }
