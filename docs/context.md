@@ -26,4 +26,4 @@ Compaction applies to the current turn only. The full history remains in the dat
 - Token usage from the **previous turn** is used to decide whether to compact.
 - Tool calls and results are summarized as simplified text (tool names and text only).
 - Attachments appear in the summary as filenames.
-- Long-term memory across sessions is not yet implemented (see future `memory.md`).
+- Long-term memory is separate from context compaction. Agents retrieve it explicitly through the memory tools when needed; see [memory.md](memory.md).

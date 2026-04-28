@@ -54,7 +54,7 @@ sequenceDiagram
                     Agent->>Tools: Execute planned calls before approval
                     Tools-->>Agent: accumulated tool results
                     Agent-->>Usecase: AgentOutput::ApprovalRequested
-                    Usecase->>Usecase: Store pending approval in memory
+                    Usecase->>Usecase: Store pending approval in process memory
                     Usecase-->>CLI: ToolConfirmationRequested
                     CLI-->>User: Show /approve or /deny prompt
                 end
@@ -104,7 +104,7 @@ sequenceDiagram
 
         alt Another approval is required
             Agent-->>Usecase: AgentOutput::ApprovalRequested
-            Usecase->>Usecase: Replace pending approval in memory
+            Usecase->>Usecase: Replace pending approval in process memory
             Usecase-->>CLI: ToolConfirmationRequested
             CLI-->>User: Show next approval prompt
         else Agent reaches final response

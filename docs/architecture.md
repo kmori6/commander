@@ -43,13 +43,15 @@ graph LR
         CS["ContextService"]
         TE["ToolExecutor"]
         DR["DeepResearchService"]
+        MS["MemoryIndexService"]
     end
 
     subgraph Infrastructure
         LLM["BedrockLlmProvider<br/>(AWS Bedrock)"]
+        EMB["BedrockEmbeddingProvider<br/>(AWS Bedrock)"]
         DB["PostgreSQL Repositories"]
         Search["TavilySearchProvider"]
-        Tools["Tools<br/>(file, shell, web, ocr, asr…)"]
+        Tools["Tools<br/>(file, shell, web, ocr, asr, memory…)"]
     end
 
     CLI --> AU
@@ -64,8 +66,11 @@ graph LR
     CS --> LLM
     DR --> LLM
     DR --> Search
+    MS --> EMB
+    MS --> DB
     AU --> DB
     TE --> Tools
+    Tools --> MS
 ```
 
 ## Domain
@@ -73,10 +78,11 @@ graph LR
 **Ports** (interfaces implemented by infrastructure):
 
 - `LlmProvider` — inference (`response`, `response_with_tool`, `response_with_structure`)
+- `EmbeddingProvider` — text embeddings for semantic memory search
 - `SearchProvider` — web search
 - `Tool` — name, spec, default policy, execution logic
 
-**Repositories**: `ChatSession`, `ChatMessage`, `TokenUsage`, `ToolApproval`, `ToolExecutionRule`
+**Repositories**: `ChatSession`, `ChatMessage`, `TokenUsage`, `ToolApproval`, `ToolExecutionRule`, `MemoryIndex`
 
 **Services**:
 
@@ -84,13 +90,14 @@ graph LR
 - `ContextService` — context window management and compaction
 - `ToolExecutor` — tool lookup, policy resolution, execution
 - `DeepResearchService` — iterative deep research (TTD-DR algorithm)
+- `MemoryIndexService` — Markdown chunking, embedding, index rebuild, and semantic search
 
 ## External Dependencies
 
 ```mermaid
 graph LR
     C["Commander"]
-    C --> Bedrock["AWS Bedrock<br/>(LLM inference)"]
+    C --> Bedrock["AWS Bedrock<br/>(LLM inference, embeddings)"]
     C --> Tavily["Tavily<br/>(web search)"]
     C --> PG["PostgreSQL<br/>(persistence)"]
     C --> MD["markitdown<br/>(binary → Markdown)"]
@@ -103,4 +110,5 @@ graph LR
 - [tools.md](tools.md) — Tool list and execution policy
 - [database.md](database.md) — Database schema
 - [context.md](context.md) — Context window management
+- [memory.md](memory.md) — Long-term memory and journal indexing
 - [deep-research.md](deep-research.md) — Deep research algorithm

@@ -4,6 +4,7 @@ PostgreSQL database name: `agent`.
 
 - Admin migrations (DB-level setup): [`db/migration/admin`](../db/migration/admin)
 - Application migrations (tables/indexes): [`db/migration/agent`](../db/migration/agent)
+- Memory search uses the `vector` PostgreSQL extension created by `V5__create_memory_index.sql`.
 
 ## Tables
 
@@ -72,9 +73,22 @@ Persisted per-tool execution rules. Combined with each tool's default policy to 
 | `created_at` | timestamp   |                          |
 | `updated_at` | timestamp   |                          |
 
+### `memory_index`
+
+Semantic search index for journal memory files. Rows are replaced per path when a journal file is written.
+
+| Column        | Type        | Description                         |
+| ------------- | ----------- | ----------------------------------- |
+| `path`        | text PK     | Workspace-relative memory file path |
+| `chunk_index` | int PK      | Zero-based chunk number             |
+| `content`     | text        | Indexed Markdown chunk              |
+| `embedding`   | vector      | Embedding used for similarity search |
+| `indexed_at`  | timestamptz | Index timestamp                     |
+
 ## Migration Order
 
 1. `V1__create_chat_tables.sql`
 2. `V2__create_token_usages.sql`
 3. `V3__create_tool_call_approvals.sql`
 4. `V4__create_tool_execution_rules.sql`
+5. `V5__create_memory_index.sql`

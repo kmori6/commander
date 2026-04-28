@@ -45,7 +45,7 @@ flowchart TD
 
     AA --> AB["Build AgentApprovalRequest"]
     AB --> AC["Return AgentOutput::ApprovalRequested"]
-    AC --> AD["Usecase stores pending approval in memory"]
+    AC --> AD["Usecase stores pending approval in process memory"]
     AD --> AE["CLI shows /approve or /deny prompt"]
 
     S --> AF{"No approval needed?"}
@@ -85,7 +85,7 @@ Run, Run, Block, Run  →  parallel(Run, Run), Block result, parallel(Run)
 
 1. Runnable calls before the approval point are executed.
 2. Results are stored in `AgentApprovalRequest.accumulated_tool_results`.
-3. The approval target and remaining calls are stored in memory keyed by `session_id`.
+3. The approval target and remaining calls are stored in process memory keyed by `session_id`.
 4. CLI shows `/approve` or `/deny` prompt.
 
 ## Approve Flow
@@ -112,4 +112,4 @@ Run, Run, Block, Run  →  parallel(Run, Run), Block result, parallel(Run)
 | Token usage            | `token_usages`         |
 | Approval decisions     | `tool_call_approvals`  |
 | Tool execution rules   | `tool_execution_rules` |
-| Pending approval state | In-memory only         |
+| Pending approval state | Process memory only    |

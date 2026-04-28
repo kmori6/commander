@@ -28,6 +28,13 @@ All registered tools are wired in [`src/main.rs`](../src/main.rs).
 | `asr` | Transcribe speech/audio to text          |
 | `ocr` | Extract text from images or scanned PDFs |
 
+## Memory
+
+| Tool            | Description                                                      |
+| --------------- | ---------------------------------------------------------------- |
+| `memory_write`  | Append Markdown to Commander memory or a daily journal           |
+| `memory_search` | Search indexed journal memory chunks by semantic similarity      |
+
 ## Execution Policy
 
 Each tool has a default `ToolExecutionPolicy`:
@@ -41,6 +48,7 @@ Each tool has a default `ToolExecutionPolicy`:
 Defaults:
 
 - Read/search/extraction tools: `Auto`
+- `memory_search`, `memory_write`: `Auto`
 - `shell_exec`, `file_write`, `file_edit`: `Ask`
 
 Persisted rules in `tool_execution_rules` (`allow` / `ask` / `deny`) are combined with the tool's default policy at runtime to produce the final decision.
@@ -54,4 +62,4 @@ Unknown tool calls return an error result to the LLM without executing.
 | `/approve` | Records approval, rechecks tool against current rules, resumes agent loop |
 | `/deny`    | Records denial, marks tool as denied, skips remaining tools, ends turn    |
 
-Pending approval state is in-memory only.
+Pending approval state is process memory only and is unrelated to Commander memory files.
