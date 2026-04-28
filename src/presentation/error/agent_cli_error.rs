@@ -2,8 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AgentCliError {
-    #[error("failed to initialize llm client: {0}")]
-    LlmClient(#[from] crate::application::error::llm_client_error::LlmClientError),
+    #[error("failed to initialize llm provider: {0}")]
+    LlmProvider(#[from] crate::domain::error::llm_provider_error::LlmProviderError),
 
     #[error("failed to execute agent use case: {0}")]
     Usecase(#[from] crate::application::error::agent_usecase_error::AgentUsecaseError),

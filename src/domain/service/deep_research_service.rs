@@ -1,5 +1,5 @@
-use crate::application::error::llm_client_error::LlmClientError;
 use crate::domain::error::deep_research_error::DeepResearchError;
+use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::message::Message;
 use crate::domain::model::role::Role;
 use crate::domain::port::llm_provider::LlmProvider;
@@ -107,7 +107,7 @@ where
         Ok(final_report)
     }
 
-    async fn generate_research_plan(&self, query: &str) -> Result<ResearchPlan, LlmClientError> {
+    async fn generate_research_plan(&self, query: &str) -> Result<ResearchPlan, LlmProviderError> {
         let initial_plan = self.generate_initial_research_plan(query).await?;
         let critique = self.critique_research_plan(query, &initial_plan).await?;
         self.revise_research_plan(query, &initial_plan, &critique)
@@ -118,7 +118,7 @@ where
         &self,
         query: &str,
         plan: &ResearchPlan,
-    ) -> Result<DraftReport, LlmClientError> {
+    ) -> Result<DraftReport, LlmProviderError> {
         let plan_text = plan
             .sections
             .iter()
@@ -154,7 +154,7 @@ where
         plan: &ResearchPlan,
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
-    ) -> Result<ResearchQuestion, LlmClientError> {
+    ) -> Result<ResearchQuestion, LlmProviderError> {
         let candidates = self
             .generate_question_candidates(query, plan, draft, history)
             .await?;
@@ -193,9 +193,9 @@ where
         plan: &ResearchPlan,
         previous_draft: &DraftReport,
         history: &[QuestionAnswerPair],
-    ) -> Result<DraftReport, LlmClientError> {
+    ) -> Result<DraftReport, LlmProviderError> {
         let latest_step = history.last().ok_or_else(|| {
-            LlmClientError::ResponseParse(
+            LlmProviderError::ResponseParse(
                 "history must contain at least one step before revision".to_string(),
             )
         })?;
@@ -255,7 +255,7 @@ where
         plan: &ResearchPlan,
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
-    ) -> Result<bool, LlmClientError> {
+    ) -> Result<bool, LlmProviderError> {
         let plan_text = plan
             .sections
             .iter()
@@ -332,7 +332,9 @@ where
             .get("should_exit")
             .and_then(|v| v.as_bool())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse("failed to decode exit_loop.should_exit".to_string())
+                LlmProviderError::ResponseParse(
+                    "failed to decode exit_loop.should_exit".to_string(),
+                )
             })?;
 
         let reason = value
@@ -341,17 +343,17 @@ where
             .map(str::trim)
             .filter(|v| !v.is_empty())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse("failed to decode exit_loop.reason".to_string())
+                LlmProviderError::ResponseParse("failed to decode exit_loop.reason".to_string())
             })?;
 
         let uncovered_sections: Vec<String> =
             serde_json::from_value(value.get("uncovered_sections").cloned().ok_or_else(|| {
-                LlmClientError::ResponseParse(
+                LlmProviderError::ResponseParse(
                     "failed to decode exit_loop.uncovered_sections".to_string(),
                 )
             })?)
             .map_err(|err| {
-                LlmClientError::ResponseParse(format!(
+                LlmProviderError::ResponseParse(format!(
                     "failed to parse exit_loop uncovered_sections: {err}"
                 ))
             })?;
@@ -381,7 +383,7 @@ where
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
         revision_history: &[DraftReport],
-    ) -> Result<String, LlmClientError> {
+    ) -> Result<String, LlmProviderError> {
         let initial_report = self
             .generate_initial_final_report(query, plan, draft, history, revision_history)
             .await?;
@@ -396,7 +398,7 @@ where
     async fn generate_initial_research_plan(
         &self,
         query: &str,
-    ) -> Result<ResearchPlan, LlmClientError> {
+    ) -> Result<ResearchPlan, LlmProviderError> {
         let schema = StructuredOutputSchema {
             name: "initial_research_plan".to_string(),
             description: Some("A concise initial research plan.".to_string()),
@@ -429,13 +431,13 @@ where
             .await?;
 
         let sections: Vec<String> = serde_json::from_value(value).map_err(|err| {
-            LlmClientError::ResponseParse(format!(
+            LlmProviderError::ResponseParse(format!(
                 "failed to decode initial research plan structured output: {err}"
             ))
         })?;
 
         if sections.is_empty() {
-            return Err(LlmClientError::ResponseParse(
+            return Err(LlmProviderError::ResponseParse(
                 "research plan must contain at least one section".to_string(),
             ));
         }
@@ -447,7 +449,7 @@ where
         &self,
         query: &str,
         plan: &ResearchPlan,
-    ) -> Result<String, LlmClientError> {
+    ) -> Result<String, LlmProviderError> {
         let plan_text = plan
             .sections
             .iter()
@@ -496,7 +498,9 @@ where
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse("failed to decode research plan critique".to_string())
+                LlmProviderError::ResponseParse(
+                    "failed to decode research plan critique".to_string(),
+                )
             })?
             .to_string();
 
@@ -508,7 +512,7 @@ where
         query: &str,
         initial_plan: &ResearchPlan,
         critique: &str,
-    ) -> Result<ResearchPlan, LlmClientError> {
+    ) -> Result<ResearchPlan, LlmProviderError> {
         let initial_plan_text = initial_plan
             .sections
             .iter()
@@ -549,13 +553,13 @@ where
             .await?;
 
         let sections: Vec<String> = serde_json::from_value(value).map_err(|err| {
-            LlmClientError::ResponseParse(format!(
+            LlmProviderError::ResponseParse(format!(
                 "failed to decode revised research plan structured output: {err}"
             ))
         })?;
 
         if sections.is_empty() {
-            return Err(LlmClientError::ResponseParse(
+            return Err(LlmProviderError::ResponseParse(
                 "revised research plan must contain at least one section".to_string(),
             ));
         }
@@ -588,7 +592,7 @@ where
         question: &ResearchQuestion,
         documents_text: &str,
         candidate_index: usize,
-    ) -> Result<ResearchAnswer, LlmClientError> {
+    ) -> Result<ResearchAnswer, LlmProviderError> {
         let variation_hint = match candidate_index {
             0 => {
                 "Focus on the core factual answer. Prioritize the most direct and strongly supported information."
@@ -627,7 +631,7 @@ where
         query: &str,
         question: &ResearchQuestion,
         candidates: &[ResearchAnswer],
-    ) -> Result<ResearchAnswer, LlmClientError> {
+    ) -> Result<ResearchAnswer, LlmProviderError> {
         let answer_list = format_answer_candidates(candidates);
 
         let messages = vec![
@@ -657,7 +661,7 @@ where
         plan: &ResearchPlan,
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
-    ) -> Result<Vec<ResearchQuestion>, LlmClientError> {
+    ) -> Result<Vec<ResearchQuestion>, LlmProviderError> {
         let mut candidates = Vec::with_capacity(DEFAULT_NUM_INITIAL_QUESTION_STATES);
 
         for candidate_index in 0..DEFAULT_NUM_INITIAL_QUESTION_STATES {
@@ -677,7 +681,7 @@ where
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
         candidate_index: usize,
-    ) -> Result<ResearchQuestion, LlmClientError> {
+    ) -> Result<ResearchQuestion, LlmProviderError> {
         let schema = StructuredOutputSchema {
             name: "question_candidate".to_string(),
             description: Some(
@@ -765,7 +769,7 @@ where
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse(
+                LlmProviderError::ResponseParse(
                     "failed to decode question candidate focus".to_string(),
                 )
             })?
@@ -777,7 +781,7 @@ where
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse(
+                LlmProviderError::ResponseParse(
                     "failed to decode question candidate text".to_string(),
                 )
             })?
@@ -793,7 +797,7 @@ where
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
         candidates: &[ResearchQuestion],
-    ) -> Result<ResearchQuestion, LlmClientError> {
+    ) -> Result<ResearchQuestion, LlmProviderError> {
         let schema = StructuredOutputSchema {
             name: "selected_question".to_string(),
             description: Some("The selected best candidate question.".to_string()),
@@ -875,19 +879,19 @@ where
             .get("selected_index")
             .and_then(|value| value.as_i64())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse(
+                LlmProviderError::ResponseParse(
                     "failed to decode selected question index".to_string(),
                 )
             })?;
 
         let selected_index = usize::try_from(selected_index).map_err(|_| {
-            LlmClientError::ResponseParse(
+            LlmProviderError::ResponseParse(
                 "selected question index must be non-negative".to_string(),
             )
         })?;
 
         candidates.get(selected_index).cloned().ok_or_else(|| {
-            LlmClientError::ResponseParse(format!(
+            LlmProviderError::ResponseParse(format!(
                 "selected question index out of range: {selected_index}"
             ))
         })
@@ -900,7 +904,7 @@ where
         draft: &DraftReport,
         history: &[QuestionAnswerPair],
         revision_history: &[DraftReport],
-    ) -> Result<String, LlmClientError> {
+    ) -> Result<String, LlmProviderError> {
         let plan_text = plan
             .sections
             .iter()
@@ -953,7 +957,7 @@ where
         query: &str,
         plan: &ResearchPlan,
         report: &str,
-    ) -> Result<String, LlmClientError> {
+    ) -> Result<String, LlmProviderError> {
         let plan_text = plan
             .sections
             .iter()
@@ -1002,7 +1006,9 @@ where
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                LlmClientError::ResponseParse("failed to decode final report critique".to_string())
+                LlmProviderError::ResponseParse(
+                    "failed to decode final report critique".to_string(),
+                )
             })?
             .to_string();
 
@@ -1015,7 +1021,7 @@ where
         plan: &ResearchPlan,
         initial_report: &str,
         critique: &str,
-    ) -> Result<String, LlmClientError> {
+    ) -> Result<String, LlmProviderError> {
         let plan_text = plan
             .sections
             .iter()

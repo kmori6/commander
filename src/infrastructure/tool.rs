@@ -3,6 +3,8 @@ pub mod file_edit_tool;
 pub mod file_read_tool;
 pub mod file_search_tool;
 pub mod file_write_tool;
+pub mod memory_search_tool;
+pub mod memory_write_tool;
 pub mod ocr_tool;
 pub mod shell_exec_tool;
 pub mod text_search_tool;

@@ -11,13 +11,16 @@ use commander::application::usecase::{
 };
 use commander::domain::service::{
     agent_service::AgentService, context_service::ContextService,
-    deep_research_service::DeepResearchService, tool_service::ToolExecutor,
+    deep_research_service::DeepResearchService, memory_index_service::MemoryIndexService,
+    tool_service::ToolExecutor,
 };
 use commander::infrastructure::{
+    embedding::bedrock_embedding_provider::BedrockEmbeddingProvider,
     llm::bedrock_llm_provider::BedrockLlmProvider,
     persistence::{
         postgres_chat_message_repository::PostgresChatMessageRepository,
         postgres_chat_session_repository::PostgresChatSessionRepository,
+        postgres_memory_index_repository::PostgresMemoryIndexRepository,
         postgres_token_usage_repository::PostgresTokenUsageRepository,
         postgres_tool_approval_repository::PostgresToolApprovalRepository,
         postgres_tool_execution_rule_repository::PostgresToolExecutionRuleRepository,
@@ -25,8 +28,9 @@ use commander::infrastructure::{
     search::tavily_search_provider::TavilySearchProvider,
     tool::{
         asr_tool::AsrTool, file_edit_tool::FileEditTool, file_read_tool::FileReadTool,
-        file_search_tool::FileSearchTool, file_write_tool::FileWriteTool, ocr_tool::OcrTool,
-        shell_exec_tool::ShellExecTool, text_search_tool::TextSearchTool,
+        file_search_tool::FileSearchTool, file_write_tool::FileWriteTool,
+        memory_search_tool::MemorySearchTool, memory_write_tool::MemoryWriteTool,
+        ocr_tool::OcrTool, shell_exec_tool::ShellExecTool, text_search_tool::TextSearchTool,
         web_fetch_tool::WebFetchTool, web_search_tool::WebSearchTool,
     },
 };
@@ -50,6 +54,14 @@ async fn main() -> Result<(), AgentCliError> {
             let pool = PgPool::connect(&database_url).await?;
 
             let llm_client = BedrockLlmProvider::from_default_config().await;
+            let embedding_provider =
+                Arc::new(BedrockEmbeddingProvider::from_default_config().await);
+            let memory_index_repository =
+                Arc::new(PostgresMemoryIndexRepository::new(pool.clone()));
+            let memory_index_service = Arc::new(MemoryIndexService::new(
+                embedding_provider,
+                memory_index_repository,
+            ));
             let workspace_root = env::current_dir()?;
 
             let tool_execution_rule_repository =
@@ -60,6 +72,11 @@ async fn main() -> Result<(), AgentCliError> {
                     Arc::new(FileSearchTool::new(workspace_root.clone(), 200)?),
                     Arc::new(OcrTool::new(workspace_root.clone())?),
                     Arc::new(ShellExecTool::new(workspace_root.clone())?),
+                    Arc::new(MemorySearchTool::new(memory_index_service.clone())),
+                    Arc::new(MemoryWriteTool::new(
+                        workspace_root.clone(),
+                        memory_index_service.clone(),
+                    )?),
                     Arc::new(FileWriteTool::new(workspace_root.clone())?),
                     Arc::new(FileEditTool::new(workspace_root.clone(), 1_048_576)?),
                     Arc::new(FileReadTool::new(workspace_root.clone(), 1_048_576)?),

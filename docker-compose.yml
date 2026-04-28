@@ -17,7 +17,7 @@ services:
               capabilities: [gpu]
 
   postgres:
-    image: postgres:18.3
+    image: pgvector/pgvector:pg18-trixie
     restart: always
     ports:
       - "5432:5432"

@@ -1,4 +1,4 @@
-use crate::application::error::llm_client_error::LlmClientError;
+use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::attachment::Attachment;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
@@ -66,9 +66,9 @@ impl BedrockLlmProvider {
         messages: Vec<Message>,
         model: &str,
         options: ConverseOptions,
-    ) -> Result<ConverseResult, LlmClientError> {
+    ) -> Result<ConverseResult, LlmProviderError> {
         if options.tools.is_some() && options.structured_output.is_some() {
-            return Err(LlmClientError::RequestBuild(
+            return Err(LlmProviderError::RequestBuild(
                 "Combining tools and structured output is not supported yet".to_string(),
             ));
         }
@@ -98,7 +98,7 @@ impl BedrockLlmProvider {
         let output = req.send().await.map_err(|e| {
             let code = e.code().unwrap_or("unknown");
             let message = e.message().unwrap_or("no message");
-            LlmClientError::ApiCall(format!(
+            LlmProviderError::ApiCall(format!(
                 "Bedrock converse error: code={code}, message={message}, debug={e:?}"
             ))
         })?;
@@ -108,11 +108,11 @@ impl BedrockLlmProvider {
         let output_blocks = output
             .output()
             .ok_or_else(|| {
-                LlmClientError::ResponseParse("No output in Bedrock response".to_string())
+                LlmProviderError::ResponseParse("No output in Bedrock response".to_string())
             })?
             .as_message()
             .map_err(|_| {
-                LlmClientError::ResponseParse(
+                LlmProviderError::ResponseParse(
                     "Unsupported output type in Bedrock response".to_string(),
                 )
             })?
@@ -151,7 +151,7 @@ impl LlmProvider for BedrockLlmProvider {
         &self,
         messages: Vec<Message>,
         model: &str,
-    ) -> Result<String, LlmClientError> {
+    ) -> Result<String, LlmProviderError> {
         Ok(self
             .converse(
                 messages,
@@ -170,7 +170,7 @@ impl LlmProvider for BedrockLlmProvider {
         messages: Vec<Message>,
         tools: Vec<ToolSpec>,
         model: &str,
-    ) -> Result<LlmResponse, LlmClientError> {
+    ) -> Result<LlmResponse, LlmProviderError> {
         let result = self
             .converse(
                 messages,
@@ -193,7 +193,7 @@ impl LlmProvider for BedrockLlmProvider {
         messages: Vec<Message>,
         schema: StructuredOutputSchema,
         model: &str,
-    ) -> Result<serde_json::Value, LlmClientError> {
+    ) -> Result<serde_json::Value, LlmProviderError> {
         let result = self
             .converse(
                 messages,
@@ -205,7 +205,7 @@ impl LlmProvider for BedrockLlmProvider {
             )
             .await?;
         serde_json::from_str(result.structured_text().trim()).map_err(|e| {
-            LlmClientError::ResponseParse(format!("Failed to parse structured output JSON: {e}"))
+            LlmProviderError::ResponseParse(format!("Failed to parse structured output JSON: {e}"))
         })
     }
 }
@@ -213,19 +213,19 @@ impl LlmProvider for BedrockLlmProvider {
 /// Converts system messages to Bedrock SystemContentBlocks.
 fn build_system_content_blocks(
     messages: &[Message],
-) -> Result<Vec<SystemContentBlock>, LlmClientError> {
+) -> Result<Vec<SystemContentBlock>, LlmProviderError> {
     messages
         .iter()
         .filter(|m| m.role == Role::System)
         .map(|m| match &m.content {
             MessageContent::Text(text) => Ok(SystemContentBlock::Text(text.clone())),
-            MessageContent::Multimodal { .. } => Err(LlmClientError::RequestBuild(
+            MessageContent::Multimodal { .. } => Err(LlmProviderError::RequestBuild(
                 "System messages cannot contain attachments".to_string(),
             )),
-            MessageContent::ToolCall { .. } => Err(LlmClientError::RequestBuild(
+            MessageContent::ToolCall { .. } => Err(LlmProviderError::RequestBuild(
                 "System messages cannot contain tool calls".to_string(),
             )),
-            MessageContent::ToolResults(_) => Err(LlmClientError::RequestBuild(
+            MessageContent::ToolResults(_) => Err(LlmProviderError::RequestBuild(
                 "System messages cannot contain tool results".to_string(),
             )),
         })
@@ -233,7 +233,7 @@ fn build_system_content_blocks(
 }
 
 /// Converts domain messages to Bedrock messages.
-fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmClientError> {
+fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmProviderError> {
     let mut message_blocks: Vec<BedrockMessage> = vec![];
     for m in messages.iter().filter(|m| m.role != Role::System) {
         let role = match m.role {
@@ -246,7 +246,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                 .content(ContentBlock::Text(text.clone()))
                 .build()
                 .map_err(|e| {
-                    LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
+                    LlmProviderError::RequestBuild(format!("Error building Bedrock message: {}", e))
                 })?,
             MessageContent::Multimodal { text, attachments } => {
                 let mut builder = BedrockMessage::builder().role(role.clone());
@@ -261,7 +261,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                 }
 
                 builder.build().map_err(|e| {
-                    LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
+                    LlmProviderError::RequestBuild(format!("Error building Bedrock message: {}", e))
                 })?
             }
             MessageContent::ToolCall { text, tool_calls } => {
@@ -278,7 +278,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                         .input(json_to_document(&tool_call.arguments)?)
                         .build()
                         .map_err(|e| {
-                            LlmClientError::RequestBuild(format!(
+                            LlmProviderError::RequestBuild(format!(
                                 "Error building Bedrock tool use block: {}",
                                 e
                             ))
@@ -288,7 +288,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                 }
 
                 builder.build().map_err(|e| {
-                    LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
+                    LlmProviderError::RequestBuild(format!("Error building Bedrock message: {}", e))
                 })?
             }
             MessageContent::ToolResults(tool_results) => {
@@ -310,7 +310,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                         .status(status)
                         .build()
                         .map_err(|e| {
-                            LlmClientError::RequestBuild(format!(
+                            LlmProviderError::RequestBuild(format!(
                                 "Error building Bedrock tool result block: {}",
                                 e
                             ))
@@ -320,7 +320,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
                 }
 
                 builder.build().map_err(|e| {
-                    LlmClientError::RequestBuild(format!("Error building Bedrock message: {}", e))
+                    LlmProviderError::RequestBuild(format!("Error building Bedrock message: {}", e))
                 })?
             }
         };
@@ -331,7 +331,7 @@ fn build_content_block(messages: &[Message]) -> Result<Vec<BedrockMessage>, LlmC
 }
 
 /// Converts a Vec of ToolCall to a Bedrock ToolConfiguration.
-fn tool_configuration(tools: &[ToolSpec]) -> Result<ToolConfiguration, LlmClientError> {
+fn tool_configuration(tools: &[ToolSpec]) -> Result<ToolConfiguration, LlmProviderError> {
     let mut builder = ToolConfiguration::builder();
 
     for tool in tools {
@@ -341,7 +341,7 @@ fn tool_configuration(tools: &[ToolSpec]) -> Result<ToolConfiguration, LlmClient
             .input_schema(ToolInputSchema::Json(json_to_document(&tool.parameters)?))
             .build()
             .map_err(|e| {
-                LlmClientError::RequestBuild(format!(
+                LlmProviderError::RequestBuild(format!(
                     "Error building Bedrock tool specification: {}",
                     e
                 ))
@@ -351,12 +351,12 @@ fn tool_configuration(tools: &[ToolSpec]) -> Result<ToolConfiguration, LlmClient
     }
 
     builder.build().map_err(|e| {
-        LlmClientError::RequestBuild(format!("Error building Bedrock tool configuration: {}", e))
+        LlmProviderError::RequestBuild(format!("Error building Bedrock tool configuration: {}", e))
     })
 }
 
 /// Converts a Bedrock Document to a serde_json::Value.
-fn document_to_json(document: &Document) -> Result<serde_json::Value, LlmClientError> {
+fn document_to_json(document: &Document) -> Result<serde_json::Value, LlmProviderError> {
     match document {
         Document::Object(object) => {
             let mut map = serde_json::Map::new();
@@ -377,7 +377,7 @@ fn document_to_json(document: &Document) -> Result<serde_json::Value, LlmClientE
             Number::Float(value) => serde_json::Number::from_f64(*value)
                 .map(serde_json::Value::Number)
                 .ok_or_else(|| {
-                    LlmClientError::ResponseParse(format!(
+                    LlmProviderError::ResponseParse(format!(
                         "Bedrock tool input contains non-finite float: {}",
                         value
                     ))
@@ -390,7 +390,7 @@ fn document_to_json(document: &Document) -> Result<serde_json::Value, LlmClientE
 }
 
 /// Converts a serde_json::Value to a Bedrock Document.
-fn json_to_document(value: &serde_json::Value) -> Result<Document, LlmClientError> {
+fn json_to_document(value: &serde_json::Value) -> Result<Document, LlmProviderError> {
     match value {
         serde_json::Value::Object(object) => {
             let mut map = HashMap::new();
@@ -417,7 +417,7 @@ fn json_to_document(value: &serde_json::Value) -> Result<Document, LlmClientErro
             } else if let Some(value) = number.as_f64() {
                 Ok(Document::Number(Number::Float(value)))
             } else {
-                Err(LlmClientError::RequestBuild(format!(
+                Err(LlmProviderError::RequestBuild(format!(
                     "Unsupported JSON number for Bedrock tool schema: {}",
                     number
                 )))
@@ -432,28 +432,30 @@ fn json_to_document(value: &serde_json::Value) -> Result<Document, LlmClientErro
 /// Converts a StructuredOutputSchema to a Bedrock OutputConfig.
 fn structured_output_config(
     schema: &StructuredOutputSchema,
-) -> Result<OutputConfig, LlmClientError> {
+) -> Result<OutputConfig, LlmProviderError> {
     let schema_string = serde_json::to_string(&schema.schema)
-        .map_err(|e| LlmClientError::RequestBuild(format!("Invalid JSON schema: {e}")))?;
+        .map_err(|e| LlmProviderError::RequestBuild(format!("Invalid JSON schema: {e}")))?;
 
     let json_schema = JsonSchemaDefinition::builder()
         .name(schema.name.clone())
         .set_description(schema.description.clone())
         .schema(schema_string)
         .build()
-        .map_err(|e| LlmClientError::RequestBuild(format!("Failed to build JSON schema: {e}")))?;
+        .map_err(|e| LlmProviderError::RequestBuild(format!("Failed to build JSON schema: {e}")))?;
 
     let text_format = OutputFormat::builder()
         .r#type(OutputFormatType::JsonSchema)
         .structure(OutputFormatStructure::JsonSchema(json_schema))
         .build()
-        .map_err(|e| LlmClientError::RequestBuild(format!("Failed to build output format: {e}")))?;
+        .map_err(|e| {
+            LlmProviderError::RequestBuild(format!("Failed to build output format: {e}"))
+        })?;
 
     Ok(OutputConfig::builder().text_format(text_format).build())
 }
 
 /// Converts Attachment to a Bedrock ContentBlock.
-fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, LlmClientError> {
+fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, LlmProviderError> {
     if attachment.is_image() {
         let format = match attachment.mime_type.as_str() {
             "image/png" => ImageFormat::Png,
@@ -461,7 +463,7 @@ fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, 
             "image/gif" => ImageFormat::Gif,
             "image/webp" => ImageFormat::Webp,
             other => {
-                return Err(LlmClientError::RequestBuild(format!(
+                return Err(LlmProviderError::RequestBuild(format!(
                     "Unsupported image format: {other}"
                 )));
             }
@@ -470,7 +472,9 @@ fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, 
             .format(format)
             .source(ImageSource::Bytes(Blob::new(attachment.data.clone())))
             .build()
-            .map_err(|e| LlmClientError::RequestBuild(format!("Error building ImageBlock: {e}")))?;
+            .map_err(|e| {
+                LlmProviderError::RequestBuild(format!("Error building ImageBlock: {e}"))
+            })?;
         Ok(ContentBlock::Image(image_block))
     } else {
         let format = match attachment.mime_type.as_str() {
@@ -484,7 +488,7 @@ fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, 
             "text/plain" => DocumentFormat::Txt,
             "text/csv" => DocumentFormat::Csv,
             other => {
-                return Err(LlmClientError::RequestBuild(format!(
+                return Err(LlmProviderError::RequestBuild(format!(
                     "Unsupported document format: {other}"
                 )));
             }
@@ -495,7 +499,7 @@ fn attachment_to_content_block(attachment: &Attachment) -> Result<ContentBlock, 
             .source(DocumentSource::Bytes(Blob::new(attachment.data.clone())))
             .build()
             .map_err(|e| {
-                LlmClientError::RequestBuild(format!("Error building DocumentBlock: {e}"))
+                LlmProviderError::RequestBuild(format!("Error building DocumentBlock: {e}"))
             })?;
         Ok(ContentBlock::Document(doc_block))
     }
