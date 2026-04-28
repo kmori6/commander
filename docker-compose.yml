@@ -31,7 +31,7 @@ services:
     depends_on:
       - postgres
     volumes:
-      - ./db/migration/admin:/flyway/sql
+      - ./db/migrations/admin:/flyway/sql
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/postgres
       FLYWAY_USER: postgres
@@ -47,7 +47,7 @@ services:
       flyway-admin:
         condition: service_completed_successfully
     volumes:
-      - ./db/migration/agent:/flyway/sql
+      - ./db/migrations/agent:/flyway/sql
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/agent
       FLYWAY_USER: postgres

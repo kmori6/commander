@@ -62,7 +62,7 @@ impl MemoryWriteTool {
 
                 Ok(self
                     .memory_root()
-                    .join("journal")
+                    .join("journals")
                     .join(format!("{date}.md")))
             }
             _ => Err(ToolError::InvalidArguments(

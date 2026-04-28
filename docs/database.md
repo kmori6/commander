@@ -2,8 +2,8 @@
 
 PostgreSQL database name: `agent`.
 
-- Admin migrations (DB-level setup): [`db/migration/admin`](../db/migration/admin)
-- Application migrations (tables/indexes): [`db/migration/agent`](../db/migration/agent)
+- Admin migrations (DB-level setup): [`db/migrations/admin`](../db/migrations/admin)
+- Application migrations (tables/indexes): [`db/migrations/agent`](../db/migrations/agent)
 - Memory search uses the `vector` PostgreSQL extension created by `V5__create_memory_index.sql`.
 
 ## Tables

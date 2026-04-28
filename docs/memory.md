@@ -8,8 +8,8 @@ Memory files live inside the current workspace:
 
 | File                                      | Purpose                                                |
 | ----------------------------------------- | ------------------------------------------------------ |
-| `.commander/memory/MEMORY.md`             | Durable long-term facts, preferences, and stable notes |
-| `.commander/memory/journal/YYYY-MM-DD.md` | Daily work notes, decisions, and session context       |
+| `.commander/memory/MEMORY.md`              | Durable long-term facts, preferences, and stable notes |
+| `.commander/memory/journals/YYYY-MM-DD.md` | Daily work notes, decisions, and session context       |
 
 ## Tools
 
@@ -24,7 +24,7 @@ Memory files live inside the current workspace:
 - `content`: final Markdown text to append
 - `journal_date`: optional `YYYY-MM-DD` date for journal entries; defaults to the local date
 
-Long-term memory writes append to `.commander/memory/MEMORY.md` and skip indexing. Journal writes append to the selected daily file and rebuild the semantic index for that file.
+Long-term memory writes append to `.commander/memory/MEMORY.md` and skip indexing. Journal writes append to the selected daily file under `.commander/memory/journals/` and rebuild the semantic index for that file.
 
 `memory_search` accepts a non-empty `query` and an optional `limit` from 1 to 20. The default limit is 5. Results include the memory file path, chunk index, and matching content.
 
