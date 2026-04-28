@@ -1,9 +1,11 @@
 pub mod agent_cli;
 pub mod digest_cli;
 pub mod research_cli;
+pub mod serve_cli;
 pub mod survey_cli;
 
 use clap::{Parser, Subcommand};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -14,6 +16,10 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    Serve {
+        #[arg(long, default_value = "0.0.0.0:3000")]
+        addr: SocketAddr,
+    },
     Agent,
     Research,
     /// Read and summarize an academic paper from a PDF file or URL

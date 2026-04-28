@@ -35,7 +35,7 @@ use commander::infrastructure::{
     },
 };
 use commander::presentation::{
-    cli::{Cli, Commands, agent_cli, digest_cli, research_cli, survey_cli},
+    cli::{Cli, Commands, agent_cli, digest_cli, research_cli, serve_cli, survey_cli},
     error::agent_cli_error::AgentCliError,
 };
 
@@ -47,6 +47,10 @@ async fn main() -> Result<(), AgentCliError> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Serve { addr } => {
+            info!("Starting server on {}", addr);
+            serve_cli::run(addr).await?;
+        }
         Commands::Agent => {
             info!("Starting agent...");
 
