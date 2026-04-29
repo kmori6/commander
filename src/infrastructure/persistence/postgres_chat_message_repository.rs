@@ -9,7 +9,26 @@ use crate::domain::model::chat_message::ChatMessage;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
 use crate::domain::model::tool::{ToolCall, ToolResultMessage};
-use crate::domain::repository::chat_message_repository::ChatMessageRepository;
+use crate::domain::repository::chat_message_repository::{
+    ChatMessageRepository, ChatMessageSummary,
+};
+
+#[derive(sqlx::FromRow)]
+struct ChatMessageSummaryRow {
+    session_id: Uuid,
+    first_user_message: Option<String>,
+    message_count: i64,
+}
+
+impl From<ChatMessageSummaryRow> for ChatMessageSummary {
+    fn from(row: ChatMessageSummaryRow) -> Self {
+        Self {
+            session_id: row.session_id,
+            first_user_message: row.first_user_message,
+            message_count: row.message_count,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct PostgresChatMessageRepository {
@@ -253,5 +272,46 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
         .map_err(map_sqlx_error)?;
 
         rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn summarize_by_session_ids(
+        &self,
+        session_ids: &[Uuid],
+    ) -> Result<Vec<ChatMessageSummary>, ChatRepositoryError> {
+        if session_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows = sqlx::query_as::<_, ChatMessageSummaryRow>(
+            r#"
+            SELECT
+                counts.session_id,
+                first_user_message.text AS first_user_message,
+                counts.message_count
+            FROM (
+                SELECT
+                    session_id,
+                    COUNT(*) AS message_count
+                FROM chat_messages
+                WHERE session_id = ANY($1::uuid[])
+                GROUP BY session_id
+            ) counts
+            LEFT JOIN LATERAL (
+                SELECT text
+                FROM chat_messages
+                WHERE session_id = counts.session_id
+                AND role = 'user'
+                AND text IS NOT NULL
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+            ) first_user_message ON true
+            "#,
+        )
+        .bind(session_ids.to_vec())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(rows.into_iter().map(Into::into).collect())
     }
 }

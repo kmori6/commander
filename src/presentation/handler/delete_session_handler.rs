@@ -9,13 +9,13 @@ use uuid::Uuid;
 
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
-use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
+use crate::presentation::state::app_state::AppState;
 
 pub async fn delete_session_handler(
-    State(chat_session_repository): State<PostgresChatSessionRepository>,
+    State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
 ) -> Response {
-    match chat_session_repository.delete_by_id(session_id).await {
+    match state.chat_session_repository.delete_by_id(session_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(ChatRepositoryError::SessionNotFound(_)) => (
             StatusCode::NOT_FOUND,

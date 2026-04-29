@@ -17,6 +17,33 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
 
   /v1/sessions:
+    get:
+      summary: List chat sessions
+      operationId: listSessions
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of sessions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Chat sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListChatSessionsResponse"
+        "500":
+          description: Failed to list chat sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
     post:
       summary: Create a chat session
       operationId: createSession
@@ -89,6 +116,42 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    ChatSessionSummary:
+      type: object
+      required:
+        - id
+        - title
+        - created_at
+        - updated_at
+        - message_count
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: What is the best way to structure this Rust API?
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        message_count:
+          type: integer
+          format: int64
+          minimum: 0
+
+    ListChatSessionsResponse:
+      type: object
+      required:
+        - sessions
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatSessionSummary"
 
     ErrorResponse:
       type: object
