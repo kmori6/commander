@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: Commander Gateway API
+  version: 0.1.0
+
+paths:
+  /v1/health:
+    get:
+      summary: Check server health
+      operationId: getHealth
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/sessions:
+    post:
+      summary: Create a chat session
+      operationId: createSession
+      responses:
+        "201":
+          description: Chat session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatSession"
+        "500":
+          description: Failed to create chat session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/sessions/{id}:
+    delete:
+      summary: Delete a chat session
+      operationId: deleteSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Chat session ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Chat session deleted
+        "404":
+          description: Chat session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to delete chat session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ChatSession:
+      type: object
+      required:
+        - id
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string

@@ -87,4 +87,23 @@ impl ChatSessionRepository for PostgresChatSessionRepository {
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
+
+    async fn delete_by_id(&self, id: Uuid) -> Result<(), ChatRepositoryError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM chat_sessions
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(ChatRepositoryError::SessionNotFound(id));
+        }
+
+        Ok(())
+    }
 }
