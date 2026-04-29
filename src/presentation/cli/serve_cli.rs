@@ -4,6 +4,7 @@ use crate::presentation::handler::create_session_handler::create_session_handler
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::health_handler::health_handler;
+use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::state::app_state::AppState;
 
@@ -37,6 +38,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             "/sessions/{id}",
             get(get_session_handler).delete(delete_session_handler),
         )
+        .route("/sessions/{id}/messages", get(list_message_handler))
         .with_state(app_state);
 
     let app = Router::new().nest("/v1", api_routes);

@@ -17,13 +17,13 @@ const MAX_LIMIT: usize = 100;
 const TITLE_MAX_CHARS: usize = 40;
 
 #[derive(Debug, Deserialize)]
-pub struct GetSessionsQuery {
+pub struct ListSessionQuery {
     pub limit: Option<usize>,
 }
 
 pub async fn list_session_handler(
     State(state): State<AppState>,
-    Query(query): Query<GetSessionsQuery>,
+    Query(query): Query<ListSessionQuery>,
 ) -> impl IntoResponse {
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
 
