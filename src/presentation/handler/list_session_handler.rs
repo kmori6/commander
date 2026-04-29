@@ -21,7 +21,7 @@ pub struct GetSessionsQuery {
     pub limit: Option<usize>,
 }
 
-pub async fn get_session_handler(
+pub async fn list_session_handler(
     State(state): State<AppState>,
     Query(query): Query<GetSessionsQuery>,
 ) -> impl IntoResponse {

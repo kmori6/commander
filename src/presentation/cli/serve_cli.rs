@@ -2,8 +2,8 @@ use crate::infrastructure::persistence::postgres_chat_message_repository::Postgr
 use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
-use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::health_handler::health_handler;
+use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::state::app_state::AppState;
 use axum::{
     Router,
@@ -32,7 +32,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/health", get(health_handler))
         .route(
             "/sessions",
-            get(get_session_handler).post(create_session_handler),
+            get(list_session_handler).post(create_session_handler),
         )
         .route("/sessions/{id}", delete(delete_session_handler))
         .with_state(app_state);
