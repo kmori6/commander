@@ -14,13 +14,11 @@ pub fn load_attachment(path: &Path) -> Result<Attachment, String> {
     let data = std::fs::read(path).map_err(|e| format!("cannot read file: {e}"))?;
 
     if mime_type.starts_with("image/") {
-        Ok(Attachment::Image(InputImage { mime_type, data }))
+        Ok(Attachment::Image(InputImage::from_data(&mime_type, &data)))
     } else {
-        Ok(Attachment::File(InputFile {
-            filename,
-            mime_type,
-            data,
-        }))
+        Ok(Attachment::File(InputFile::from_data(
+            filename, &mime_type, &data,
+        )))
     }
 }
 

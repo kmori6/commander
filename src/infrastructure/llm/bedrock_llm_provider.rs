@@ -6,6 +6,7 @@ use crate::domain::model::role::Role;
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutputStatus, ToolSpec};
 use crate::domain::port::llm_provider::{LlmProvider, LlmResponse, StructuredOutputSchema};
+use crate::domain::util::data_uri::decode_data_uri;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::types::{
@@ -222,12 +223,12 @@ fn build_system_content_blocks(
         .iter()
         .filter(|message| message.role == Role::System)
     {
-        for content in &message.contents {
+        for content in &message.content {
             match content {
-                MessageContent::InputText(text) => {
+                MessageContent::InputText { text } => {
                     blocks.push(SystemContentBlock::Text(text.clone()));
                 }
-                MessageContent::OutputText(_) => {
+                MessageContent::OutputText { .. } => {
                     return Err(LlmProviderError::RequestBuild(
                         "System messages cannot contain output text".to_string(),
                     ));
@@ -260,7 +261,7 @@ fn build_content_blocks(messages: &[Message]) -> Result<Vec<BedrockMessage>, Llm
         .filter(|message| message.role != Role::System)
     {
         let blocks = message
-            .contents
+            .content
             .iter()
             .map(|content| message_content_to_content_block(message.role, content))
             .collect::<Result<Vec<_>, _>>()?;
@@ -283,7 +284,7 @@ fn message_content_to_content_block(
     content: &MessageContent,
 ) -> Result<ContentBlock, LlmProviderError> {
     match content {
-        MessageContent::InputText(text) | MessageContent::OutputText(text) => {
+        MessageContent::InputText { text } | MessageContent::OutputText { text } => {
             Ok(ContentBlock::Text(text.clone()))
         }
         MessageContent::InputImage(image) => {
@@ -513,7 +514,10 @@ fn structured_output_config(
 }
 
 fn input_image_to_content_block(image: &InputImage) -> Result<ContentBlock, LlmProviderError> {
-    let format = match image.mime_type.as_str() {
+    let decoded = decode_data_uri(&image.image_url)
+        .map_err(|err| LlmProviderError::RequestBuild(format!("Invalid image data URI: {err}")))?;
+
+    let format = match decoded.mime_type.as_str() {
         "image/png" => ImageFormat::Png,
         "image/jpeg" | "image/jpg" => ImageFormat::Jpeg,
         "image/gif" => ImageFormat::Gif,
@@ -524,16 +528,20 @@ fn input_image_to_content_block(image: &InputImage) -> Result<ContentBlock, LlmP
             )));
         }
     };
+
     let image_block = ImageBlock::builder()
         .format(format)
-        .source(ImageSource::Bytes(Blob::new(image.data.clone())))
+        .source(ImageSource::Bytes(Blob::new(decoded.data.clone())))
         .build()
         .map_err(|e| LlmProviderError::RequestBuild(format!("Error building ImageBlock: {e}")))?;
     Ok(ContentBlock::Image(image_block))
 }
 
 fn input_file_to_content_block(file: &InputFile) -> Result<ContentBlock, LlmProviderError> {
-    let format = match file.mime_type.as_str() {
+    let decoded = decode_data_uri(&file.file_data)
+        .map_err(|err| LlmProviderError::RequestBuild(format!("Invalid file data URI: {err}")))?;
+
+    let format = match decoded.mime_type.as_str() {
         "application/pdf" => DocumentFormat::Pdf,
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         | "application/msword" => DocumentFormat::Docx,
@@ -549,10 +557,11 @@ fn input_file_to_content_block(file: &InputFile) -> Result<ContentBlock, LlmProv
             )));
         }
     };
+
     let doc_block = DocumentBlock::builder()
         .format(format)
         .name(bedrock_document_name())
-        .source(DocumentSource::Bytes(Blob::new(file.data.clone())))
+        .source(DocumentSource::Bytes(Blob::new(decoded.data.clone())))
         .build()
         .map_err(|e| {
             LlmProviderError::RequestBuild(format!("Error building DocumentBlock: {e}"))

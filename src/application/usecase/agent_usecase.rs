@@ -418,7 +418,9 @@ where
 fn build_user_message(input: &HandleAgentInput) -> Result<Message, AgentUsecaseError> {
     let mut contents = Vec::with_capacity(input.attachments.len() + 1);
 
-    contents.push(MessageContent::InputText(input.user_input.clone()));
+    contents.push(MessageContent::InputText {
+        text: input.user_input.clone(),
+    });
     contents.extend(input.attachments.iter().map(attachment_to_message_content));
 
     Ok(Message::new(Role::User, contents)?)
@@ -436,9 +438,9 @@ fn final_assistant_text(messages: &[Message]) -> Option<String> {
         .iter()
         .rev()
         .filter(|message| message.role == Role::Assistant)
-        .flat_map(|message| message.contents.iter().rev())
+        .flat_map(|message| message.content.iter().rev())
         .find_map(|content| match content {
-            MessageContent::OutputText(text) => Some(text.clone()),
+            MessageContent::OutputText { text } => Some(text.clone()),
             _ => None,
         })
 }

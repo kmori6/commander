@@ -813,6 +813,7 @@ dependencies = [
  "aws-sdk-bedrockruntime",
  "aws-smithy-types",
  "axum",
+ "base64",
  "chrono",
  "clap",
  "dotenvy",

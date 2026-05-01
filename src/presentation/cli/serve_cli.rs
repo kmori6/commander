@@ -1,5 +1,6 @@
 use crate::infrastructure::persistence::postgres_chat_message_repository::PostgresChatMessageRepository;
 use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
+use crate::presentation::handler::create_message_handler::create_message_hadler;
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
@@ -38,7 +39,10 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             "/sessions/{id}",
             get(get_session_handler).delete(delete_session_handler),
         )
-        .route("/sessions/{id}/messages", get(list_message_handler))
+        .route(
+            "/sessions/{id}/messages",
+            get(list_message_handler).post(create_message_hadler),
+        )
         .with_state(app_state);
 
     let app = Router::new().nest("/v1", api_routes);

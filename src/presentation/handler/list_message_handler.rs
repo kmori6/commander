@@ -103,7 +103,7 @@ fn message_to_json(chat_message: ChatMessage) -> Value {
         "role": role_as_str(chat_message.message.role),
         "contents": chat_message
             .message
-            .contents
+            .content
             .iter()
             .filter_map(content_to_json)
             .collect::<Vec<_>>(),
@@ -113,11 +113,11 @@ fn message_to_json(chat_message: ChatMessage) -> Value {
 
 fn content_to_json(content: &MessageContent) -> Option<Value> {
     match content {
-        MessageContent::InputText(text) => Some(json!({
+        MessageContent::InputText { text } => Some(json!({
             "type": "input_text",
             "text": text,
         })),
-        MessageContent::OutputText(text) => Some(json!({
+        MessageContent::OutputText { text } => Some(json!({
             "type": "output_text",
             "text": text,
         })),

@@ -1061,8 +1061,11 @@ fn shorten_for_progress(text: &str, max_chars: usize) -> String {
 }
 
 fn system_message(text: impl Into<String>) -> Message {
-    Message::new(Role::System, vec![MessageContent::InputText(text.into())])
-        .expect("system message helper builds a valid single-content message")
+    Message::new(
+        Role::System,
+        vec![MessageContent::InputText { text: text.into() }],
+    )
+    .expect("system message helper builds a valid single-content message")
 }
 
 fn user_message(text: impl Into<String>) -> Message {

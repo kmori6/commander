@@ -3,19 +3,21 @@ use crate::domain::model::input_file::InputFile;
 use crate::domain::model::input_image::InputImage;
 use crate::domain::model::role::Role;
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageType {
     Message,
     Tool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageContent {
-    InputText(String),
+    InputText { text: String },
     InputImage(InputImage),
     InputFile(InputFile),
-    OutputText(String),
+    OutputText { text: String },
     ToolCall(ToolCall),
     ToolCallOutput(ToolCallOutput),
 }
@@ -23,9 +25,10 @@ pub enum MessageContent {
 impl MessageContent {
     pub fn message_type(&self) -> MessageType {
         match self {
-            Self::InputText(_) | Self::InputImage(_) | Self::InputFile(_) | Self::OutputText(_) => {
-                MessageType::Message
-            }
+            Self::InputText { text: _ }
+            | Self::InputImage(_)
+            | Self::InputFile(_)
+            | Self::OutputText { text: _ } => MessageType::Message,
 
             Self::ToolCall(_) | Self::ToolCallOutput(_) => MessageType::Tool,
         }
@@ -36,27 +39,30 @@ impl MessageContent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
-    pub contents: Vec<MessageContent>,
+    pub content: Vec<MessageContent>,
 }
 
 impl Message {
-    pub fn new(role: Role, contents: Vec<MessageContent>) -> Result<Self, MessageError> {
-        let message = Self { role, contents };
+    pub fn new(role: Role, content: Vec<MessageContent>) -> Result<Self, MessageError> {
+        let message = Self { role, content };
         message.message_type()?;
         Ok(message)
     }
 
     pub fn input_text(text: impl Into<String>) -> Result<Self, MessageError> {
-        Self::new(Role::User, vec![MessageContent::InputText(text.into())])
+        Self::new(
+            Role::User,
+            vec![MessageContent::InputText { text: text.into() }],
+        )
     }
 
     pub fn output_text(text: impl Into<String>) -> Result<Self, MessageError> {
         Self::new(
             Role::Assistant,
-            vec![MessageContent::OutputText(text.into())],
+            vec![MessageContent::OutputText { text: text.into() }],
         )
     }
 
@@ -81,12 +87,12 @@ impl Message {
     }
 
     pub fn message_type(&self) -> Result<MessageType, MessageError> {
-        let first = self.contents.first().ok_or(MessageError::EmptyContents)?;
+        let first = self.content.first().ok_or(MessageError::EmptyContents)?;
 
         let message_type = first.message_type();
 
         if self
-            .contents
+            .content
             .iter()
             .any(|content| content.message_type() != message_type)
         {

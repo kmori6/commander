@@ -116,7 +116,7 @@ fn format_message_for_summary(message: &Message) -> String {
 
 fn format_message_content_for_summary(message: &Message) -> String {
     message
-        .contents
+        .content
         .iter()
         .map(format_content_for_summary)
         .collect::<Vec<_>>()
@@ -125,20 +125,15 @@ fn format_message_content_for_summary(message: &Message) -> String {
 
 fn format_content_for_summary(content: &MessageContent) -> String {
     match content {
-        MessageContent::InputText(text) | MessageContent::OutputText(text) => text.clone(),
+        MessageContent::InputText { text } | MessageContent::OutputText { text } => text.clone(),
         MessageContent::InputImage(image) => {
-            format!(
-                "input_image: {} ({} bytes)",
-                image.mime_type,
-                image.data.len()
-            )
+            format!("input_image: {} chars", image.image_url.len())
         }
         MessageContent::InputFile(file) => {
             format!(
-                "input_file: {} ({}, {} bytes)",
+                "input_file: {} ({} chars)",
                 file.filename,
-                file.mime_type,
-                file.data.len()
+                file.file_data.len()
             )
         }
         MessageContent::ToolCall(call) => {

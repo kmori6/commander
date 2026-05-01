@@ -31,7 +31,9 @@ impl<L: LlmProvider> SurveyUsecase<L> {
         let messages = vec![
             Message::new(
                 Role::System,
-                vec![MessageContent::InputText(SYSTEM_PROMPT.to_string())],
+                vec![MessageContent::InputText {
+                    text: SYSTEM_PROMPT.to_string(),
+                }],
             )
             .map_err(|e| SurveyUsecaseError::LlmClient(e.to_string()))?,
             Message::input_text(format!(

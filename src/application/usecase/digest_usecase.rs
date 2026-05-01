@@ -161,7 +161,9 @@ impl<L: LlmProvider + Sync> DigestUsecase<L> {
         let messages = vec![
             Message::new(
                 Role::System,
-                vec![MessageContent::InputText(system_prompt.to_string())],
+                vec![MessageContent::InputText {
+                    text: system_prompt.to_string(),
+                }],
             )
             .map_err(|e| DigestUsecaseError::Translate(e.to_string()))?,
             Message::input_text(user_content)

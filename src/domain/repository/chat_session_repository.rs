@@ -1,5 +1,5 @@
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
-use crate::domain::model::chat_session::ChatSession;
+use crate::domain::model::chat_session::{ChatSession, ChatSessionStatus};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -12,4 +12,10 @@ pub trait ChatSessionRepository: Send + Sync {
     async fn list_recent(&self, limit: usize) -> Result<Vec<ChatSession>, ChatRepositoryError>;
 
     async fn delete_by_id(&self, id: Uuid) -> Result<(), ChatRepositoryError>;
+
+    async fn update_status(
+        &self,
+        id: Uuid,
+        status: ChatSessionStatus,
+    ) -> Result<ChatSession, ChatRepositoryError>;
 }

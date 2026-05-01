@@ -14,6 +14,7 @@ aws-config = { version = "1.8.16", features = ["behavior-version-latest"] }
 aws-sdk-bedrockruntime = { version = "1.130.0", features = ["behavior-version-latest"] }
 aws-smithy-types = "1.4.7"
 axum = "0.8.9"
+base64 = "0.22.1"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["derive"] }
 dotenvy = "0.15.7"

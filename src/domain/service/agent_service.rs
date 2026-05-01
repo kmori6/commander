@@ -221,8 +221,10 @@ impl<L: LlmProvider> AgentService<L> {
         messages: Vec<Message>,
         tx: mpsc::Sender<AgentEvent>,
     ) -> Result<AgentOutput, AgentError> {
-        let instructions =
-            Message::new(Role::System, vec![MessageContent::InputText(instruction)])?;
+        let instructions = Message::new(
+            Role::System,
+            vec![MessageContent::InputText { text: instruction }],
+        )?;
         let input_messages = {
             let mut all_messages = Vec::with_capacity(messages.len() + 1);
             all_messages.push(instructions);

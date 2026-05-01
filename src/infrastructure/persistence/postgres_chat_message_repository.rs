@@ -98,8 +98,12 @@ fn content_row_to_message_content(
     row: ChatMessageContentRow,
 ) -> Result<MessageContent, ChatRepositoryError> {
     match row.content_type.as_str() {
-        "input_text" => Ok(MessageContent::InputText(row.text.unwrap_or_default())),
-        "output_text" => Ok(MessageContent::OutputText(row.text.unwrap_or_default())),
+        "input_text" => Ok(MessageContent::InputText {
+            text: row.text.unwrap_or_default(),
+        }),
+        "output_text" => Ok(MessageContent::OutputText {
+            text: row.text.unwrap_or_default(),
+        }),
         "tool_call" => Ok(MessageContent::ToolCall(ToolCall {
             call_id: row.call_id.unwrap_or_default(),
             name: row.tool_name.unwrap_or_default(),
@@ -146,11 +150,11 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
 
         let updated = sqlx::query_scalar::<_, Uuid>(
             r#"
-        UPDATE chat_sessions
-        SET updated_at = NOW()
-        WHERE id = $1
-        RETURNING id
-        "#,
+            UPDATE chat_sessions
+            SET updated_at = NOW()
+            WHERE id = $1
+            RETURNING id
+            "#,
         )
         .bind(session_id)
         .fetch_optional(&mut *tx)
@@ -175,14 +179,14 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
         .await
         .map_err(map_sqlx_error)?;
 
-        for (content_index, content) in message.contents.iter().enumerate() {
+        for (content_index, content) in message.content.iter().enumerate() {
             if !content.is_persistable() {
                 continue;
             }
 
             let (content_type, text, call_id, tool_name, arguments, output, result_status) =
                 match content {
-                    MessageContent::InputText(text) => (
+                    MessageContent::InputText { text } => (
                         "input_text",
                         Some(text.clone()),
                         None,
@@ -191,7 +195,7 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
                         None,
                         None,
                     ),
-                    MessageContent::OutputText(text) => (
+                    MessageContent::OutputText { text } => (
                         "output_text",
                         Some(text.clone()),
                         None,
@@ -223,19 +227,19 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
 
             sqlx::query(
                 r#"
-            INSERT INTO chat_message_contents (
-                message_id,
-                content_index,
-                type,
-                text,
-                call_id,
-                tool_name,
-                arguments,
-                output,
-                result_status
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            "#,
+                INSERT INTO chat_message_contents (
+                    message_id,
+                    content_index,
+                    type,
+                    text,
+                    call_id,
+                    tool_name,
+                    arguments,
+                    output,
+                    result_status
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                "#,
             )
             .bind(row.id)
             .bind(content_index as i32)
