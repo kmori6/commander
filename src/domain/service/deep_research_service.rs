@@ -136,7 +136,11 @@ where
             )),
         ];
 
-        let content = self.llm_provider.response(messages, &self.model).await?;
+        let content = self
+            .llm_provider
+            .response(messages, &self.model)
+            .await?
+            .output_text("\n");
 
         Ok(DraftReport {
             revision: 0,
@@ -233,7 +237,11 @@ where
             )),
         ];
 
-        let revised_content = self.llm_provider.response(messages, &self.model).await?;
+        let revised_content = self
+            .llm_provider
+            .response(messages, &self.model)
+            .await?
+            .output_text("\n");
 
         Ok(DraftReport {
             revision: previous_draft.revision + 1,
@@ -591,7 +599,11 @@ where
             )),
         ];
 
-        let summary = self.llm_provider.response(messages, &self.model).await?;
+        let summary = self
+            .llm_provider
+            .response(messages, &self.model)
+            .await?
+            .output_text("\n");
 
         Ok(ResearchAnswer {
             summary: summary.trim().to_string(),
@@ -616,7 +628,11 @@ where
             )),
         ];
 
-        let summary = self.llm_provider.response(messages, &self.model).await?;
+        let summary = self
+            .llm_provider
+            .response(messages, &self.model)
+            .await?
+            .output_text("\n");
 
         Ok(ResearchAnswer {
             summary: summary.trim().to_string(),
@@ -904,7 +920,11 @@ where
             )),
         ];
 
-        let report = self.llm_provider.response(messages, &self.model).await?;
+        let report = self
+            .llm_provider
+            .response(messages, &self.model)
+            .await?
+            .output_text("\n");
         Ok(report.trim().to_string())
     }
 
@@ -991,7 +1011,11 @@ where
             )),
         ];
 
-        let report = self.llm_provider.response(messages, &self.model).await?;
+        let report = self
+            .llm_provider
+            .response(messages, &self.model)
+            .await?
+            .output_text("\n");
         Ok(report.trim().to_string())
     }
 }

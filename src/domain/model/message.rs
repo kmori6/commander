@@ -5,12 +5,6 @@ use crate::domain::model::role::Role;
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MessageType {
-    Message,
-    Tool,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageContent {
@@ -23,17 +17,6 @@ pub enum MessageContent {
 }
 
 impl MessageContent {
-    pub fn message_type(&self) -> MessageType {
-        match self {
-            Self::InputText { text: _ }
-            | Self::InputImage(_)
-            | Self::InputFile(_)
-            | Self::OutputText { text: _ } => MessageType::Message,
-
-            Self::ToolCall(_) | Self::ToolCallOutput(_) => MessageType::Tool,
-        }
-    }
-
     pub fn is_persistable(&self) -> bool {
         !matches!(self, Self::InputImage(_) | Self::InputFile(_))
     }
@@ -47,9 +30,11 @@ pub struct Message {
 
 impl Message {
     pub fn new(role: Role, content: Vec<MessageContent>) -> Result<Self, MessageError> {
-        let message = Self { role, content };
-        message.message_type()?;
-        Ok(message)
+        if content.is_empty() {
+            return Err(MessageError::EmptyContents);
+        }
+
+        Ok(Self { role, content })
     }
 
     pub fn input_text(text: impl Into<String>) -> Result<Self, MessageError> {
@@ -84,21 +69,5 @@ impl Message {
                 .map(MessageContent::ToolCallOutput)
                 .collect(),
         )
-    }
-
-    pub fn message_type(&self) -> Result<MessageType, MessageError> {
-        let first = self.content.first().ok_or(MessageError::EmptyContents)?;
-
-        let message_type = first.message_type();
-
-        if self
-            .content
-            .iter()
-            .any(|content| content.message_type() != message_type)
-        {
-            return Err(MessageError::MixedContentTypes);
-        }
-
-        Ok(message_type)
     }
 }

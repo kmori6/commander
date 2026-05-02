@@ -1,3 +1,4 @@
+pub mod postgres_awaiting_tool_approval_repository;
 pub mod postgres_chat_message_repository;
 pub mod postgres_chat_session_repository;
 pub mod postgres_memory_index_repository;

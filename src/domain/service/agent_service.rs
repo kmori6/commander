@@ -5,7 +5,7 @@ use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::{ToolApprovalDecision, ToolApprovalRequest};
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolCallOutputStatus};
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
-use crate::domain::port::llm_provider::LlmProvider;
+use crate::domain::port::llm_provider::{LlmProvider, LlmResponse};
 use crate::domain::service::tool_service::ToolService;
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -101,20 +101,25 @@ impl<L: LlmProvider> AgentService<L> {
                 .llm_provider
                 .response_with_tool(llm_messages, self.tool_service.specs(), &self.model)
                 .await?;
-            usage += response.usage;
             let _ = tx.send(AgentEvent::LlmFinished).await;
 
-            // 3. Add the assistant response, including tool calls when present.
-            if !response.text.is_empty() || response.tool_calls.is_empty() {
-                new_messages.push(Message::output_text(response.text.clone())?);
-            }
+            usage += response.usage;
 
-            if !response.tool_calls.is_empty() {
-                new_messages.push(Message::tool_calls(response.tool_calls.clone())?);
-            }
+            // 3. Add the assistant response, including tool calls when present.
+            let tool_calls = response
+                .message
+                .content
+                .iter()
+                .filter_map(|content| match content {
+                    MessageContent::ToolCall(call) => Some(call.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<ToolCall>>();
+
+            new_messages.push(response.message);
 
             // 4. Complete the run when the LLM did not request any tools.
-            if response.tool_calls.is_empty() {
+            if tool_calls.is_empty() {
                 return Ok(AgentOutput::Completed(AgentCompletion {
                     messages: new_messages,
                     usage,
@@ -122,7 +127,6 @@ impl<L: LlmProvider> AgentService<L> {
             }
 
             // 5. Execute, block, or pause for approval for each requested tool call.
-            let tool_calls = response.tool_calls;
             let mut tool_call_results = Vec::new();
             for (index, tool_call) in tool_calls.iter().cloned().enumerate() {
                 // 5.1 Decide whether this tool call can run, must ask, or should be blocked.
@@ -215,7 +219,7 @@ impl<L: LlmProvider> AgentService<L> {
         Err(AgentError::MaxToolIterations(self.max_tool_iterations))
     }
 
-    pub async fn run(
+    pub async fn start(
         &self,
         instruction: String,
         messages: Vec<Message>,
@@ -225,18 +229,12 @@ impl<L: LlmProvider> AgentService<L> {
             Role::System,
             vec![MessageContent::InputText { text: instruction }],
         )?;
-        let input_messages = {
-            let mut all_messages = Vec::with_capacity(messages.len() + 1);
-            all_messages.push(instructions);
-            all_messages.extend(messages);
-            all_messages
-        };
 
-        let new_messages: Vec<Message> = Vec::new();
-        let usage = TokenUsage::default();
+        let mut input_messages = Vec::with_capacity(messages.len() + 1);
+        input_messages.push(instructions);
+        input_messages.extend(messages);
 
-        // agent loop
-        self.agent_loop(input_messages, new_messages, usage, tx)
+        self.agent_loop(input_messages, Vec::new(), TokenUsage::default(), tx)
             .await
     }
 
@@ -396,5 +394,27 @@ impl<L: LlmProvider> AgentService<L> {
         // 5. Continue the normal agent loop.
         self.agent_loop(input_messages, new_messages, usage, tx)
             .await
+    }
+
+    pub async fn llm_step(
+        &self,
+        instruction: String,
+        messages: Vec<Message>,
+    ) -> Result<LlmResponse, AgentError> {
+        let instructions = Message::new(
+            Role::System,
+            vec![MessageContent::InputText { text: instruction }],
+        )?;
+
+        let mut llm_messages = Vec::with_capacity(messages.len() + 1);
+        llm_messages.push(instructions);
+        llm_messages.extend(messages);
+
+        let response = self
+            .llm_provider
+            .response_with_tool(llm_messages, self.tool_service.specs(), &self.model)
+            .await?;
+
+        Ok(response)
     }
 }

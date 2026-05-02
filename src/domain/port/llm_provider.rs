@@ -1,14 +1,28 @@
 use crate::domain::error::llm_provider_error::LlmProviderError;
-use crate::domain::model::message::Message;
+use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::token_usage::TokenUsage;
-use crate::domain::model::tool_call::{ToolCall, ToolSpec};
+use crate::domain::model::tool_call::ToolSpec;
 use async_trait::async_trait;
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct LlmResponse {
-    pub text: String,
-    pub tool_calls: Vec<ToolCall>,
+    pub message: Message,
     pub usage: TokenUsage,
+}
+
+impl LlmResponse {
+    pub fn output_text(&self, separator: &str) -> String {
+        self.message
+            .content
+            .iter()
+            .filter_map(|content| match content {
+                MessageContent::OutputText { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(separator)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,7 +38,7 @@ pub trait LlmProvider: Send + Sync {
         &self,
         messages: Vec<Message>,
         model: &str,
-    ) -> Result<String, LlmProviderError>;
+    ) -> Result<LlmResponse, LlmProviderError>;
 
     async fn response_with_tool(
         &self,
@@ -38,5 +52,5 @@ pub trait LlmProvider: Send + Sync {
         messages: Vec<Message>,
         schema: StructuredOutputSchema,
         model: &str,
-    ) -> Result<serde_json::Value, LlmProviderError>;
+    ) -> Result<Value, LlmProviderError>;
 }

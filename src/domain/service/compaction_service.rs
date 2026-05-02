@@ -1,12 +1,12 @@
-use crate::domain::error::agent_error::AgentError;
+use crate::domain::error::compaction_service_error::CompactionServiceError;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::port::llm_provider::LlmProvider;
 
 const DEFAULT_MODEL: &str = "global.anthropic.claude-sonnet-4-6";
-const DEFAULT_CONTEXT_WINDOW_TOKENS: u64 = 1_000_000;
+const DEFAULT_CONTEXT_WINDOW_TOKENS: u64 = 256_000;
 const DEFAULT_COMPACTION_THRESHOLD_PERCENT: u64 = 80;
-const RECENT_MESSAGES_TO_KEEP: usize = 8;
+const RECENT_MESSAGES_TO_KEEP: usize = 10;
 
 pub struct CompactionService<L> {
     llm_provider: L,
@@ -43,7 +43,7 @@ impl<L: LlmProvider> CompactionService<L> {
         &self,
         history: Vec<Message>,
         latest_usage: Option<TokenUsage>,
-    ) -> Result<Vec<Message>, AgentError> {
+    ) -> Result<Vec<Message>, CompactionServiceError> {
         let input_tokens = latest_usage.map_or(0, |usage| usage.input_tokens);
 
         if !self.should_compact(input_tokens) {
@@ -69,7 +69,10 @@ impl<L: LlmProvider> CompactionService<L> {
         self.percent_used(input_tokens) >= self.compaction_threshold_percent
     }
 
-    async fn compact_messages(&self, history: Vec<Message>) -> Result<Vec<Message>, AgentError> {
+    async fn compact_messages(
+        &self,
+        history: Vec<Message>,
+    ) -> Result<Vec<Message>, CompactionServiceError> {
         let split_at = history.len().saturating_sub(RECENT_MESSAGES_TO_KEEP);
         let old_messages = history[..split_at].to_vec();
         let recent_messages = history[split_at..].to_vec();
@@ -94,7 +97,8 @@ Conversation history:\n{old_text}"
         let summary = self
             .llm_provider
             .response(vec![Message::input_text(summary_prompt)?], &self.model)
-            .await?;
+            .await?
+            .output_text("\n");
 
         let mut compacted = Vec::with_capacity(recent_messages.len() + 1);
         compacted.push(Message::output_text(format!(

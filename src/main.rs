@@ -18,6 +18,7 @@ use commander::infrastructure::{
     embedding::bedrock_embedding_provider::BedrockEmbeddingProvider,
     llm::bedrock_llm_provider::BedrockLlmProvider,
     persistence::{
+        postgres_awaiting_tool_approval_repository::PostgresAwaitingToolApprovalRepository,
         postgres_chat_message_repository::PostgresChatMessageRepository,
         postgres_chat_session_repository::PostgresChatSessionRepository,
         postgres_memory_index_repository::PostgresMemoryIndexRepository,
@@ -99,6 +100,8 @@ async fn main() -> Result<(), AgentCliError> {
             let chat_message_repository = PostgresChatMessageRepository::new(pool.clone());
             let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
             let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
+            let awaiting_tool_approval_repository =
+                PostgresAwaitingToolApprovalRepository::new(pool.clone());
             let tool_execution_rule_repository =
                 PostgresToolExecutionRuleRepository::new(pool.clone());
             let tool_execution_rule_usecase =
@@ -112,6 +115,7 @@ async fn main() -> Result<(), AgentCliError> {
                 chat_message_repository,
                 token_usage_repository,
                 tool_approval_repository,
+                awaiting_tool_approval_repository,
             );
 
             agent_cli::run(&usecase, &tool_execution_rule_usecase).await?;

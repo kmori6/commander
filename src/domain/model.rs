@@ -1,3 +1,5 @@
+pub mod agent_execution_mode;
+pub mod awaiting_tool_approval;
 pub mod chat_message;
 pub mod chat_session;
 pub mod input_file;

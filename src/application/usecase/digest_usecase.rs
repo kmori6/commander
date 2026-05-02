@@ -173,6 +173,7 @@ impl<L: LlmProvider + Sync> DigestUsecase<L> {
         self.llm_provider
             .response(messages, MODEL)
             .await
+            .map(|response| response.output_text("\n"))
             .map_err(|e| DigestUsecaseError::Translate(e.to_string()))
     }
 }

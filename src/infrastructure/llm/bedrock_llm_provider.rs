@@ -32,22 +32,6 @@ struct ConverseOptions {
     structured_output: Option<StructuredOutputSchema>,
 }
 
-struct ConverseResult {
-    text_blocks: Vec<String>,
-    tool_calls: Vec<ToolCall>,
-    usage: TokenUsage,
-}
-
-impl ConverseResult {
-    fn plain_text(&self) -> String {
-        self.text_blocks.join("\n")
-    }
-
-    fn structured_text(&self) -> String {
-        self.text_blocks.join("")
-    }
-}
-
 #[derive(Clone)]
 pub struct BedrockLlmProvider {
     client: Client,
@@ -69,7 +53,7 @@ impl BedrockLlmProvider {
         messages: Vec<Message>,
         model: &str,
         options: ConverseOptions,
-    ) -> Result<ConverseResult, LlmProviderError> {
+    ) -> Result<LlmResponse, LlmProviderError> {
         if options.tools.is_some() && options.structured_output.is_some() {
             return Err(LlmProviderError::RequestBuild(
                 "Combining tools and structured output is not supported yet".to_string(),
@@ -122,29 +106,36 @@ impl BedrockLlmProvider {
             .content();
 
         // LLM response
-        let mut text_blocks = Vec::new();
-        let mut tool_calls = Vec::new();
+        let mut contents = Vec::new();
 
         for block in output_blocks {
             if let Ok(text) = block.as_text() {
-                text_blocks.push(text.to_string());
+                contents.push(MessageContent::OutputText {
+                    text: text.to_string(),
+                });
                 continue;
             }
 
             if let Ok(tool_use) = block.as_tool_use() {
-                tool_calls.push(ToolCall {
+                contents.push(MessageContent::ToolCall(ToolCall {
                     call_id: tool_use.tool_use_id().to_string(),
                     name: tool_use.name().to_string(),
                     arguments: document_to_json(tool_use.input())?,
-                });
+                }));
             }
         }
 
-        Ok(ConverseResult {
-            text_blocks,
-            tool_calls,
-            usage,
-        })
+        if contents.is_empty() {
+            contents.push(MessageContent::OutputText {
+                text: String::new(),
+            });
+        }
+
+        let message = Message::new(Role::Assistant, contents).map_err(|err| {
+            LlmProviderError::ResponseParse(format!("Invalid LLM response message: {err}"))
+        })?;
+
+        Ok(LlmResponse { message, usage })
     }
 }
 
@@ -154,7 +145,7 @@ impl LlmProvider for BedrockLlmProvider {
         &self,
         messages: Vec<Message>,
         model: &str,
-    ) -> Result<String, LlmProviderError> {
+    ) -> Result<LlmResponse, LlmProviderError> {
         Ok(self
             .converse(
                 messages,
@@ -164,8 +155,7 @@ impl LlmProvider for BedrockLlmProvider {
                     structured_output: None,
                 },
             )
-            .await?
-            .plain_text())
+            .await?)
     }
 
     async fn response_with_tool(
@@ -174,7 +164,7 @@ impl LlmProvider for BedrockLlmProvider {
         tools: Vec<ToolSpec>,
         model: &str,
     ) -> Result<LlmResponse, LlmProviderError> {
-        let result = self
+        Ok(self
             .converse(
                 messages,
                 model,
@@ -183,12 +173,7 @@ impl LlmProvider for BedrockLlmProvider {
                     structured_output: None,
                 },
             )
-            .await?;
-        Ok(LlmResponse {
-            text: result.plain_text(),
-            tool_calls: result.tool_calls,
-            usage: result.usage,
-        })
+            .await?)
     }
 
     async fn response_with_structure(
@@ -207,7 +192,10 @@ impl LlmProvider for BedrockLlmProvider {
                 },
             )
             .await?;
-        serde_json::from_str(result.structured_text().trim()).map_err(|e| {
+
+        let output_text = result.output_text("");
+
+        serde_json::from_str(&output_text).map_err(|e| {
             LlmProviderError::ResponseParse(format!("Failed to parse structured output JSON: {e}"))
         })
     }

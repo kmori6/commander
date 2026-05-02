@@ -1,6 +1,6 @@
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
 use crate::domain::model::chat_message::ChatMessage;
-use crate::domain::model::message::{Message, MessageContent, MessageType};
+use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolCallOutputStatus};
 use crate::domain::repository::chat_message_repository::{
@@ -73,11 +73,28 @@ fn role_from_db(value: &str) -> Result<Role, ChatRepositoryError> {
     }
 }
 
-fn message_type_to_db(message_type: MessageType) -> &'static str {
-    match message_type {
-        MessageType::Message => "message",
-        MessageType::Tool => "tool",
+fn message_type_to_db(message: &Message) -> Result<&'static str, ChatRepositoryError> {
+    if message.content.is_empty() {
+        return Err(ChatRepositoryError::Unexpected(
+            "message content must not be empty".to_string(),
+        ));
     }
+
+    let has_text_or_attachment = message.content.iter().any(|content| {
+        matches!(
+            content,
+            MessageContent::InputText { .. }
+                | MessageContent::InputImage(_)
+                | MessageContent::InputFile(_)
+                | MessageContent::OutputText { .. }
+        )
+    });
+
+    Ok(if has_text_or_attachment {
+        "message"
+    } else {
+        "tool"
+    })
 }
 
 fn status_to_db(status: ToolCallOutputStatus) -> &'static str {
@@ -138,12 +155,8 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
         session_id: Uuid,
         message: Message,
     ) -> Result<ChatMessage, ChatRepositoryError> {
-        let message_type = message
-            .message_type()
-            .map_err(|err| ChatRepositoryError::Unexpected(err.to_string()))?;
-
         let role = role_to_db(message.role).to_string();
-        let message_type = message_type_to_db(message_type).to_string();
+        let message_type = message_type_to_db(&message)?.to_string();
 
         // transaction: 1. update chat_sessions.updated_at -> 2. insert into chat_messages
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;

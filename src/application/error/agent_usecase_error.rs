@@ -1,5 +1,7 @@
 use crate::domain::error::agent_error::AgentError;
+use crate::domain::error::awaiting_tool_approval_repository_error::AwaitingToolApprovalRepositoryError;
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
+use crate::domain::error::compaction_service_error::CompactionServiceError;
 use crate::domain::error::message_error::MessageError;
 use crate::domain::error::token_usage_repository_error::TokenUsageRepositoryError;
 use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
@@ -9,8 +11,23 @@ use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum AgentUsecaseError {
+    #[error("invalid user message: {0}")]
+    InvalidUserMessage(String),
+
+    #[error("chat session not found: {0}")]
+    SessionNotFound(Uuid),
+
+    #[error("invalid session status for operation: {0}")]
+    SessionStatus(String),
+
+    #[error("failed to access awaiting tool approval repository: {0}")]
+    AwaitingToolApprovalRepository(#[from] AwaitingToolApprovalRepositoryError),
+
     #[error("failed to execute agent use case: {0}")]
     Agent(#[from] AgentError),
+
+    #[error("failed to compact conversation history: {0}")]
+    Compaction(#[from] CompactionServiceError),
 
     #[error("failed to access chat repository: {0}")]
     ChatRepository(#[from] ChatRepositoryError),

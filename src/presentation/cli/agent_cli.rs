@@ -10,10 +10,11 @@ use uuid::Uuid;
 
 use crate::application::usecase::agent_usecase::Attachment;
 use crate::application::usecase::agent_usecase::{
-    AgentEvent, AgentUsecase, HandleAgentInput, HandleAgentOutput,
+    AgentEvent, AgentStartTurnOutput, AgentUsecase, HandleAgentInput, HandleAgentOutput,
 };
 use crate::application::usecase::tool_execution_rule_usecase::ToolExecutionRuleUsecase;
 use crate::domain::port::llm_provider::LlmProvider;
+use crate::domain::repository::awaiting_tool_approval_repository::AwaitingToolApprovalRepository;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
@@ -43,8 +44,8 @@ impl ReplState {
     }
 }
 
-pub async fn run<L, S, M, T, A, TR>(
-    usecase: &AgentUsecase<L, S, M, T, A>,
+pub async fn run<L, S, M, T, A, W, TR>(
+    usecase: &AgentUsecase<L, S, M, T, A, W>,
     tool_execution_rule_usecase: &ToolExecutionRuleUsecase<TR>,
 ) -> Result<(), AgentCliError>
 where
@@ -53,6 +54,7 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    W: AwaitingToolApprovalRepository,
     TR: ToolExecutionRuleRepository,
 {
     let session = usecase.start_session().await?;
@@ -65,9 +67,9 @@ where
     repl_loop(&mut state, usecase, tool_execution_rule_usecase).await
 }
 
-async fn repl_loop<L, S, M, T, A, TR>(
+async fn repl_loop<L, S, M, T, A, W, TR>(
     state: &mut ReplState,
-    usecase: &AgentUsecase<L, S, M, T, A>,
+    usecase: &AgentUsecase<L, S, M, T, A, W>,
     tool_execution_rule_usecase: &ToolExecutionRuleUsecase<TR>,
 ) -> Result<(), AgentCliError>
 where
@@ -76,6 +78,7 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    W: AwaitingToolApprovalRepository,
     TR: ToolExecutionRuleRepository,
 {
     let mut line_editor = Reedline::create().with_ansi_colors(true);
@@ -125,10 +128,10 @@ fn read_repl_line(
     }
 }
 
-async fn handle_command<L, S, M, T, A, TR>(
+async fn handle_command<L, S, M, T, A, W, TR>(
     command: AgentCommand,
     state: &mut ReplState,
-    usecase: &AgentUsecase<L, S, M, T, A>,
+    usecase: &AgentUsecase<L, S, M, T, A, W>,
     tool_execution_rule_usecase: &ToolExecutionRuleUsecase<TR>,
 ) -> Result<bool, AgentCliError>
 where
@@ -137,6 +140,7 @@ where
     M: ChatMessageRepository,
     T: TokenUsageRepository,
     A: ToolApprovalRepository,
+    W: AwaitingToolApprovalRepository,
     TR: ToolExecutionRuleRepository,
 {
     match command {
@@ -229,14 +233,14 @@ where
             let session_id = state.session_id;
             let (output, printed_progress_events) =
                 run_with_progress(|tx| usecase.approve_approval(session_id, tx)).await?;
-            apply_output(output, printed_progress_events);
+            apply_start_turn_output(output, printed_progress_events);
         }
 
         AgentCommand::Deny => {
             let session_id = state.session_id;
             let (output, printed_progress_events) =
                 run_with_progress(|tx| usecase.deny_approval(session_id, tx)).await?;
-            apply_output(output, printed_progress_events);
+            apply_start_turn_output(output, printed_progress_events);
         }
 
         AgentCommand::Tools => {
@@ -550,12 +554,10 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| display_path(path))
 }
 
-async fn run_with_progress<F, Fut, E>(
-    make_future: F,
-) -> Result<(HandleAgentOutput, bool), AgentCliError>
+async fn run_with_progress<F, Fut, E, O>(make_future: F) -> Result<(O, bool), AgentCliError>
 where
     F: FnOnce(tokio::sync::mpsc::Sender<AgentProgressEvent>) -> Fut,
-    Fut: Future<Output = Result<HandleAgentOutput, E>>,
+    Fut: Future<Output = Result<O, E>>,
     AgentCliError: From<E>,
 {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(32);
@@ -608,13 +610,31 @@ fn handle_progress_event(event: AgentProgressEvent, reporter: &mut ProgressRepor
 }
 
 fn apply_output(output: HandleAgentOutput, mut separate_from_progress: bool) {
-    for event in &output.events {
+    print_agent_events(&output.events, &mut separate_from_progress);
+
+    println!();
+    println!(
+        "tokens: in={} out={} | context={}/{} ({}%)",
+        output.usage.input_tokens,
+        output.usage.output_tokens,
+        output.context_input_tokens,
+        output.context_window_tokens,
+        output.context_percent_used,
+    );
+}
+
+fn apply_start_turn_output(output: AgentStartTurnOutput, mut separate_from_progress: bool) {
+    print_agent_events(&output.events, &mut separate_from_progress);
+}
+
+fn print_agent_events(events: &[AgentEvent], separate_from_progress: &mut bool) {
+    for event in events {
         match event {
             AgentEvent::AssistantMessage(msg) => {
                 if !msg.is_empty() {
-                    if separate_from_progress {
+                    if *separate_from_progress {
                         println!();
-                        separate_from_progress = false;
+                        *separate_from_progress = false;
                     }
                     println!("{ASSISTANT_LABEL}");
                     print_text(msg);
@@ -628,9 +648,9 @@ fn apply_output(output: HandleAgentOutput, mut separate_from_progress: bool) {
                 let pretty = serde_json::to_string_pretty(arguments)
                     .unwrap_or_else(|_| arguments.to_string());
                 let preview = truncate(pretty, MAX_ARGUMENT_PREVIEW_CHARS);
-                if separate_from_progress {
+                if *separate_from_progress {
                     println!();
-                    separate_from_progress = false;
+                    *separate_from_progress = false;
                 }
                 println!(
                     "[confirmation requested] {tool_name}\n{preview}\nRun /approve to execute, or /deny to cancel."
@@ -638,16 +658,6 @@ fn apply_output(output: HandleAgentOutput, mut separate_from_progress: bool) {
             }
         }
     }
-
-    println!();
-    println!(
-        "tokens: in={} out={} | context={}/{} ({}%)",
-        output.usage.input_tokens,
-        output.usage.output_tokens,
-        output.context_input_tokens,
-        output.context_window_tokens,
-        output.context_percent_used,
-    );
 }
 
 fn truncate(text: String, max: usize) -> String {
