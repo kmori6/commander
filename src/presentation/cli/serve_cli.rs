@@ -27,11 +27,16 @@ use crate::presentation::handler::create_session_handler::create_session_handler
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::health_handler::health_handler;
+use crate::presentation::handler::list_approval_handler::list_approval_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
+use crate::presentation::handler::resolve_approval_handler::resolve_approval_handler;
 use crate::presentation::state::app_state::AppState;
 
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use sqlx::PgPool;
 
 pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
@@ -113,6 +118,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
 
     let api_routes = Router::new()
         .route("/health", get(health_handler))
+        .route("/approvals", get(list_approval_handler))
+        .route("/approvals/{session_id}", post(resolve_approval_handler))
         .route(
             "/sessions",
             get(list_session_handler).post(create_session_handler),
