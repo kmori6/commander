@@ -3,9 +3,11 @@ use crate::presentation::error::agent_cli_error::AgentCliError;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use uuid::Uuid;
 
-const PROMPT: &str = "\x1b[38;2;0;71;171m>\x1b[0m ";
+const PROMPT: &str = "\x1b[38;2;0;71;171m❯\x1b[0m ";
+const FILE_ICON: &str = "@";
 const MAX_CHARS: usize = 100;
 
 struct ChatApiClient {
@@ -112,7 +114,13 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
     println!("server: {}", client.base_url);
     println!("session: {}", session.id);
 
-    let mut prompt = format!("\n{}\n{}", session.id, PROMPT);
+    let mut attached_files = Vec::<PathBuf>::new();
+    let mut prompt = format!(
+        "\n{} | files {}\n{}",
+        session.id,
+        attached_files.len(),
+        PROMPT
+    );
 
     let mut rl = DefaultEditor::new().map_err(|e| AgentCliError::Readline(e.to_string()))?;
 
@@ -131,8 +139,132 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     "/exit" | "/quit" => break,
                     "/new" => {
                         session = client.create_session().await?;
-                        prompt = format!("\n{}\n{}", session.id, PROMPT);
+                        attached_files.clear();
+                        prompt = format!(
+                            "\n{} | files {}\n{}",
+                            session.id,
+                            attached_files.len(),
+                            PROMPT
+                        );
                         println!("new session: {}", session.id);
+                    }
+                    "/attach" => {
+                        println!("usage: /attach <files...>");
+                    }
+                    _ if line.starts_with("/attach ") => {
+                        let paths = line
+                            .split_whitespace()
+                            .skip(1)
+                            .map(|path| path.trim_matches('\'').trim_matches('"'))
+                            .map(PathBuf::from)
+                            .collect::<Vec<_>>();
+
+                        let mut attached = Vec::new();
+                        for path in paths {
+                            match std::fs::metadata(&path) {
+                                Ok(metadata) if metadata.is_file() => {
+                                    let bytes = metadata.len();
+                                    let size = if bytes < 1024 {
+                                        format!("{bytes} B")
+                                    } else if bytes < 1024 * 1024 {
+                                        format!("{:.1} KB", bytes as f64 / 1024.0)
+                                    } else {
+                                        format!("{:.1} MB", bytes as f64 / 1024.0 / 1024.0)
+                                    };
+
+                                    attached_files.push(path.clone());
+                                    attached.push((attached_files.len(), path, size));
+                                }
+                                Ok(_) => {
+                                    println!("not a file: {}", path.display());
+                                }
+                                Err(err) => {
+                                    println!("failed to attach {}: {err}", path.display());
+                                }
+                            }
+                        }
+
+                        if !attached.is_empty() {
+                            prompt = format!(
+                                "\n{} | files {}\n{}",
+                                session.id,
+                                attached_files.len(),
+                                PROMPT
+                            );
+
+                            println!("attached");
+
+                            for (index, path, size) in attached {
+                                println!("  {FILE_ICON} {index}  {}  {size}", path.display());
+                            }
+                        }
+                    }
+                    "/files" => {
+                        if attached_files.is_empty() {
+                            println!("no attached files");
+                        } else {
+                            println!("attached files");
+
+                            for (index, path) in attached_files.iter().enumerate() {
+                                let size = match std::fs::metadata(path) {
+                                    Ok(metadata) => {
+                                        let bytes = metadata.len();
+
+                                        if bytes < 1024 {
+                                            format!("{bytes} B")
+                                        } else if bytes < 1024 * 1024 {
+                                            format!("{:.1} KB", bytes as f64 / 1024.0)
+                                        } else {
+                                            format!("{:.1} MB", bytes as f64 / 1024.0 / 1024.0)
+                                        }
+                                    }
+                                    Err(_) => "missing".to_string(),
+                                };
+
+                                println!("  {FILE_ICON} {}  {}  {size}", index + 1, path.display());
+                            }
+                        }
+                    }
+                    "/detach" => {
+                        println!("usage: /detach <index|all>");
+                    }
+                    _ if line.starts_with("/detach ") => {
+                        let target = line.trim_start_matches("/detach ").trim();
+
+                        if target == "all" {
+                            attached_files.clear();
+
+                            prompt = format!(
+                                "\n{} | files {}\n{}",
+                                session.id,
+                                attached_files.len(),
+                                PROMPT
+                            );
+
+                            println!("detached all files");
+                        } else {
+                            let Ok(index) = target.parse::<usize>() else {
+                                println!("invalid file index: {target}");
+                                continue;
+                            };
+
+                            if index == 0 || index > attached_files.len() {
+                                println!("file index out of range: {index}");
+                                continue;
+                            }
+
+                            let detached = attached_files.remove(index - 1);
+
+                            prompt = format!(
+                                "\n{} | files {}\n{}",
+                                session.id,
+                                attached_files.len(),
+                                PROMPT
+                            );
+
+                            println!("detached");
+                            println!("  {FILE_ICON} {index}  {}", detached.display());
+                        }
                     }
                     _ if line.starts_with('/') => {
                         println!("unknown command: {line}");
