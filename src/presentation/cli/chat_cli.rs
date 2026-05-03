@@ -2,8 +2,10 @@ use crate::domain::model::chat_session::ChatSession;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
+
+const PROMPT: &str = "\x1b[38;2;0;71;171m>\x1b[0m ";
 
 struct ChatApiClient {
     base_url: String,
@@ -55,6 +57,17 @@ impl ChatApiClient {
         Ok(session)
     }
 
+    async fn connect_events(&self) -> Result<reqwest::Response, AgentCliError> {
+        let response = self
+            .http
+            .get(format!("{}/v1/events", self.base_url))
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(response)
+    }
+
     async fn post_message(&self, session_id: Uuid, text: &str) -> Result<(), AgentCliError> {
         self.http
             .post(format!(
@@ -91,14 +104,19 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
         None => client.create_session().await?,
     };
 
+    let mut events = client.connect_events().await?;
+    let mut event_buffer = String::new();
+
     println!("commander chat");
     println!("server: {}", client.base_url);
     println!("session: {}", session.id);
 
+    let mut prompt = format!("\n{}\n{}", session.id, PROMPT);
+
     let mut rl = DefaultEditor::new().map_err(|e| AgentCliError::Readline(e.to_string()))?;
 
     loop {
-        match rl.readline("> ") {
+        match rl.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim();
 
@@ -112,6 +130,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     "/exit" | "/quit" => break,
                     "/new" => {
                         session = client.create_session().await?;
+                        prompt = format!("\n{}\n{}", session.id, PROMPT);
                         println!("new session: {}", session.id);
                     }
                     _ if line.starts_with('/') => {
@@ -119,7 +138,97 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     }
                     _ => {
                         client.post_message(session.id, line).await?;
-                        println!("message sent");
+
+                        let current_session = session.id.to_string();
+
+                        // WARN: a chunk may contain partial or multiple events
+                        'turn: while let Some(chunk) = events.chunk().await? {
+                            event_buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                            // read one event
+                            // event: xxx
+                            // data: {"yyy": "zzz", ...}
+                            while let Some(index) = event_buffer.find("\n\n") {
+                                let raw_event = event_buffer[..index].to_string();
+                                event_buffer = event_buffer[index + 2..].to_string();
+
+                                let mut event_name = "";
+                                let mut event_data = String::new();
+
+                                for line in raw_event.lines() {
+                                    let line = line.trim_end_matches('\r');
+
+                                    if let Some(value) = line.strip_prefix("event:") {
+                                        event_name = value.trim();
+                                    } else if let Some(value) = line.strip_prefix("data:") {
+                                        event_data.push_str(value.trim());
+                                    }
+                                }
+
+                                if event_name.is_empty() || event_data.is_empty() {
+                                    continue;
+                                }
+
+                                let Ok(data) = serde_json::from_str::<Value>(&event_data) else {
+                                    continue;
+                                };
+
+                                if data.get("session_id").and_then(|v| v.as_str())
+                                    != Some(current_session.as_str())
+                                {
+                                    continue;
+                                }
+
+                                match event_name {
+                                    "assistant_message_created" => {
+                                        if let Some(content) =
+                                            data.get("content").and_then(|v| v.as_str())
+                                        {
+                                            println!("{content}");
+                                        }
+                                    }
+                                    "tool_call_started" => {
+                                        let tool_name = data
+                                            .get("tool_name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("tool");
+                                        println!("[tool] {tool_name}");
+                                    }
+                                    "tool_call_finished" => {
+                                        let tool_name = data
+                                            .get("tool_name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("tool");
+                                        let status = data
+                                            .get("status")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("unknown");
+                                        println!("[tool] {tool_name}: {status}");
+                                    }
+                                    "tool_call_approval_requested" => {
+                                        let tool_name = data
+                                            .get("tool_name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("tool");
+                                        println!("[approval requested] {tool_name}");
+                                        println!("Run /approve or /deny.");
+                                        break 'turn;
+                                    }
+                                    "agent_turn_completed" => {
+                                        break 'turn;
+                                    }
+                                    "agent_turn_failed" => {
+                                        let message = data
+                                            .get("message")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("agent turn failed");
+                                        println!("[error] {message}");
+                                        break 'turn;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
                 }
             }
