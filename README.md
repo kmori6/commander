@@ -56,7 +56,7 @@ commander agent
 | `/tool-rule <tool> <allow\|ask\|deny>` | Set tool approval rule         |
 | `/attach <files...>`                   | Stage files to attach          |
 | `/detach <files...>`                   | Remove files from staging      |
-| `/attachments`                         | Show staged files              |
+| `/files`                               | Show staged files              |
 | `/help`                                | Show help                      |
 | `/exit`                                | Quit                           |
 

@@ -116,7 +116,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
 
     let mut attached_files = Vec::<PathBuf>::new();
     let mut prompt = format!(
-        "\n{} | files {}\n{}",
+        "\n\x1b[90m{} | files {}\x1b[0m\n{}",
         session.id,
         attached_files.len(),
         PROMPT
@@ -136,12 +136,12 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                 let _ = rl.add_history_entry(line);
 
                 match line {
-                    "/exit" | "/quit" => break,
+                    "/exit" => break,
                     "/new" => {
                         session = client.create_session().await?;
                         attached_files.clear();
                         prompt = format!(
-                            "\n{} | files {}\n{}",
+                            "\n\x1b[90m{} | files {}\x1b[0m\n{}",
                             session.id,
                             attached_files.len(),
                             PROMPT
@@ -186,7 +186,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
 
                         if !attached.is_empty() {
                             prompt = format!(
-                                "\n{} | files {}\n{}",
+                                "\n\x1b[90m{} | files {}\x1b[0m\n{}",
                                 session.id,
                                 attached_files.len(),
                                 PROMPT
