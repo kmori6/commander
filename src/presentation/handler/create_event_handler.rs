@@ -1,5 +1,5 @@
 use crate::domain::model::chat_session_event::ChatSessionEvent;
-use crate::domain::model::tool_approval::ToolApprovalDecision;
+use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::domain::model::tool_call::ToolCallOutputStatus;
 use crate::presentation::state::app_state::AppState;
 use axum::{
@@ -147,9 +147,9 @@ fn tool_call_output_status_as_str(status: ToolCallOutputStatus) -> &'static str 
     }
 }
 
-fn tool_approval_decision_as_str(decision: ToolApprovalDecision) -> &'static str {
+fn tool_approval_decision_as_str(decision: ToolApprovalResponse) -> &'static str {
     match decision {
-        ToolApprovalDecision::Approved => "approved",
-        ToolApprovalDecision::Denied => "denied",
+        ToolApprovalResponse::Approved => "approved",
+        ToolApprovalResponse::Denied => "denied",
     }
 }

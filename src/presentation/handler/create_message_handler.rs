@@ -57,11 +57,13 @@ pub async fn create_message_handler(
 
         let publisher_event_service = event_service.clone();
         let event_publisher = tokio::spawn(async move {
+            // agent usecase -> create message handler -> event service
             while let Some(event) = event_rx.recv().await {
                 publisher_event_service.publish(event);
             }
         });
 
+        // create message handler -> agent usecase
         if let Err(err) = agent_usecase
             .start_turn(session_id, start_message, event_tx)
             .await

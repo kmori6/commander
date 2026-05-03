@@ -9,7 +9,7 @@ use crate::domain::model::input_image::InputImage;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
 use crate::domain::model::token_usage::TokenUsage;
-use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalDecision};
+use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalResponse};
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput};
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
 use crate::domain::port::llm_provider::{LlmProvider, LlmResponse};
@@ -244,24 +244,6 @@ where
             context_percent_used: self.compaction_service.percent_used(usage.input_tokens),
             usage,
         })
-    }
-
-    pub async fn approve_approval(
-        &self,
-        session_id: Uuid,
-        tx: mpsc::Sender<ChatSessionEvent>,
-    ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
-        self.resolve_awaiting_approval(session_id, ToolApprovalDecision::Approved, tx)
-            .await
-    }
-
-    pub async fn deny_approval(
-        &self,
-        session_id: Uuid,
-        tx: mpsc::Sender<ChatSessionEvent>,
-    ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
-        self.resolve_awaiting_approval(session_id, ToolApprovalDecision::Denied, tx)
-            .await
     }
 
     pub async fn tool_rule_summaries(&self) -> Result<Vec<ToolRuleSummary>, AgentUsecaseError> {
@@ -576,7 +558,7 @@ where
         &self,
         session_id: Uuid,
         tool_call: &ToolCall,
-        decision: ToolApprovalDecision,
+        decision: ToolApprovalResponse,
     ) -> Result<(), AgentUsecaseError> {
         self.tool_approval_repository
             .record(ToolApproval {
@@ -591,10 +573,10 @@ where
         Ok(())
     }
 
-    async fn resolve_awaiting_approval(
+    pub async fn resolve_awaiting_approval(
         &self,
         session_id: Uuid,
-        decision: ToolApprovalDecision,
+        decision: ToolApprovalResponse,
         tx: mpsc::Sender<ChatSessionEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         self.validate_awaiting_approval_session(session_id).await?;
@@ -615,11 +597,11 @@ where
         let _ = tx.send(resolved).await;
 
         match decision {
-            ToolApprovalDecision::Approved => {
+            ToolApprovalResponse::Approved => {
                 self.execute_and_save_tool_call(session_id, tool_call.clone(), &tx)
                     .await?;
             }
-            ToolApprovalDecision::Denied => {
+            ToolApprovalResponse::Denied => {
                 let output = self
                     .save_denied_tool_call_output(session_id, &tool_call)
                     .await?;
@@ -844,18 +826,6 @@ fn attachment_to_message_content(attachment: &Attachment) -> MessageContent {
         Attachment::Image(image) => MessageContent::InputImage(image.clone()),
         Attachment::File(file) => MessageContent::InputFile(file.clone()),
     }
-}
-
-fn final_assistant_text(messages: &[Message]) -> Option<String> {
-    messages
-        .iter()
-        .rev()
-        .filter(|message| message.role == Role::Assistant)
-        .flat_map(|message| message.content.iter().rev())
-        .find_map(|content| match content {
-            MessageContent::OutputText { text } => Some(text.clone()),
-            _ => None,
-        })
 }
 
 fn validate_user_message(user_message: &Message) -> Result<(), AgentUsecaseError> {

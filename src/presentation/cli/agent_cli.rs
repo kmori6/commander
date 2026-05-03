@@ -231,17 +231,13 @@ where
         }
 
         AgentCommand::Approve => {
-            let session_id = state.session_id;
-            let (output, printed_progress_events) =
-                run_with_progress(|tx| usecase.approve_approval(session_id, tx)).await?;
-            apply_start_turn_output(output, printed_progress_events);
+            let _session_id = state.session_id;
+            todo!()
         }
 
         AgentCommand::Deny => {
-            let session_id = state.session_id;
-            let (output, printed_progress_events) =
-                run_with_progress(|tx| usecase.deny_approval(session_id, tx)).await?;
-            apply_start_turn_output(output, printed_progress_events);
+            let _session_id = state.session_id;
+            todo!()
         }
 
         AgentCommand::Tools => {

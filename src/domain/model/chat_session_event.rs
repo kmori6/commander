@@ -1,4 +1,4 @@
-use crate::domain::model::tool_approval::ToolApprovalDecision;
+use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::domain::model::tool_call::ToolCallOutputStatus;
 use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use serde_json::Value;
@@ -43,7 +43,7 @@ pub enum ChatSessionEvent {
         session_id: Uuid,
         call_id: String,
         tool_name: String,
-        decision: ToolApprovalDecision,
+        decision: ToolApprovalResponse,
     },
     AgentTurnCompleted {
         session_id: Uuid,
