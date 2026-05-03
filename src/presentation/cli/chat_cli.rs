@@ -2,6 +2,7 @@ use crate::domain::model::chat_session::ChatSession;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use serde_json::json;
 use uuid::Uuid;
 
 struct ChatApiClient {
@@ -53,6 +54,30 @@ impl ChatApiClient {
 
         Ok(session)
     }
+
+    async fn post_message(&self, session_id: Uuid, text: &str) -> Result<(), AgentCliError> {
+        self.http
+            .post(format!(
+                "{}/v1/sessions/{}/messages",
+                self.base_url, session_id
+            ))
+            .json(&json!({
+                "user_message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": text
+                        }
+                    ]
+                }
+            }))
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(())
+    }
 }
 
 pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), AgentCliError> {
@@ -61,7 +86,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
     // check server health
     client.health().await?;
 
-    let session = match session_id {
+    let mut session = match session_id {
         Some(id) => client.get_session(id).await?,
         None => client.create_session().await?,
     };
@@ -75,8 +100,28 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
     loop {
         match rl.readline("> ") {
             Ok(line) => {
-                let _ = rl.add_history_entry(&line);
-                // TODO: Process the input line and generate a response
+                let line = line.trim();
+
+                if line.is_empty() {
+                    continue;
+                }
+
+                let _ = rl.add_history_entry(line);
+
+                match line {
+                    "/exit" | "/quit" => break,
+                    "/new" => {
+                        session = client.create_session().await?;
+                        println!("new session: {}", session.id);
+                    }
+                    _ if line.starts_with('/') => {
+                        println!("unknown command: {line}");
+                    }
+                    _ => {
+                        client.post_message(session.id, line).await?;
+                        println!("message sent");
+                    }
+                }
             }
             Err(ReadlineError::Interrupted) => {
                 // Ctrl+C
