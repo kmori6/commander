@@ -1,6 +1,7 @@
 pub mod agent_error;
 pub mod awaiting_tool_approval_repository_error;
 pub mod chat_repository_error;
+pub mod chat_session_error;
 pub mod compaction_service_error;
 pub mod deep_research_error;
 pub mod embedding_provider_error;

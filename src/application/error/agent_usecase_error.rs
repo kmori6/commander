@@ -1,6 +1,7 @@
 use crate::domain::error::agent_error::AgentError;
 use crate::domain::error::awaiting_tool_approval_repository_error::AwaitingToolApprovalRepositoryError;
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
+use crate::domain::error::chat_session_error::ChatSessionError;
 use crate::domain::error::compaction_service_error::CompactionServiceError;
 use crate::domain::error::message_error::MessageError;
 use crate::domain::error::token_usage_repository_error::TokenUsageRepositoryError;
@@ -14,8 +15,11 @@ pub enum AgentUsecaseError {
     #[error("chat session not found: {0}")]
     SessionNotFound(Uuid),
 
-    #[error("invalid session status for operation: {0}")]
-    SessionStatus(String),
+    #[error("invalid chat session state: {0}")]
+    ChatSession(#[from] ChatSessionError),
+
+    #[error("invalid approval state: {0}")]
+    ApprovalState(String),
 
     #[error("failed to access awaiting tool approval repository: {0}")]
     AwaitingToolApprovalRepository(#[from] AwaitingToolApprovalRepositoryError),
@@ -31,12 +35,6 @@ pub enum AgentUsecaseError {
 
     #[error("failed to access token usage repository: {0}")]
     TokenUsageRepository(#[from] TokenUsageRepositoryError),
-
-    #[error("tool confirmation is already pending for session: {0}")]
-    ApprovalPending(Uuid),
-
-    #[error("no approval is pending for session: {0}")]
-    ApprovalNotPending(Uuid),
 
     #[error("failed to access tool approval repository: {0}")]
     ToolApprovalRepository(#[from] ToolApprovalRepositoryError),

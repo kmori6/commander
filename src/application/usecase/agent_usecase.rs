@@ -1,8 +1,9 @@
 use crate::application::error::agent_usecase_error::AgentUsecaseError;
 use crate::domain::error::agent_error::AgentError;
+use crate::domain::error::chat_session_error::ChatSessionError;
 use crate::domain::model::awaiting_tool_approval::AwaitingToolApproval;
 use crate::domain::model::chat_message::ChatMessage;
-use crate::domain::model::chat_session::{ChatSession, ChatSessionStatus};
+use crate::domain::model::chat_session::ChatSession;
 use crate::domain::model::chat_session_event::ChatSessionEvent;
 use crate::domain::model::input_file::InputFile;
 use crate::domain::model::input_image::InputImage;
@@ -149,10 +150,15 @@ where
     ) -> Result<ChatMessage, AgentUsecaseError> {
         user_message.validate_user_input()?;
 
-        self.validate_startable_session(session_id).await?;
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let next_status = session.start_turn()?;
 
         self.chat_session_repository
-            .update_status(session_id, ChatSessionStatus::Running)
+            .update_status(session_id, next_status)
             .await?;
 
         let saved_user_message = self
@@ -201,24 +207,6 @@ where
 
         self.agent_loop(session_id, instruction, input_messages, tx)
             .await
-    }
-
-    async fn validate_startable_session(&self, session_id: Uuid) -> Result<(), AgentUsecaseError> {
-        let session = self
-            .chat_session_repository
-            .find_by_id(session_id)
-            .await?
-            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-
-        match session.status {
-            ChatSessionStatus::Idle => Ok(()),
-            ChatSessionStatus::Running => Err(AgentUsecaseError::SessionStatus(
-                "session is already running".to_string(),
-            )),
-            ChatSessionStatus::AwaitingApproval => Err(AgentUsecaseError::SessionStatus(
-                "tool approval is pending".to_string(),
-            )),
-        }
     }
 
     async fn load_compacted_input_messages(
@@ -398,8 +386,15 @@ where
             let tool_calls = llm_response.message.tool_calls();
 
             if tool_calls.is_empty() {
+                let session = self
+                    .chat_session_repository
+                    .find_by_id(session_id)
+                    .await?
+                    .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+                let next_status = session.complete_turn()?;
+
                 self.chat_session_repository
-                    .update_status(session_id, ChatSessionStatus::Idle)
+                    .update_status(session_id, next_status)
                     .await?;
 
                 let event = ChatSessionEvent::AgentTurnCompleted { session_id };
@@ -437,8 +432,15 @@ where
             }
         }
 
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let next_status = session.complete_turn()?;
+
         self.chat_session_repository
-            .update_status(session_id, ChatSessionStatus::Idle)
+            .update_status(session_id, next_status)
             .await?;
 
         Err(AgentUsecaseError::Agent(AgentError::MaxToolIterations(
@@ -454,7 +456,9 @@ where
             .awaiting_tool_approval_repository
             .find_by_session_id(session_id)
             .await?
-            .ok_or(AgentUsecaseError::ApprovalNotPending(session_id))?;
+            .ok_or(AgentUsecaseError::ChatSession(
+                ChatSessionError::ApprovalNotPending { session_id },
+            ))?;
 
         let messages = self
             .chat_message_repository
@@ -465,7 +469,7 @@ where
             .into_iter()
             .find(|entry| entry.id == awaiting.assistant_message_id)
             .ok_or_else(|| {
-                AgentUsecaseError::SessionStatus(format!(
+                AgentUsecaseError::ApprovalState(format!(
                     "awaiting approval assistant message not found: {}",
                     awaiting.assistant_message_id
                 ))
@@ -475,32 +479,13 @@ where
             .message
             .find_tool_call(&awaiting.tool_call_id)
             .ok_or_else(|| {
-                AgentUsecaseError::SessionStatus(format!(
+                AgentUsecaseError::ApprovalState(format!(
                     "awaiting approval tool call not found: {}",
                     awaiting.tool_call_id
                 ))
             })?;
 
         Ok(AwaitingToolCall { tool_call })
-    }
-
-    async fn validate_awaiting_approval_session(
-        &self,
-        session_id: Uuid,
-    ) -> Result<(), AgentUsecaseError> {
-        let session = self
-            .chat_session_repository
-            .find_by_id(session_id)
-            .await?
-            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-
-        match session.status {
-            ChatSessionStatus::AwaitingApproval => Ok(()),
-            ChatSessionStatus::Idle => Err(AgentUsecaseError::ApprovalNotPending(session_id)),
-            ChatSessionStatus::Running => Err(AgentUsecaseError::SessionStatus(
-                "session is already running".to_string(),
-            )),
-        }
     }
 
     async fn save_denied_tool_call_output(
@@ -544,13 +529,18 @@ where
         decision: ToolApprovalResponse,
         tx: mpsc::Sender<ChatSessionEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
-        self.validate_awaiting_approval_session(session_id).await?;
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let next_status = session.resolve_approval()?;
 
         let awaiting = self.load_awaiting_tool_call(session_id).await?;
         let tool_call = awaiting.tool_call;
 
         self.chat_session_repository
-            .update_status(session_id, ChatSessionStatus::Running)
+            .update_status(session_id, next_status)
             .await?;
 
         let resolved = ChatSessionEvent::ToolCallApprovalResolved {
@@ -655,6 +645,12 @@ where
                     .agent_service
                     .tool_service()
                     .check_execution_policy(&tool_call)?;
+                let session = self
+                    .chat_session_repository
+                    .find_by_id(session_id)
+                    .await?
+                    .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+                let next_status = session.await_approval()?;
 
                 self.awaiting_tool_approval_repository
                     .save(AwaitingToolApproval {
@@ -676,7 +672,7 @@ where
                 events.push(event);
 
                 self.chat_session_repository
-                    .update_status(session_id, ChatSessionStatus::AwaitingApproval)
+                    .update_status(session_id, next_status)
                     .await?;
 
                 Ok(ToolCallStep::AwaitingApproval(AgentStartTurnOutput {
