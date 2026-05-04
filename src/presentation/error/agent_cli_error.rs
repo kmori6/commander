@@ -23,10 +23,7 @@ pub enum AgentCliError {
     DigestUsecase(#[from] crate::application::error::digest_usecase_error::DigestUsecaseError),
 
     #[error("failed to execute tool execution rule use case: {0}")]
-    ToolExecutionRuleUsecase(
-        #[from]
-        crate::application::error::tool_execution_rule_usecase_error::ToolExecutionRuleUsecaseError,
-    ),
+    ToolUsecase(#[from] crate::application::error::tool_usecase_error::ToolUsecaseError),
 
     #[error("failed to initialize tooling: {0}")]
     Tool(#[from] crate::domain::error::tool_error::ToolError),

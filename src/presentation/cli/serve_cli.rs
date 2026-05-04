@@ -1,6 +1,5 @@
-use std::{env, net::SocketAddr, sync::Arc};
-
 use crate::application::usecase::agent_usecase::AgentUsecase;
+use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::{
     agent_service::AgentService, compaction_service::CompactionService,
     event_service::EventService, instruction_service::InstructionService,
@@ -31,14 +30,16 @@ use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_approval_handler::list_approval_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
+use crate::presentation::handler::list_tool_handler::list_tool_handler;
 use crate::presentation::handler::resolve_approval_handler::resolve_approval_handler;
+use crate::presentation::handler::update_tool_rule_handler::update_tool_rule_handler;
 use crate::presentation::state::app_state::AppState;
-
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use sqlx::PgPool;
+use std::{env, net::SocketAddr, sync::Arc};
 
 pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let database_url = env::var("DATABASE_URL")
@@ -88,8 +89,13 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
             Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
         ],
-        Arc::new(tool_execution_rule_repository),
+        Arc::new(tool_execution_rule_repository.clone()),
     );
+
+    let tool_usecase = Arc::new(ToolUsecase::new(
+        tool_service.clone(),
+        tool_execution_rule_repository.clone(),
+    ));
 
     let compaction_service = CompactionService::new(llm_client.clone());
     let agent_service = AgentService::new(llm_client, tool_service);
@@ -114,6 +120,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let app_state = AppState {
         chat_session_repository,
         chat_message_repository,
+        tool_usecase,
         event_service: Arc::new(EventService::new()),
         agent_usecase,
     };
@@ -121,6 +128,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let api_routes = Router::new()
         .route("/health", get(health_handler))
         .route("/events", get(create_event_handler))
+        .route("/tools", get(list_tool_handler))
+        .route("/tools/{tool_name}/rule", put(update_tool_rule_handler))
         .route("/approvals", get(list_approval_handler))
         .route("/approvals/{session_id}", post(resolve_approval_handler))
         .route(

@@ -13,3 +13,4 @@ pub mod tool_call;
 pub mod tool_execution_decision;
 pub mod tool_execution_policy;
 pub mod tool_execution_rule;
+pub mod tool_status;

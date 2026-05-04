@@ -1,4 +1,3 @@
-pub mod agent_cli;
 pub mod chat_cli;
 pub mod digest_cli;
 pub mod research_cli;
@@ -29,7 +28,6 @@ pub enum Commands {
         #[arg(long)]
         session_id: Option<Uuid>,
     },
-    Agent,
     Research,
     /// Read and summarize an academic paper from a PDF file or URL
     Survey {

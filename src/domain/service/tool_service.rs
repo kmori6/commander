@@ -2,34 +2,10 @@ use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolSpec};
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
 use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
-use crate::domain::model::tool_execution_rule::ToolExecutionRuleAction;
+use crate::domain::model::tool_status::{ToolStatus, ToolStatusSource};
 use crate::domain::port::tool::Tool;
 use crate::domain::repository::tool_execution_rule_repository::ToolExecutionRuleRepository;
 use std::sync::Arc;
-
-#[derive(Debug, Clone)]
-pub struct ToolRuleSummary {
-    pub tool_name: String,
-    pub policy: ToolExecutionPolicy,
-    pub rule: Option<ToolExecutionRuleAction>,
-    pub action: ToolExecutionDecision,
-    pub source: ToolRuleSource,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolRuleSource {
-    Saved,
-    Default,
-}
-
-impl ToolRuleSource {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Saved => "saved",
-            Self::Default => "default",
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct ToolService {
@@ -99,7 +75,7 @@ impl ToolService {
             .ok_or_else(|| ToolError::UnknownTool(call.name.clone()))
     }
 
-    pub async fn tool_rule_summaries(&self) -> Result<Vec<ToolRuleSummary>, ToolError> {
+    pub async fn tool_statuses(&self) -> Result<Vec<ToolStatus>, ToolError> {
         let mut summaries = Vec::with_capacity(self.tools.len());
         for tool in &self.tools {
             let rule = self.rule_repository.find_by_tool_name(tool.name()).await?;
@@ -108,12 +84,12 @@ impl ToolService {
             let action =
                 ToolExecutionDecision::decide(policy, rule.as_ref().map(|rule| rule.action));
             let source = if rule.is_some() {
-                ToolRuleSource::Saved
+                ToolStatusSource::Saved
             } else {
-                ToolRuleSource::Default
+                ToolStatusSource::Default
             };
 
-            summaries.push(ToolRuleSummary {
+            summaries.push(ToolStatus {
                 tool_name: tool.name().to_string(),
                 policy,
                 rule: rule_action,

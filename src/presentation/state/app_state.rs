@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use crate::application::usecase::agent_usecase::AgentUsecase;
+use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::persistence::postgres_awaiting_tool_approval_repository::PostgresAwaitingToolApprovalRepository;
@@ -8,11 +7,14 @@ use crate::infrastructure::persistence::postgres_chat_message_repository::Postgr
 use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
+use crate::infrastructure::persistence::postgres_tool_execution_rule_repository::PostgresToolExecutionRuleRepository;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
     pub chat_session_repository: PostgresChatSessionRepository,
     pub chat_message_repository: PostgresChatMessageRepository,
+    pub tool_usecase: Arc<ToolUsecase<PostgresToolExecutionRuleRepository>>,
     pub event_service: Arc<EventService>,
     pub agent_usecase: Arc<
         AgentUsecase<

@@ -5,6 +5,7 @@ use crate::presentation::error::agent_cli_error::AgentCliError;
 use crate::presentation::util::attachment::load_attachment;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -12,6 +13,25 @@ use uuid::Uuid;
 const PROMPT: &str = "\x1b[38;2;0;71;171m❯\x1b[0m ";
 const FILE_ICON: &str = "@";
 const MAX_CHARS: usize = 200;
+
+#[derive(Debug, Deserialize)]
+struct ListToolsResponse {
+    tools: Vec<ToolResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateToolRuleResponse {
+    tool: ToolResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolResponse {
+    name: String,
+    action: String,
+    policy: String,
+    rule: Option<String>,
+    source: String,
+}
 
 struct ChatApiClient {
     base_url: String,
@@ -145,6 +165,39 @@ impl ChatApiClient {
             .error_for_status()?;
 
         Ok(())
+    }
+
+    async fn list_tools(&self) -> Result<Vec<ToolResponse>, AgentCliError> {
+        let response = self
+            .http
+            .get(format!("{}/v1/tools", self.base_url))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ListToolsResponse>()
+            .await?;
+
+        Ok(response.tools)
+    }
+
+    async fn update_tool_rule(
+        &self,
+        tool_name: &str,
+        action: &str,
+    ) -> Result<ToolResponse, AgentCliError> {
+        let response = self
+            .http
+            .put(format!("{}/v1/tools/{}/rule", self.base_url, tool_name))
+            .json(&json!({
+                "action": action
+            }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<UpdateToolRuleResponse>()
+            .await?;
+
+        Ok(response.tool)
     }
 }
 
@@ -317,6 +370,65 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                             println!("detached");
                             println!("  {FILE_ICON} {index}  {}", detached.display());
                         }
+                    }
+                    "/tools" => {
+                        let tools = client.list_tools().await?;
+
+                        if tools.is_empty() {
+                            println!("no tools");
+                        } else {
+                            println!(
+                                "  {:<20} {:<6} {:<6} {:<6} source",
+                                "tool", "action", "policy", "rule"
+                            );
+
+                            for tool in tools {
+                                println!(
+                                    "  {:<20} {:<6} {:<6} {:<6} {}",
+                                    tool.name,
+                                    tool.action,
+                                    tool.policy,
+                                    tool.rule.as_deref().unwrap_or("-"),
+                                    tool.source
+                                );
+                            }
+                        }
+                    }
+                    _ if line.starts_with("/tool ") => {
+                        let parts = line.split_whitespace().collect::<Vec<_>>();
+
+                        if parts.len() != 3 {
+                            println!("usage: /tool <tool_name> <allow|ask|deny>");
+                            continue;
+                        }
+
+                        let tool_name = parts[1];
+                        let action = parts[2];
+
+                        if !matches!(action, "allow" | "ask" | "deny") {
+                            println!("usage: /tool <tool_name> <allow|ask|deny>");
+                            continue;
+                        }
+
+                        let tool = client.update_tool_rule(tool_name, action).await?;
+
+                        println!(
+                            "tool rule saved: {} -> {}",
+                            tool.name,
+                            tool.rule.as_deref().unwrap_or("-")
+                        );
+                        println!(
+                            "  {:<20} {:<6} {:<6} {:<6} source",
+                            "tool", "action", "policy", "rule"
+                        );
+                        println!(
+                            "  {:<20} {:<6} {:<6} {:<6} {}",
+                            tool.name,
+                            tool.action,
+                            tool.policy,
+                            tool.rule.as_deref().unwrap_or("-"),
+                            tool.source
+                        );
                     }
                     "/approve" => {
                         client.resolve_approval(session.id, "approved").await?;

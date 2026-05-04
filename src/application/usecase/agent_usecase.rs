@@ -8,7 +8,6 @@ use crate::domain::model::input_file::InputFile;
 use crate::domain::model::input_image::InputImage;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
-use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalResponse};
 use crate::domain::model::tool_call::{ToolCall, ToolCallOutput};
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
@@ -21,7 +20,6 @@ use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::service::agent_service::AgentService;
 use crate::domain::service::compaction_service::CompactionService;
 use crate::domain::service::instruction_service::InstructionService;
-use crate::domain::service::tool_service::ToolRuleSummary;
 use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -91,22 +89,6 @@ struct UnresolvedToolCall {
 enum ToolCallStep {
     Continued,
     AwaitingApproval(AgentStartTurnOutput),
-}
-
-#[derive(Debug)]
-pub struct HandleAgentInput {
-    pub session_id: Uuid,
-    pub user_input: String,
-    pub attachments: Vec<Attachment>,
-}
-
-#[derive(Debug)]
-pub struct HandleAgentOutput {
-    pub events: Vec<ChatSessionEvent>,
-    pub usage: TokenUsage,
-    pub context_input_tokens: u64,
-    pub context_window_tokens: u64,
-    pub context_percent_used: u64,
 }
 
 #[derive(Debug)]
@@ -201,10 +183,6 @@ where
             .map_err(Into::into)
     }
 
-    pub fn tool_names(&self) -> Vec<String> {
-        self.agent_service.tool_service().tool_names()
-    }
-
     pub async fn start_turn(
         &self,
         session_id: Uuid,
@@ -219,39 +197,6 @@ where
 
         self.agent_loop(session_id, instruction, input_messages, tx)
             .await
-    }
-
-    pub async fn handle(
-        &self,
-        input: HandleAgentInput,
-        tx: mpsc::Sender<ChatSessionEvent>,
-    ) -> Result<HandleAgentOutput, AgentUsecaseError> {
-        let session_id = input.session_id;
-        let user_message = build_user_message(&input)?;
-        let saved_user_message = self.submit_user_message(session_id, user_message).await?;
-        let output = self.start_turn(session_id, saved_user_message, tx).await?;
-
-        let usage = self
-            .token_usage_repository
-            .find_latest_for_session(session_id)
-            .await?
-            .unwrap_or_default();
-
-        Ok(HandleAgentOutput {
-            events: output.events,
-            context_input_tokens: usage.input_tokens,
-            context_window_tokens: self.compaction_service.context_window_tokens(),
-            context_percent_used: self.compaction_service.percent_used(usage.input_tokens),
-            usage,
-        })
-    }
-
-    pub async fn tool_rule_summaries(&self) -> Result<Vec<ToolRuleSummary>, AgentUsecaseError> {
-        self.agent_service
-            .tool_service()
-            .tool_rule_summaries()
-            .await
-            .map_err(Into::into)
     }
 
     async fn validate_startable_session(&self, session_id: Uuid) -> Result<(), AgentUsecaseError> {
@@ -809,24 +754,6 @@ where
             .list_all()
             .await
             .map_err(Into::into)
-    }
-}
-
-fn build_user_message(input: &HandleAgentInput) -> Result<Message, AgentUsecaseError> {
-    let mut contents = Vec::with_capacity(input.attachments.len() + 1);
-
-    contents.push(MessageContent::InputText {
-        text: input.user_input.clone(),
-    });
-    contents.extend(input.attachments.iter().map(attachment_to_message_content));
-
-    Ok(Message::new(Role::User, contents)?)
-}
-
-fn attachment_to_message_content(attachment: &Attachment) -> MessageContent {
-    match attachment {
-        Attachment::Image(image) => MessageContent::InputImage(image.clone()),
-        Attachment::File(file) => MessageContent::InputFile(file.clone()),
     }
 }
 
