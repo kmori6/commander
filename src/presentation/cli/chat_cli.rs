@@ -3,16 +3,19 @@ use crate::domain::model::chat_session::ChatSession;
 use crate::domain::model::message::MessageContent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use crate::presentation::util::attachment::load_attachment;
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use std::time::Duration;
+use termimad::print_text;
 use uuid::Uuid;
 
 const PROMPT: &str = "\x1b[38;2;0;71;171m❯\x1b[0m ";
 const FILE_ICON: &str = "@";
-const MAX_CHARS: usize = 200;
+const MAX_CHARS: usize = 800;
 
 #[derive(Debug, Deserialize)]
 struct ListToolsResponse {
@@ -487,6 +490,8 @@ async fn wait_events(
 ) -> Result<(), AgentCliError> {
     let current_session = session_id.to_string();
 
+    let mut spinner: Option<ProgressBar> = None;
+
     'turn: while let Some(chunk) = events.chunk().await? {
         event_buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -520,12 +525,39 @@ async fn wait_events(
             }
 
             match event_name {
+                "llm_started" if spinner.is_none() => {
+                    let progress =
+                        ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
+                    progress.set_style(
+                        ProgressStyle::with_template("{spinner} {msg}")
+                            .expect("spinner template should be valid")
+                            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                    );
+                    progress.set_message("Figuring ...");
+                    progress.enable_steady_tick(Duration::from_millis(120));
+
+                    spinner = Some(progress);
+                }
+                "llm_finished" => {
+                    if let Some(progress) = spinner.take() {
+                        progress.finish_and_clear();
+                    }
+                }
                 "assistant_message_created" => {
+                    // Stop the spinner
+                    if let Some(progress) = spinner.take() {
+                        progress.finish_and_clear();
+                    }
                     if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
-                        println!("{content}");
+                        // Use termimad to print the assistant message content with markdown support.
+                        print_text(content);
                     }
                 }
                 "tool_call_started" => {
+                    // Stop the spinner
+                    if let Some(progress) = spinner.take() {
+                        progress.finish_and_clear();
+                    }
                     let tool_name = data
                         .get("tool_name")
                         .and_then(|v| v.as_str())
@@ -574,11 +606,32 @@ async fn wait_events(
                     }
                 }
                 "tool_call_approval_requested" => {
+                    // Stop the spinner
+                    if let Some(progress) = spinner.take() {
+                        progress.finish_and_clear();
+                    }
                     let tool_name = data
                         .get("tool_name")
                         .and_then(|v| v.as_str())
                         .unwrap_or("tool");
+
                     println!("[approval requested] {tool_name}");
+
+                    if let Some(arguments) = data.get("arguments") {
+                        let pretty = serde_json::to_string_pretty(arguments)
+                            .unwrap_or_else(|_| arguments.to_string());
+
+                        let arguments = if pretty.chars().count() > MAX_CHARS {
+                            let truncated = pretty.chars().take(MAX_CHARS).collect::<String>();
+
+                            format!("{truncated}\n... (truncated)")
+                        } else {
+                            pretty
+                        };
+
+                        println!("[tool arguments]\n{arguments}");
+                    }
+
                     println!("Run /approve or /deny.");
                     break 'turn;
                 }
@@ -587,6 +640,10 @@ async fn wait_events(
                     break 'turn;
                 }
                 "agent_turn_failed" => {
+                    // Stop the spinner
+                    if let Some(progress) = spinner.take() {
+                        progress.finish_and_clear();
+                    }
                     let message = data
                         .get("message")
                         .and_then(|v| v.as_str())
