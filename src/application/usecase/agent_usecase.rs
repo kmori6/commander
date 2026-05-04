@@ -379,6 +379,18 @@ where
                 events.push(event);
             }
 
+            // Token usage events
+            if !llm_response.usage.is_empty() {
+                let event = ChatSessionEvent::LlmUsageRecorded {
+                    session_id,
+                    message_id: saved_agent_message.id,
+                    usage: llm_response.usage,
+                };
+
+                let _ = tx.send(event.clone()).await;
+                events.push(event);
+            }
+
             let tool_calls = tool_calls_from_message(&llm_response.message);
 
             if tool_calls.is_empty() {

@@ -543,6 +543,25 @@ async fn wait_events(
                         progress.finish_and_clear();
                     }
                 }
+                "llm_usage_recorded" => {
+                    let usage = data.get("usage").unwrap_or(&Value::Null);
+
+                    let input_tokens = usage
+                        .get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+
+                    let output_tokens = usage
+                        .get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+
+                    println!(
+                        "\x1b[90mtoken input={:.1}k output={:.1}k\x1b[0m",
+                        input_tokens as f64 / 1000.0,
+                        output_tokens as f64 / 1000.0,
+                    );
+                }
                 "assistant_message_created" => {
                     // Stop the spinner
                     if let Some(progress) = spinner.take() {

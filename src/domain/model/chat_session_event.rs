@@ -1,3 +1,4 @@
+use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::domain::model::tool_call::ToolCallOutputStatus;
 use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
@@ -14,6 +15,11 @@ pub enum ChatSessionEvent {
     },
     LlmFinished {
         session_id: Uuid,
+    },
+    LlmUsageRecorded {
+        session_id: Uuid,
+        message_id: Uuid,
+        usage: TokenUsage,
     },
     ToolCallStarted {
         session_id: Uuid,

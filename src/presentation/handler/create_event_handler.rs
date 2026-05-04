@@ -48,6 +48,24 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .event("llm_finished")
             .data(json!({ "session_id": session_id }).to_string()),
 
+        ChatSessionEvent::LlmUsageRecorded {
+            session_id,
+            message_id,
+            usage,
+        } => Event::default().event("llm_usage_recorded").data(
+            json!({
+                "session_id": session_id,
+                "message_id": message_id,
+                "usage": {
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "cache_read_tokens": usage.cache_read_tokens,
+                    "cache_write_tokens": usage.cache_write_tokens,
+                },
+            })
+            .to_string(),
+        ),
+
         ChatSessionEvent::ToolCallStarted {
             session_id,
             call_id,
