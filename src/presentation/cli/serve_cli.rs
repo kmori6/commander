@@ -1,4 +1,4 @@
-use crate::application::usecase::agent_usecase::AgentUsecase;
+use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::{
     agent_service::AgentService, compaction_service::CompactionService,
@@ -26,6 +26,7 @@ use crate::presentation::handler::create_message_handler::create_message_handler
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
+use crate::presentation::handler::get_session_usage_handler::get_session_usage_handler;
 use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_approval_handler::list_approval_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
@@ -110,16 +111,19 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         agent_service,
         instruction_service,
         compaction_service,
-        chat_session_repository.clone(),
-        chat_message_repository.clone(),
-        token_usage_repository,
-        tool_approval_repository,
-        awaiting_tool_approval_repository,
+        AgentUsecaseRepositories {
+            chat_session_repository: chat_session_repository.clone(),
+            chat_message_repository: chat_message_repository.clone(),
+            token_usage_repository: token_usage_repository.clone(),
+            tool_approval_repository,
+            awaiting_tool_approval_repository,
+        },
     ));
 
     let app_state = AppState {
         chat_session_repository,
         chat_message_repository,
+        token_usage_repository,
         tool_usecase,
         event_service: Arc::new(EventService::new()),
         agent_usecase,
@@ -131,7 +135,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/tools", get(list_tool_handler))
         .route("/tools/{tool_name}/rule", put(update_tool_rule_handler))
         .route("/approvals", get(list_approval_handler))
-        .route("/approvals/{session_id}", post(resolve_approval_handler))
         .route(
             "/sessions",
             get(list_session_handler).post(create_session_handler),
@@ -144,6 +147,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             "/sessions/{id}/messages",
             get(list_message_handler).post(create_message_handler),
         )
+        .route("/sessions/{id}/approvals", post(resolve_approval_handler))
+        .route("/sessions/{id}/usage", get(get_session_usage_handler))
         .with_state(app_state);
 
     let app = Router::new().nest("/v1", api_routes);

@@ -140,9 +140,7 @@ impl Tool for MemoryWriteTool {
             }
         };
 
-        let separator = if existing.trim().is_empty() {
-            ""
-        } else if existing.ends_with("\n\n") {
+        let separator = if existing.trim().is_empty() || existing.ends_with("\n\n") {
             ""
         } else if existing.ends_with('\n') {
             "\n"

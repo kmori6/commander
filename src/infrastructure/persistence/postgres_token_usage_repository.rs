@@ -107,4 +107,28 @@ impl TokenUsageRepository for PostgresTokenUsageRepository {
 
         row.map(TryInto::try_into).transpose()
     }
+
+    async fn sum_for_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<TokenUsage, TokenUsageRepositoryError> {
+        let row = sqlx::query_as::<_, TokenUsageRow>(
+            r#"
+        SELECT
+          COALESCE(SUM(tu.input_tokens), 0)::BIGINT AS input_tokens,
+          COALESCE(SUM(tu.output_tokens), 0)::BIGINT AS output_tokens,
+          COALESCE(SUM(tu.cache_read_tokens), 0)::BIGINT AS cache_read_tokens,
+          COALESCE(SUM(tu.cache_write_tokens), 0)::BIGINT AS cache_write_tokens
+        FROM token_usages tu
+        JOIN chat_messages cm ON cm.id = tu.message_id
+        WHERE cm.session_id = $1
+        "#,
+        )
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        row.try_into()
+    }
 }

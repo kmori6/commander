@@ -107,6 +107,14 @@ pub struct AgentUsecase<L, S, M, T, A, W> {
     awaiting_tool_approval_repository: W,
 }
 
+pub struct AgentUsecaseRepositories<S, M, T, A, W> {
+    pub chat_session_repository: S,
+    pub chat_message_repository: M,
+    pub token_usage_repository: T,
+    pub tool_approval_repository: A,
+    pub awaiting_tool_approval_repository: W,
+}
+
 impl<L, S, M, T, A, W> AgentUsecase<L, S, M, T, A, W>
 where
     L: LlmProvider,
@@ -120,21 +128,17 @@ where
         agent_service: AgentService<L>,
         instruction_service: InstructionService,
         compaction_service: CompactionService<L>,
-        chat_session_repository: S,
-        chat_message_repository: M,
-        token_usage_repository: T,
-        tool_approval_repository: A,
-        awaiting_tool_approval_repository: W,
+        repositories: AgentUsecaseRepositories<S, M, T, A, W>,
     ) -> Self {
         Self {
             agent_service,
             instruction_service,
             compaction_service,
-            chat_session_repository,
-            chat_message_repository,
-            token_usage_repository,
-            tool_approval_repository,
-            awaiting_tool_approval_repository,
+            chat_session_repository: repositories.chat_session_repository,
+            chat_message_repository: repositories.chat_message_repository,
+            token_usage_repository: repositories.token_usage_repository,
+            tool_approval_repository: repositories.tool_approval_repository,
+            awaiting_tool_approval_repository: repositories.awaiting_tool_approval_repository,
         }
     }
 

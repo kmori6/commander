@@ -37,30 +37,49 @@ cargo install --path .
 
 ## Usage
 
-### Agent
+### Server
 
-Interactive AI agent session.
+Start the local HTTP/SSE server.
 
 ```bash
-commander agent
+commander serve
 ```
 
-| Command                                | Description                    |
-| -------------------------------------- | ------------------------------ |
-| `/new`                                 | Start a new session            |
-| `/sessions`                            | Show recent sessions           |
-| `/session <id>`                        | Switch to a session            |
-| `/approve`                             | Approve pending tool execution |
-| `/deny`                                | Deny pending tool execution    |
-| `/tool-rules`                          | Show tool approval rules       |
-| `/tool-rule <tool> <allow\|ask\|deny>` | Set tool approval rule         |
-| `/attach <files...>`                   | Stage files to attach          |
-| `/detach <files...>`                   | Remove files from staging      |
-| `/files`                               | Show staged files              |
-| `/help`                                | Show help                      |
-| `/exit`                                | Quit                           |
+By default, the server listens on `0.0.0.0:3000`.
 
-Files can also be staged by dragging and dropping them onto the terminal window (bracketed paste).
+```bash
+commander serve --addr 127.0.0.1:3000
+```
+
+### Chat
+
+Start the server-backed chat CLI.
+
+```bash
+commander chat
+```
+
+Use a different server or resume an existing session:
+
+```bash
+commander chat --base-url http://localhost:3000
+commander chat --session-id <uuid>
+```
+
+| Command                         | Description                    |
+| ------------------------------- | ------------------------------ |
+| `/new`                          | Start a new session            |
+| `/approve`                      | Approve pending tool execution |
+| `/deny`                         | Deny pending tool execution    |
+| `/tools`                        | Show tool execution status     |
+| `/tool <tool> <allow\|ask\|deny>` | Set a tool execution rule      |
+| `/usage`                        | Show session token usage       |
+| `/attach <files...>`            | Stage files to attach          |
+| `/files`                        | Show staged files              |
+| `/detach <index\|all>`          | Remove staged files            |
+| `/exit`                         | Quit                           |
+
+The chat CLI subscribes to `/v1/events`, posts messages to `/v1/sessions/{id}/messages`, and resolves approvals with `/v1/sessions/{id}/approvals`.
 
 ### Research
 

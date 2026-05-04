@@ -16,4 +16,9 @@ pub trait TokenUsageRepository: Send + Sync {
         &self,
         session_id: Uuid,
     ) -> Result<Option<TokenUsage>, TokenUsageRepositoryError>;
+
+    async fn sum_for_session(
+        &self,
+        session_id: Uuid,
+    ) -> Result<TokenUsage, TokenUsageRepositoryError>;
 }

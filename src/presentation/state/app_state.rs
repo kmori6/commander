@@ -14,6 +14,7 @@ use std::sync::Arc;
 pub struct AppState {
     pub chat_session_repository: PostgresChatSessionRepository,
     pub chat_message_repository: PostgresChatMessageRepository,
+    pub token_usage_repository: PostgresTokenUsageRepository,
     pub tool_usecase: Arc<ToolUsecase<PostgresToolExecutionRuleRepository>>,
     pub event_service: Arc<EventService>,
     pub agent_usecase: Arc<

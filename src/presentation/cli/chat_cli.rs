@@ -36,6 +36,14 @@ struct ToolResponse {
     source: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct SessionUsageResponse {
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+}
+
 struct ChatApiClient {
     base_url: String,
     http: reqwest::Client,
@@ -159,7 +167,10 @@ impl ChatApiClient {
         decision: &str,
     ) -> Result<(), AgentCliError> {
         self.http
-            .post(format!("{}/v1/approvals/{}", self.base_url, session_id))
+            .post(format!(
+                "{}/v1/sessions/{}/approvals",
+                self.base_url, session_id
+            ))
             .json(&json!({
                 "decision": decision
             }))
@@ -201,6 +212,22 @@ impl ChatApiClient {
             .await?;
 
         Ok(response.tool)
+    }
+
+    async fn get_usage(&self, session_id: Uuid) -> Result<SessionUsageResponse, AgentCliError> {
+        let response = self
+            .http
+            .get(format!(
+                "{}/v1/sessions/{}/usage",
+                self.base_url, session_id
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<SessionUsageResponse>()
+            .await?;
+
+        Ok(response)
     }
 }
 
@@ -440,6 +467,18 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     "/deny" => {
                         client.resolve_approval(session.id, "denied").await?;
                         wait_events(&mut events, &mut event_buffer, session.id).await?;
+                    }
+                    "/usage" => {
+                        let usage = client.get_usage(session.id).await?;
+
+                        println!("usage");
+                        println!(
+                            "  input {:.1}k  output {:.1}k  cache read {:.1}k  cache write {:.1}k",
+                            usage.input_tokens as f64 / 1000.0,
+                            usage.output_tokens as f64 / 1000.0,
+                            usage.cache_read_tokens as f64 / 1000.0,
+                            usage.cache_write_tokens as f64 / 1000.0,
+                        );
                     }
                     _ if line.starts_with('/') => {
                         println!("unknown command: {line}");
