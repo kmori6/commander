@@ -1,5 +1,5 @@
 use crate::domain::error::llm_provider_error::LlmProviderError;
-use crate::domain::model::message::{Message, MessageContent};
+use crate::domain::model::message::Message;
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_call::ToolSpec;
 use async_trait::async_trait;
@@ -14,12 +14,9 @@ pub struct LlmResponse {
 impl LlmResponse {
     pub fn output_text(&self, separator: &str) -> String {
         self.message
-            .content
+            .output_texts()
             .iter()
-            .filter_map(|content| match content {
-                MessageContent::OutputText { text } => Some(text.as_str()),
-                _ => None,
-            })
+            .map(String::as_str)
             .collect::<Vec<_>>()
             .join(separator)
     }

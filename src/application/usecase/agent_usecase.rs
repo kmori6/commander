@@ -147,7 +147,7 @@ where
         session_id: Uuid,
         user_message: Message,
     ) -> Result<ChatMessage, AgentUsecaseError> {
-        validate_user_message(&user_message)?;
+        user_message.validate_user_input()?;
 
         self.validate_startable_session(session_id).await?;
 
@@ -277,7 +277,7 @@ where
         session_id: Uuid,
         output: ToolCallOutput,
     ) -> Result<ChatMessage, AgentUsecaseError> {
-        let message = Message::tool_call_outputs(vec![output])?;
+        let message = Message::user_tool_call_outputs(vec![output])?;
 
         self.chat_message_repository
             .append(session_id, message)
@@ -395,7 +395,7 @@ where
                 events.push(event);
             }
 
-            let tool_calls = tool_calls_from_message(&llm_response.message);
+            let tool_calls = llm_response.message.tool_calls();
 
             if tool_calls.is_empty() {
                 self.chat_session_repository
@@ -471,7 +471,9 @@ where
                 ))
             })?;
 
-        let tool_call = tool_call_from_message(&assistant_message.message, &awaiting.tool_call_id)
+        let tool_call = assistant_message
+            .message
+            .find_tool_call(&awaiting.tool_call_id)
             .ok_or_else(|| {
                 AgentUsecaseError::SessionStatus(format!(
                     "awaiting approval tool call not found: {}",
@@ -615,10 +617,8 @@ where
                 continue;
             }
 
-            for content in entry.message.content {
-                if let MessageContent::ToolCall(call) = content
-                    && !resolved_call_ids.contains(&call.call_id)
-                {
+            for call in entry.message.tool_calls() {
+                if !resolved_call_ids.contains(&call.call_id) {
                     return Ok(Some(UnresolvedToolCall {
                         assistant_message_id: entry.id,
                         tool_call: call,
@@ -773,70 +773,18 @@ where
     }
 }
 
-fn validate_user_message(user_message: &Message) -> Result<(), AgentUsecaseError> {
-    if user_message.role != Role::User {
-        return Err(AgentUsecaseError::InvalidUserMessage(
-            "message role must be user".to_string(),
-        ));
-    }
-
-    let has_input_text = user_message
-        .content
-        .iter()
-        .any(|content| matches!(content, MessageContent::InputText { .. }));
-
-    if !has_input_text {
-        return Err(AgentUsecaseError::InvalidUserMessage(
-            "user message must contain input_text".to_string(),
-        ));
-    }
-
-    let contains_only_user_input = user_message.content.iter().all(|content| {
-        matches!(
-            content,
-            MessageContent::InputText { .. }
-                | MessageContent::InputImage(_)
-                | MessageContent::InputFile(_)
-        )
-    });
-
-    if !contains_only_user_input {
-        return Err(AgentUsecaseError::InvalidUserMessage(
-            "user message can only contain input_text, input_image, or input_file".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
 fn assistant_text_events(
     session_id: Uuid,
     message_id: Uuid,
     message: &Message,
 ) -> Vec<ChatSessionEvent> {
     message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            MessageContent::OutputText { text } if !text.is_empty() => {
-                Some(ChatSessionEvent::AssistantMessageCreated {
-                    session_id,
-                    message_id,
-                    content: text.clone(),
-                })
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn tool_calls_from_message(message: &Message) -> Vec<ToolCall> {
-    message
-        .content
-        .iter()
-        .filter_map(|content| match content {
-            MessageContent::ToolCall(call) => Some(call.clone()),
-            _ => None,
+        .output_texts()
+        .into_iter()
+        .map(|content| ChatSessionEvent::AssistantMessageCreated {
+            session_id,
+            message_id,
+            content,
         })
         .collect()
 }
@@ -851,11 +799,4 @@ fn tool_call_error_output(
             "message": message.into(),
         }),
     )
-}
-
-fn tool_call_from_message(message: &Message, call_id: &str) -> Option<ToolCall> {
-    message.content.iter().find_map(|content| match content {
-        MessageContent::ToolCall(call) if call.call_id == call_id => Some(call.clone()),
-        _ => None,
-    })
 }

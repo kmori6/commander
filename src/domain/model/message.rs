@@ -51,7 +51,18 @@ impl Message {
         )
     }
 
-    pub fn tool_calls(tool_calls: Vec<ToolCall>) -> Result<Self, MessageError> {
+    /// Tool calls are actionable requests emitted by the assistant.
+    pub fn tool_calls(&self) -> Vec<ToolCall> {
+        self.content
+            .iter()
+            .filter_map(|content| match content {
+                MessageContent::ToolCall(call) => Some(call.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn assistant_tool_calls(tool_calls: Vec<ToolCall>) -> Result<Self, MessageError> {
         Self::new(
             Role::Assistant,
             tool_calls
@@ -61,7 +72,7 @@ impl Message {
         )
     }
 
-    pub fn tool_call_outputs(outputs: Vec<ToolCallOutput>) -> Result<Self, MessageError> {
+    pub fn user_tool_call_outputs(outputs: Vec<ToolCallOutput>) -> Result<Self, MessageError> {
         Self::new(
             Role::User,
             outputs
@@ -69,5 +80,60 @@ impl Message {
                 .map(MessageContent::ToolCallOutput)
                 .collect(),
         )
+    }
+
+    /// A user input message must be user-authored, include text, and contain only input blocks.
+    pub fn validate_user_input(&self) -> Result<(), MessageError> {
+        if self.role != Role::User {
+            return Err(MessageError::InvalidContent(
+                "message role must be user".to_string(),
+            ));
+        }
+
+        let has_input_text = self
+            .content
+            .iter()
+            .any(|content| matches!(content, MessageContent::InputText { .. }));
+
+        if !has_input_text {
+            return Err(MessageError::InvalidContent(
+                "user message must contain input_text".to_string(),
+            ));
+        }
+
+        let contains_only_user_input = self.content.iter().all(|content| {
+            matches!(
+                content,
+                MessageContent::InputText { .. }
+                    | MessageContent::InputImage(_)
+                    | MessageContent::InputFile(_)
+            )
+        });
+
+        if !contains_only_user_input {
+            return Err(MessageError::InvalidContent(
+                "user message can only contain input_text, input_image, or input_file".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Assistant text is exposed as non-empty output blocks.
+    pub fn output_texts(&self) -> Vec<String> {
+        self.content
+            .iter()
+            .filter_map(|content| match content {
+                MessageContent::OutputText { text } if !text.is_empty() => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Approval resume restores the original assistant tool call by id.
+    pub fn find_tool_call(&self, call_id: &str) -> Option<ToolCall> {
+        self.tool_calls()
+            .into_iter()
+            .find(|call| call.call_id == call_id)
     }
 }

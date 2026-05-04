@@ -11,9 +11,6 @@ use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum AgentUsecaseError {
-    #[error("invalid user message: {0}")]
-    InvalidUserMessage(String),
-
     #[error("chat session not found: {0}")]
     SessionNotFound(Uuid),
 
