@@ -1,4 +1,4 @@
-use crate::domain::model::chat_session_event::ChatSessionEvent;
+use crate::domain::model::app_event::AppEvent;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 use crate::presentation::state::app_state::AppState;
@@ -34,21 +34,21 @@ pub async fn create_event_handler(State(state): State<AppState>) -> impl IntoRes
     )
 }
 
-fn to_sse_event(event: ChatSessionEvent) -> Event {
+fn to_sse_event(event: AppEvent) -> Event {
     match event {
-        ChatSessionEvent::AgentTurnStarted { session_id } => Event::default()
+        AppEvent::AgentTurnStarted { session_id } => Event::default()
             .event("agent_turn_started")
             .data(json!({ "session_id": session_id }).to_string()),
 
-        ChatSessionEvent::LlmStarted { session_id } => Event::default()
+        AppEvent::LlmStarted { session_id } => Event::default()
             .event("llm_started")
             .data(json!({ "session_id": session_id }).to_string()),
 
-        ChatSessionEvent::LlmFinished { session_id } => Event::default()
+        AppEvent::LlmFinished { session_id } => Event::default()
             .event("llm_finished")
             .data(json!({ "session_id": session_id }).to_string()),
 
-        ChatSessionEvent::LlmUsageRecorded {
+        AppEvent::LlmUsageRecorded {
             session_id,
             message_id,
             usage,
@@ -66,7 +66,7 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .to_string(),
         ),
 
-        ChatSessionEvent::ToolCallStarted {
+        AppEvent::ToolCallStarted {
             session_id,
             call_id,
             tool_name,
@@ -81,7 +81,7 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .to_string(),
         ),
 
-        ChatSessionEvent::ToolCallFinished {
+        AppEvent::ToolCallFinished {
             session_id,
             call_id,
             tool_name,
@@ -98,7 +98,7 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .to_string(),
         ),
 
-        ChatSessionEvent::AssistantMessageCreated {
+        AppEvent::AssistantMessageCreated {
             session_id,
             message_id,
             content,
@@ -111,7 +111,7 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .to_string(),
         ),
 
-        ChatSessionEvent::ToolCallApprovalRequested {
+        AppEvent::ToolCallApprovalRequested {
             session_id,
             call_id,
             tool_name,
@@ -128,7 +128,7 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .to_string(),
         ),
 
-        ChatSessionEvent::ToolCallApprovalResolved {
+        AppEvent::ToolCallApprovalResolved {
             session_id,
             call_id,
             tool_name,
@@ -143,11 +143,11 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .to_string(),
         ),
 
-        ChatSessionEvent::AgentTurnCompleted { session_id } => Event::default()
+        AppEvent::AgentTurnCompleted { session_id } => Event::default()
             .event("agent_turn_completed")
             .data(json!({ "session_id": session_id }).to_string()),
 
-        ChatSessionEvent::AgentTurnFailed { session_id, reason } => {
+        AppEvent::AgentTurnFailed { session_id, reason } => {
             Event::default().event("agent_turn_failed").data(
                 json!({
                     "session_id": session_id,

@@ -1,10 +1,10 @@
 use crate::application::error::agent_usecase_error::AgentUsecaseError;
 use crate::domain::error::agent_error::AgentError;
 use crate::domain::error::chat_session_error::ChatSessionError;
+use crate::domain::model::app_event::AppEvent;
 use crate::domain::model::awaiting_tool_approval::AwaitingToolApproval;
 use crate::domain::model::chat_message::ChatMessage;
 use crate::domain::model::chat_session::ChatSession;
-use crate::domain::model::chat_session_event::ChatSessionEvent;
 use crate::domain::model::input_file::InputFile;
 use crate::domain::model::input_image::InputImage;
 use crate::domain::model::loop_safety::LoopSafety;
@@ -97,7 +97,7 @@ enum ToolCallStep {
 
 #[derive(Debug)]
 pub struct AgentStartTurnOutput {
-    pub events: Vec<ChatSessionEvent>,
+    pub events: Vec<AppEvent>,
 }
 
 pub struct AgentUsecase<L, S, M, T, A, W> {
@@ -237,7 +237,7 @@ where
         &self,
         session_id: Uuid,
         user_message: ChatMessage,
-        tx: mpsc::Sender<ChatSessionEvent>,
+        tx: mpsc::Sender<AppEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let input_messages = self
             .load_compacted_input_messages(session_id, &user_message)
@@ -334,14 +334,14 @@ where
         &self,
         session_id: Uuid,
         tool_call: &ToolCall,
-        tx: &mpsc::Sender<ChatSessionEvent>,
+        tx: &mpsc::Sender<AppEvent>,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
         let call_id = tool_call.call_id.clone();
         let tool_name = tool_call.name.clone();
         let arguments = tool_call.arguments.clone();
 
         let _ = tx
-            .send(ChatSessionEvent::ToolCallStarted {
+            .send(AppEvent::ToolCallStarted {
                 session_id,
                 call_id: call_id.clone(),
                 tool_name: tool_name.clone(),
@@ -368,7 +368,7 @@ where
         let status = tool_call_output.status;
 
         let _ = tx
-            .send(ChatSessionEvent::ToolCallFinished {
+            .send(AppEvent::ToolCallFinished {
                 session_id,
                 call_id,
                 tool_name,
@@ -410,7 +410,7 @@ where
         session_id: Uuid,
         instruction: String,
         mut input_messages: Vec<Message>,
-        tx: mpsc::Sender<ChatSessionEvent>,
+        tx: mpsc::Sender<AppEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let mut events = Vec::new();
         let mut loop_safety = LoopSafety::new(MAX_LLM_STEPS);
@@ -419,7 +419,7 @@ where
             if let Err(err) = loop_safety.start_llm_step() {
                 self.stop_turn(session_id).await?;
 
-                let event = ChatSessionEvent::AgentTurnFailed {
+                let event = AppEvent::AgentTurnFailed {
                     session_id,
                     reason: err.to_string(),
                 };
@@ -429,14 +429,14 @@ where
                 return Err(AgentUsecaseError::Agent(AgentError::from(err)));
             }
 
-            let _ = tx.send(ChatSessionEvent::LlmStarted { session_id }).await;
+            let _ = tx.send(AppEvent::LlmStarted { session_id }).await;
 
             let llm_response = self
                 .agent_service
                 .llm_step(instruction.clone(), input_messages.clone())
                 .await?;
 
-            let _ = tx.send(ChatSessionEvent::LlmFinished { session_id }).await;
+            let _ = tx.send(AppEvent::LlmFinished { session_id }).await;
 
             let saved_agent_message = self.save_llm_response(session_id, &llm_response).await?;
 
@@ -449,7 +449,7 @@ where
 
             // Token usage events
             if !llm_response.usage.is_empty() {
-                let event = ChatSessionEvent::LlmUsageRecorded {
+                let event = AppEvent::LlmUsageRecorded {
                     session_id,
                     message_id: saved_agent_message.id,
                     usage: llm_response.usage,
@@ -473,7 +473,7 @@ where
                     .update_status(session_id, idle_status)
                     .await?;
 
-                let event = ChatSessionEvent::AgentTurnCompleted { session_id };
+                let event = AppEvent::AgentTurnCompleted { session_id };
                 let _ = tx.send(event.clone()).await;
                 events.push(event);
 
@@ -586,7 +586,7 @@ where
         &self,
         session_id: Uuid,
         decision: ToolApprovalResponse,
-        tx: mpsc::Sender<ChatSessionEvent>,
+        tx: mpsc::Sender<AppEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let session = self
             .chat_session_repository
@@ -602,7 +602,7 @@ where
             .update_status(session_id, next_status)
             .await?;
 
-        let resolved = ChatSessionEvent::ToolCallApprovalResolved {
+        let resolved = AppEvent::ToolCallApprovalResolved {
             session_id,
             call_id: tool_call.call_id.clone(),
             tool_name: tool_call.name.clone(),
@@ -621,7 +621,7 @@ where
                     .await?;
 
                 let _ = tx
-                    .send(ChatSessionEvent::ToolCallFinished {
+                    .send(AppEvent::ToolCallFinished {
                         session_id,
                         call_id: tool_call.call_id.clone(),
                         tool_name: tool_call.name.clone(),
@@ -684,9 +684,9 @@ where
         session_id: Uuid,
         assistant_message_id: Uuid,
         tool_call: ToolCall,
-        events: &mut Vec<ChatSessionEvent>,
+        events: &mut Vec<AppEvent>,
         loop_safety: &mut LoopSafety,
-        tx: &mpsc::Sender<ChatSessionEvent>,
+        tx: &mpsc::Sender<AppEvent>,
     ) -> Result<ToolCallStep, AgentUsecaseError> {
         match self
             .agent_service
@@ -702,7 +702,7 @@ where
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
 
-                    let event = ChatSessionEvent::AgentTurnFailed {
+                    let event = AppEvent::AgentTurnFailed {
                         session_id,
                         reason: err.to_string(),
                     };
@@ -734,7 +734,7 @@ where
                     })
                     .await?;
 
-                let event = ChatSessionEvent::ToolCallApprovalRequested {
+                let event = AppEvent::ToolCallApprovalRequested {
                     session_id,
                     call_id: tool_call.call_id,
                     tool_name: tool_call.name,
@@ -762,7 +762,7 @@ where
                 let output = self.save_tool_call_output(session_id, output).await?;
 
                 let _ = tx
-                    .send(ChatSessionEvent::ToolCallFinished {
+                    .send(AppEvent::ToolCallFinished {
                         session_id,
                         call_id: tool_call.call_id.clone(),
                         tool_name: tool_call.name.clone(),
@@ -774,7 +774,7 @@ where
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
 
-                    let event = ChatSessionEvent::AgentTurnFailed {
+                    let event = AppEvent::AgentTurnFailed {
                         session_id,
                         reason: err.to_string(),
                     };
@@ -792,7 +792,7 @@ where
                 let output = self.save_tool_call_output(session_id, output).await?;
 
                 let _ = tx
-                    .send(ChatSessionEvent::ToolCallFinished {
+                    .send(AppEvent::ToolCallFinished {
                         session_id,
                         call_id: tool_call.call_id.clone(),
                         tool_name: tool_call.name.clone(),
@@ -804,7 +804,7 @@ where
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
 
-                    let event = ChatSessionEvent::AgentTurnFailed {
+                    let event = AppEvent::AgentTurnFailed {
                         session_id,
                         reason: err.to_string(),
                     };
@@ -822,7 +822,7 @@ where
     async fn continue_after_tool_output(
         &self,
         session_id: Uuid,
-        tx: mpsc::Sender<ChatSessionEvent>,
+        tx: mpsc::Sender<AppEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let mut events = Vec::new();
         let mut loop_safety = LoopSafety::new(MAX_LLM_STEPS);
@@ -869,15 +869,11 @@ where
     }
 }
 
-fn assistant_text_events(
-    session_id: Uuid,
-    message_id: Uuid,
-    message: &Message,
-) -> Vec<ChatSessionEvent> {
+fn assistant_text_events(session_id: Uuid, message_id: Uuid, message: &Message) -> Vec<AppEvent> {
     message
         .output_texts()
         .into_iter()
-        .map(|content| ChatSessionEvent::AssistantMessageCreated {
+        .map(|content| AppEvent::AssistantMessageCreated {
             session_id,
             message_id,
             content,

@@ -1,4 +1,4 @@
-use crate::domain::model::chat_session_event::ChatSessionEvent;
+use crate::domain::model::app_event::AppEvent;
 use crate::domain::model::message::Message;
 use crate::presentation::state::app_state::AppState;
 use axum::{
@@ -53,7 +53,7 @@ pub async fn create_message_handler(
 
     let start_message = saved.clone();
     tokio::spawn(async move {
-        let (event_tx, mut event_rx) = mpsc::channel::<ChatSessionEvent>(32);
+        let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(32);
 
         let publisher_event_service = event_service.clone();
         let event_publisher = tokio::spawn(async move {

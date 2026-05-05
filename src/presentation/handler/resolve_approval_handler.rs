@@ -1,4 +1,4 @@
-use crate::domain::model::chat_session_event::ChatSessionEvent;
+use crate::domain::model::app_event::AppEvent;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::presentation::state::app_state::AppState;
 use axum::{
@@ -29,7 +29,7 @@ pub async fn resolve_approval_handler(
     let event_service = state.event_service.clone();
 
     tokio::spawn(async move {
-        let (event_tx, mut event_rx) = mpsc::channel::<ChatSessionEvent>(32);
+        let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(32);
 
         let publisher_event_service = event_service.clone();
         // agent usecase -> resolve approval handler -> event service

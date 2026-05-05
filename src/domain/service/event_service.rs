@@ -1,8 +1,8 @@
-use crate::domain::model::chat_session_event::ChatSessionEvent;
+use crate::domain::model::app_event::AppEvent;
 use tokio::sync::broadcast;
 
 pub struct EventService {
-    tx: broadcast::Sender<ChatSessionEvent>,
+    tx: broadcast::Sender<AppEvent>,
 }
 
 impl Default for EventService {
@@ -17,11 +17,11 @@ impl EventService {
         Self { tx }
     }
 
-    pub fn publish(&self, event: ChatSessionEvent) {
+    pub fn publish(&self, event: AppEvent) {
         let _ = self.tx.send(event);
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<ChatSessionEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<AppEvent> {
         self.tx.subscribe()
     }
 }

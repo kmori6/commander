@@ -6,7 +6,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
-pub enum ChatSessionEvent {
+pub enum AppEvent {
     AgentTurnStarted {
         session_id: Uuid,
     },
