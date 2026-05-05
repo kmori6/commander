@@ -39,9 +39,10 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
-    pub fn can_start_turn(&self) -> Result<(), ChatSessionError> {
+    /// A new agent turn can start only from an idle session.
+    pub fn start_turn(&self) -> Result<ChatSessionStatus, ChatSessionError> {
         match self.status {
-            ChatSessionStatus::Idle => Ok(()),
+            ChatSessionStatus::Idle => Ok(ChatSessionStatus::Running),
             ChatSessionStatus::Running => Err(ChatSessionError::AlreadyRunning {
                 session_id: self.id,
             }),
@@ -51,9 +52,10 @@ impl ChatSession {
         }
     }
 
-    pub fn can_resolve_approval(&self) -> Result<(), ChatSessionError> {
+    /// Resolving an approval resumes the paused agent turn.
+    pub fn resolve_approval(&self) -> Result<ChatSessionStatus, ChatSessionError> {
         match self.status {
-            ChatSessionStatus::AwaitingApproval => Ok(()),
+            ChatSessionStatus::AwaitingApproval => Ok(ChatSessionStatus::Running),
             ChatSessionStatus::Idle => Err(ChatSessionError::ApprovalNotPending {
                 session_id: self.id,
             }),
@@ -63,16 +65,7 @@ impl ChatSession {
         }
     }
 
-    pub fn resolve_approval(&self) -> Result<ChatSessionStatus, ChatSessionError> {
-        self.can_resolve_approval()?;
-        Ok(ChatSessionStatus::Running)
-    }
-
-    pub fn start_turn(&self) -> Result<ChatSessionStatus, ChatSessionError> {
-        self.can_start_turn()?;
-        Ok(ChatSessionStatus::Running)
-    }
-
+    /// A running agent turn may pause while waiting for tool approval.
     pub fn await_approval(&self) -> Result<ChatSessionStatus, ChatSessionError> {
         match self.status {
             ChatSessionStatus::Running => Ok(ChatSessionStatus::AwaitingApproval),
@@ -85,6 +78,7 @@ impl ChatSession {
         }
     }
 
+    /// A running agent turn completes by returning the session to idle.
     pub fn complete_turn(&self) -> Result<ChatSessionStatus, ChatSessionError> {
         match self.status {
             ChatSessionStatus::Running => Ok(ChatSessionStatus::Idle),

@@ -1,4 +1,5 @@
 use crate::domain::error::llm_provider_error::LlmProviderError;
+use crate::domain::error::loop_safety_error::LoopSafetyError;
 use crate::domain::error::message_error::MessageError;
 use crate::domain::error::tool_error::ToolError;
 use thiserror::Error;
@@ -14,6 +15,6 @@ pub enum AgentError {
     #[error("failed to handle tool execution: {0}")]
     ToolCall(#[from] ToolError),
 
-    #[error("agent exceeded maximum tool iterations: {0}")]
-    MaxToolIterations(usize),
+    #[error("agent loop safety stopped execution: {0}")]
+    LoopSafety(#[from] LoopSafetyError),
 }

@@ -7,6 +7,7 @@ use crate::domain::model::chat_session::ChatSession;
 use crate::domain::model::chat_session_event::ChatSessionEvent;
 use crate::domain::model::input_file::InputFile;
 use crate::domain::model::input_image::InputImage;
+use crate::domain::model::loop_safety::LoopSafety;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
 use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalResponse};
@@ -351,8 +352,24 @@ where
         tx: mpsc::Sender<ChatSessionEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let mut events = Vec::new();
+        let mut loop_safety = LoopSafety::new(MAX_LLM_STEPS);
 
-        for _ in 0..MAX_LLM_STEPS {
+        loop {
+            if let Err(err) = loop_safety.start_llm_step() {
+                let session = self
+                    .chat_session_repository
+                    .find_by_id(session_id)
+                    .await?
+                    .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+                let idle_status = session.complete_turn()?;
+
+                self.chat_session_repository
+                    .update_status(session_id, idle_status)
+                    .await?;
+
+                return Err(AgentUsecaseError::Agent(AgentError::from(err)));
+            }
+
             let _ = tx.send(ChatSessionEvent::LlmStarted { session_id }).await;
 
             let llm_response = self
@@ -391,10 +408,10 @@ where
                     .find_by_id(session_id)
                     .await?
                     .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-                let next_status = session.complete_turn()?;
+                let idle_status = session.complete_turn()?;
 
                 self.chat_session_repository
-                    .update_status(session_id, next_status)
+                    .update_status(session_id, idle_status)
                     .await?;
 
                 let event = ChatSessionEvent::AgentTurnCompleted { session_id };
@@ -431,21 +448,6 @@ where
                 continue;
             }
         }
-
-        let session = self
-            .chat_session_repository
-            .find_by_id(session_id)
-            .await?
-            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-        let next_status = session.complete_turn()?;
-
-        self.chat_session_repository
-            .update_status(session_id, next_status)
-            .await?;
-
-        Err(AgentUsecaseError::Agent(AgentError::MaxToolIterations(
-            MAX_LLM_STEPS,
-        )))
     }
 
     async fn load_awaiting_tool_call(

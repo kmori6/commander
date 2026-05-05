@@ -6,6 +6,7 @@ pub mod compaction_service_error;
 pub mod deep_research_error;
 pub mod embedding_provider_error;
 pub mod llm_provider_error;
+pub mod loop_safety_error;
 pub mod memory_index_repository_error;
 pub mod memory_index_service_error;
 pub mod message_error;
