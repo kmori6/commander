@@ -52,6 +52,13 @@ struct JobResponse {
     status: String,
     title: String,
     objective: String,
+    session_id: Option<Uuid>,
+    parent_job_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListJobsResponse {
+    jobs: Vec<JobResponse>,
 }
 
 struct ChatApiClient {
@@ -266,6 +273,32 @@ impl ChatApiClient {
 
         Ok(job)
     }
+
+    async fn list_jobs(&self) -> Result<Vec<JobResponse>, AgentCliError> {
+        let response = self
+            .http
+            .get(format!("{}/v1/jobs?limit=20", self.base_url))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ListJobsResponse>()
+            .await?;
+
+        Ok(response.jobs)
+    }
+
+    async fn get_job(&self, job_id: Uuid) -> Result<JobResponse, AgentCliError> {
+        let job = self
+            .http
+            .get(format!("{}/v1/jobs/{}", self.base_url, job_id))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<JobResponse>()
+            .await?;
+
+        Ok(job)
+    }
 }
 
 pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), AgentCliError> {
@@ -436,6 +469,53 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
 
                             println!("detached");
                             println!("  {FILE_ICON} {index}  {}", detached.display());
+                        }
+                    }
+                    "/jobs" => {
+                        let jobs = client.list_jobs().await?;
+
+                        if jobs.is_empty() {
+                            println!("no jobs");
+                        } else {
+                            println!("jobs");
+
+                            for job in jobs {
+                                let id = job.id.to_string();
+                                let short_id = id.chars().take(8).collect::<String>();
+
+                                println!(
+                                    "  {:<8}  {:<8}  {:<10}  {}",
+                                    short_id, job.status, job.kind, job.title,
+                                );
+                            }
+                        }
+                    }
+                    "/status" => {
+                        println!("usage: /status <job_id>");
+                    }
+                    _ if line.starts_with("/status ") => {
+                        let id = line.trim_start_matches("/status ").trim();
+
+                        let Ok(job_id) = Uuid::parse_str(id) else {
+                            println!("invalid job id: {id}");
+                            continue;
+                        };
+
+                        let job = client.get_job(job_id).await?;
+
+                        println!("job");
+                        println!("  id         {}", job.id);
+                        println!("  kind       {}", job.kind);
+                        println!("  status     {}", job.status);
+                        println!("  title      {}", job.title);
+                        println!("  objective  {}", job.objective);
+
+                        if let Some(session_id) = job.session_id {
+                            println!("  session    {}", session_id);
+                        }
+
+                        if let Some(parent_job_id) = job.parent_job_id {
+                            println!("  parent     {}", parent_job_id);
                         }
                     }
                     "/job" => {
