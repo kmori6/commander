@@ -21,6 +21,7 @@ impl PostgresChatSessionRepository {
 #[derive(sqlx::FromRow)]
 struct ChatSessionRow {
     id: Uuid,
+    title: Option<String>,
     status: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -36,6 +37,7 @@ impl TryFrom<ChatSessionRow> for ChatSession {
 
         Ok(Self {
             id: row.id,
+            title: row.title,
             status,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -53,7 +55,7 @@ impl ChatSessionRepository for PostgresChatSessionRepository {
         let row = sqlx::query_as::<_, ChatSessionRow>(
             r#"
             INSERT INTO chat_sessions DEFAULT VALUES
-            RETURNING id, status, created_at, updated_at
+            RETURNING id, title, status, created_at, updated_at
             "#,
         )
         .fetch_one(&self.pool)
@@ -66,7 +68,7 @@ impl ChatSessionRepository for PostgresChatSessionRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<ChatSession>, ChatRepositoryError> {
         let row = sqlx::query_as::<_, ChatSessionRow>(
             r#"
-            SELECT id, status, created_at, updated_at
+            SELECT id, title, status, created_at, updated_at
             FROM chat_sessions
             WHERE id = $1
             "#,
@@ -82,7 +84,7 @@ impl ChatSessionRepository for PostgresChatSessionRepository {
     async fn list_recent(&self, limit: usize) -> Result<Vec<ChatSession>, ChatRepositoryError> {
         let rows = sqlx::query_as::<_, ChatSessionRow>(
             r#"
-            SELECT id, status, created_at, updated_at
+            SELECT id, title, status, created_at, updated_at
             FROM chat_sessions
             ORDER BY updated_at DESC
             LIMIT $1
@@ -125,7 +127,7 @@ impl ChatSessionRepository for PostgresChatSessionRepository {
             UPDATE chat_sessions
             SET status = $2, updated_at = NOW()
             WHERE id = $1
-            RETURNING id, status, created_at, updated_at
+            RETURNING id, title, status, created_at, updated_at
             "#,
         )
         .bind(id)

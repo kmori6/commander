@@ -7,7 +7,9 @@ pub struct Job {
     pub kind: JobKind,
     pub status: JobStatus,
     pub title: String,
+    pub objective: String,
     pub session_id: Option<Uuid>,
+    pub parent_job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -16,7 +18,7 @@ pub struct Job {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
-    Chat,
+    General,
     Research,
     Survey,
     Digest,
@@ -34,7 +36,13 @@ pub enum JobStatus {
 }
 
 impl Job {
-    pub fn new(kind: JobKind, title: impl Into<String>, session_id: Option<Uuid>) -> Self {
+    pub fn new(
+        kind: JobKind,
+        title: impl Into<String>,
+        objective: impl Into<String>,
+        session_id: Option<Uuid>,
+        parent_job_id: Option<Uuid>,
+    ) -> Self {
         let now = Utc::now();
 
         Self {
@@ -42,7 +50,9 @@ impl Job {
             kind,
             status: JobStatus::Queued,
             title: title.into(),
+            objective: objective.into(),
             session_id,
+            parent_job_id,
             created_at: now,
             started_at: None,
             finished_at: None,
@@ -106,7 +116,7 @@ impl Job {
 impl JobKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Chat => "chat",
+            Self::General => "general",
             Self::Research => "research",
             Self::Survey => "survey",
             Self::Digest => "digest",
@@ -116,7 +126,7 @@ impl JobKind {
 
     pub fn from_db(value: &str) -> Option<Self> {
         match value {
-            "chat" => Some(Self::Chat),
+            "general" | "chat" => Some(Self::General),
             "research" => Some(Self::Research),
             "survey" => Some(Self::Survey),
             "digest" => Some(Self::Digest),

@@ -24,7 +24,9 @@ struct JobRow {
     kind: String,
     status: String,
     title: String,
+    objective: String,
     session_id: Option<Uuid>,
+    parent_job_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     started_at: Option<DateTime<Utc>>,
     finished_at: Option<DateTime<Utc>>,
@@ -45,7 +47,9 @@ impl TryFrom<JobRow> for Job {
             kind,
             status,
             title: row.title,
+            objective: row.objective,
             session_id: row.session_id,
+            parent_job_id: row.parent_job_id,
             created_at: row.created_at,
             started_at: row.started_at,
             finished_at: row.finished_at,
@@ -64,17 +68,19 @@ impl JobRepository for PostgresJobRepository {
         sqlx::query(
             r#"
             INSERT INTO jobs (
-              id, kind, status, title, session_id,
+              id, kind, status, title, objective, session_id, parent_job_id,
               created_at, started_at, finished_at, error_message
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(job.id)
         .bind(job.kind.as_str())
         .bind(job.status.as_str())
         .bind(job.title)
+        .bind(job.objective)
         .bind(job.session_id)
+        .bind(job.parent_job_id)
         .bind(job.created_at)
         .bind(job.started_at)
         .bind(job.finished_at)
@@ -90,7 +96,7 @@ impl JobRepository for PostgresJobRepository {
         let row = sqlx::query_as::<_, JobRow>(
             r#"
             SELECT
-              id, kind, status, title, session_id,
+              id, kind, status, title, objective, session_id, parent_job_id,
               created_at, started_at, finished_at, error_message
             FROM jobs
             WHERE id = $1
@@ -108,7 +114,7 @@ impl JobRepository for PostgresJobRepository {
         let rows = sqlx::query_as::<_, JobRow>(
             r#"
             SELECT
-              id, kind, status, title, session_id,
+              id, kind, status, title, objective, session_id, parent_job_id,
               created_at, started_at, finished_at, error_message
             FROM jobs
             ORDER BY created_at DESC
@@ -131,11 +137,13 @@ impl JobRepository for PostgresJobRepository {
               kind = $2,
               status = $3,
               title = $4,
-              session_id = $5,
-              created_at = $6,
-              started_at = $7,
-              finished_at = $8,
-              error_message = $9
+              objective = $5,
+              session_id = $6,
+              parent_job_id = $7,
+              created_at = $8,
+              started_at = $9,
+              finished_at = $10,
+              error_message = $11
             WHERE id = $1
             "#,
         )
@@ -143,7 +151,9 @@ impl JobRepository for PostgresJobRepository {
         .bind(job.kind.as_str())
         .bind(job.status.as_str())
         .bind(job.title)
+        .bind(job.objective)
         .bind(job.session_id)
+        .bind(job.parent_job_id)
         .bind(job.created_at)
         .bind(job.started_at)
         .bind(job.finished_at)

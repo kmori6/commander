@@ -8,13 +8,14 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 
+use crate::domain::model::chat_session::ChatSession;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::presentation::state::app_state::AppState;
 
 const DEFAULT_LIMIT: usize = 20;
 const MAX_LIMIT: usize = 100;
-const TITLE_MAX_CHARS: usize = 40;
+const UNTITLED_SESSION_TITLE: &str = "Untitled session";
 
 #[derive(Debug, Deserialize)]
 pub struct ListSessionQuery {
@@ -75,12 +76,21 @@ pub async fn list_session_handler(
         .into_iter()
         .map(|session| {
             let message_summary = message_summaries.get(&session.id);
+            let title = session
+                .title
+                .as_deref()
+                .filter(|title| !title.trim().is_empty())
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| {
+                    message_summary
+                        .and_then(|summary| summary.first_user_message.as_deref())
+                        .and_then(ChatSession::title_from_first_user_message)
+                        .unwrap_or_else(|| UNTITLED_SESSION_TITLE.to_string())
+                });
 
             json!({
                 "id": session.id.to_string(),
-                "title": title_from_first_user_message(
-                    message_summary.and_then(|summary| summary.first_user_message.as_deref()), TITLE_MAX_CHARS
-                ),
+                "title": title,
                 "status": session.status.as_str(),
                 "created_at": session.created_at.to_rfc3339(),
                 "updated_at": session.updated_at.to_rfc3339(),
@@ -97,19 +107,4 @@ pub async fn list_session_handler(
             "sessions": sessions,
         })),
     )
-}
-
-fn title_from_first_user_message(text: Option<&str>, max_chars: usize) -> String {
-    let Some(text) = text else {
-        return "Untitled session".to_string();
-    };
-
-    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let title = normalized.chars().take(max_chars).collect::<String>();
-
-    if title.is_empty() {
-        "Untitled session".to_string()
-    } else {
-        title
-    }
 }

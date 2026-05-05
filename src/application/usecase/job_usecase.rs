@@ -20,9 +20,11 @@ where
         &self,
         kind: JobKind,
         title: impl Into<String>,
+        objective: impl Into<String>,
         session_id: Option<Uuid>,
+        parent_job_id: Option<Uuid>,
     ) -> Result<Job, JobUsecaseError> {
-        let job = Job::new(kind, title, session_id);
+        let job = Job::new(kind, title, objective, session_id, parent_job_id);
         self.repository.save(job.clone()).await?;
         Ok(job)
     }

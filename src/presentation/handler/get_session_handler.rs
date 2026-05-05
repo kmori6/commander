@@ -19,6 +19,7 @@ pub async fn get_session_handler(
             StatusCode::OK,
             Json(json!({
                 "id": session.id.to_string(),
+                "title": session.title,
                 "status": session.status.as_str(),
                 "created_at": session.created_at.to_rfc3339(),
                 "updated_at": session.updated_at.to_rfc3339(),

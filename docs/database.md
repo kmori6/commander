@@ -12,11 +12,13 @@ PostgreSQL database name: `agent`.
 
 One row per conversation thread.
 
-| Column       | Type      | Description        |
-| ------------ | --------- | ------------------ |
-| `id`         | UUID PK   | Session identifier |
-| `created_at` | timestamp |                    |
-| `updated_at` | timestamp |                    |
+| Column       | Type      | Description                                  |
+| ------------ | --------- | -------------------------------------------- |
+| `id`         | UUID PK   | Session identifier                           |
+| `title`      | text      | Optional display title                       |
+| `status`     | text      | `idle` / `running` / `awaiting_approval`     |
+| `created_at` | timestamp |                                              |
+| `updated_at` | timestamp |                                              |
 
 ### `chat_messages`
 

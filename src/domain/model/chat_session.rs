@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use uuid::Uuid;
 
+const SESSION_TITLE_MAX_CHARS: usize = 40;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSessionStatus {
@@ -33,12 +35,24 @@ impl ChatSessionStatus {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChatSession {
     pub id: Uuid,
+    pub title: Option<String>,
     pub status: ChatSessionStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl ChatSession {
+    /// The first user message can seed a stable, human-readable session title.
+    pub fn title_from_first_user_message(text: &str) -> Option<String> {
+        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let title = normalized
+            .chars()
+            .take(SESSION_TITLE_MAX_CHARS)
+            .collect::<String>();
+
+        if title.is_empty() { None } else { Some(title) }
+    }
+
     /// A new agent turn can start only from an idle session.
     pub fn start_turn(&self) -> Result<ChatSessionStatus, ChatSessionError> {
         match self.status {
