@@ -1,9 +1,7 @@
 use crate::domain::error::loop_safety_error::LoopSafetyError;
-use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolCallOutputStatus};
-use serde_json::{Value, json};
+use crate::domain::model::tool_call::ToolCall;
+use crate::domain::model::tool_call_output::ToolCallOutput;
 
-const TOOL_OUTPUT_TRUNCATED_MESSAGE: &str =
-    "Tool call output was truncated because it exceeded the loop safety limit.";
 const DEFAULT_MAX_FAILED_REPEATS: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,43 +44,13 @@ impl LoopSafety {
         Ok(())
     }
 
-    /// Tool call output is bounded before it is saved back into the conversation context.
-    pub fn truncate_tool_call_output(
-        output: ToolCallOutput,
-        max_output_chars: usize,
-    ) -> ToolCallOutput {
-        let serialized_output = match &output.output {
-            Value::String(text) => text.clone(),
-            value => serde_json::to_string(value).unwrap_or_else(|_| value.to_string()),
-        };
-
-        let original_chars = serialized_output.chars().count();
-        if original_chars <= max_output_chars {
-            return output;
-        }
-
-        let truncated_output = truncate_middle(&serialized_output, max_output_chars);
-
-        ToolCallOutput {
-            call_id: output.call_id,
-            status: output.status,
-            output: json!({
-                "message": TOOL_OUTPUT_TRUNCATED_MESSAGE,
-                "truncated": true,
-                "original_chars": original_chars,
-                "max_chars": max_output_chars,
-                "output": truncated_output,
-            }),
-        }
-    }
-
     /// A repeated failed tool call must not continue indefinitely within one agent turn.
     pub fn record_tool_call_output(
         &mut self,
         tool_call: &ToolCall,
         output: &ToolCallOutput,
     ) -> Result<(), LoopSafetyError> {
-        if output.status == ToolCallOutputStatus::Success {
+        if output.is_success() {
             self.last_failed_signature = None;
             self.failed_repeats = 0;
             return Ok(());
@@ -108,38 +76,28 @@ impl LoopSafety {
     }
 }
 
-fn truncate_middle(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-
-    let marker = "\n\n[tool call output truncated]\n\n";
-    let marker_chars = marker.chars().count();
-
-    if max_chars <= marker_chars {
-        return text.chars().take(max_chars).collect();
-    }
-
-    let available_chars = max_chars - marker_chars;
-    let head_chars = available_chars * 2 / 3;
-    let tail_chars = available_chars - head_chars;
-
-    let head = text.chars().take(head_chars).collect::<String>();
-    let tail = text
-        .chars()
-        .rev()
-        .take(tail_chars)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
-
-    format!("{head}{marker}{tail}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::model::tool_call::ToolCall;
+    use crate::domain::model::tool_call_output::ToolCallOutput;
+    use serde_json::json;
+
+    fn tool_call(command: &str) -> ToolCall {
+        ToolCall {
+            call_id: "call-1".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: json!({ "command": command }),
+        }
+    }
+
+    fn error_output() -> ToolCallOutput {
+        ToolCallOutput::error("call-1", json!({ "message": "failed" }))
+    }
+
+    fn success_output() -> ToolCallOutput {
+        ToolCallOutput::success("call-1", json!({ "message": "ok" }))
+    }
 
     #[test]
     fn allows_steps_up_to_the_configured_limit() {
@@ -160,5 +118,77 @@ mod tests {
             Err(LoopSafetyError::MaxLlmStepsExceeded { max: 1 })
         );
         assert_eq!(safety.llm_steps(), 1);
+    }
+
+    #[test]
+    fn repeated_failed_tool_call_is_rejected_at_the_limit() {
+        let mut safety = LoopSafety::new(20);
+        let call = tool_call("missing-command");
+
+        for _ in 0..4 {
+            assert_eq!(
+                safety.record_tool_call_output(&call, &error_output()),
+                Ok(())
+            );
+        }
+
+        assert_eq!(
+            safety.record_tool_call_output(&call, &error_output()),
+            Err(LoopSafetyError::RepeatedFailedToolCall {
+                tool_name: "shell_exec".to_string(),
+                repeats: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn successful_tool_call_resets_failed_repeats() {
+        let mut safety = LoopSafety::new(20);
+        let call = tool_call("missing-command");
+
+        for _ in 0..4 {
+            assert_eq!(
+                safety.record_tool_call_output(&call, &error_output()),
+                Ok(())
+            );
+        }
+
+        assert_eq!(
+            safety.record_tool_call_output(&call, &success_output()),
+            Ok(())
+        );
+
+        for _ in 0..4 {
+            assert_eq!(
+                safety.record_tool_call_output(&call, &error_output()),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
+    fn different_failed_tool_call_resets_failed_repeats() {
+        let mut safety = LoopSafety::new(20);
+        let first = tool_call("missing-command");
+        let second = tool_call("another-missing-command");
+
+        for _ in 0..4 {
+            assert_eq!(
+                safety.record_tool_call_output(&first, &error_output()),
+                Ok(())
+            );
+        }
+
+        assert_eq!(
+            safety.record_tool_call_output(&second, &error_output()),
+            Ok(())
+        );
+
+        for _ in 0..3 {
+            assert_eq!(
+                safety.record_tool_call_output(&second, &error_output()),
+                Ok(())
+            );
+        }
     }
 }

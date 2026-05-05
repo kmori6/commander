@@ -1,5 +1,6 @@
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolSpec};
+use crate::domain::model::tool_call::{ToolCall, ToolSpec};
+use crate::domain::model::tool_call_output::ToolCallOutput;
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
 use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use crate::domain::model::tool_status::{ToolStatus, ToolStatusSource};

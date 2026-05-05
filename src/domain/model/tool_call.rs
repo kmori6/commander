@@ -26,33 +26,40 @@ impl ToolCall {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ToolCallOutputStatus {
-    Success,
-    Error,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ToolCallOutput {
-    pub call_id: String,
-    pub output: Value,
-    pub status: ToolCallOutputStatus,
-}
+    #[test]
+    fn same_tool_name_and_arguments_have_same_signature() {
+        let a = ToolCall {
+            call_id: "call-1".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: json!({ "command": "ls" }),
+        };
+        let b = ToolCall {
+            call_id: "call-2".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: json!({ "command": "ls" }),
+        };
 
-impl ToolCallOutput {
-    pub fn success(call_id: impl Into<String>, output: Value) -> Self {
-        Self {
-            call_id: call_id.into(),
-            output,
-            status: ToolCallOutputStatus::Success,
-        }
+        assert_eq!(a.signature(), b.signature());
     }
 
-    pub fn error(call_id: impl Into<String>, output: Value) -> Self {
-        Self {
-            call_id: call_id.into(),
-            output,
-            status: ToolCallOutputStatus::Error,
-        }
+    #[test]
+    fn different_arguments_have_different_signatures() {
+        let a = ToolCall {
+            call_id: "call-1".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: json!({ "command": "ls" }),
+        };
+        let b = ToolCall {
+            call_id: "call-2".to_string(),
+            name: "shell_exec".to_string(),
+            arguments: json!({ "command": "pwd" }),
+        };
+
+        assert_ne!(a.signature(), b.signature());
     }
 }

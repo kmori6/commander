@@ -11,6 +11,7 @@ pub mod role;
 pub mod token_usage;
 pub mod tool_approval;
 pub mod tool_call;
+pub mod tool_call_output;
 pub mod tool_execution_decision;
 pub mod tool_execution_policy;
 pub mod tool_execution_rule;

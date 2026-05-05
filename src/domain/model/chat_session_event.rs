@@ -1,6 +1,6 @@
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
-use crate::domain::model::tool_call::ToolCallOutputStatus;
+use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use serde_json::Value;
 use uuid::Uuid;

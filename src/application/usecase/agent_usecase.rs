@@ -11,7 +11,8 @@ use crate::domain::model::loop_safety::LoopSafety;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
 use crate::domain::model::tool_approval::{ToolApproval, ToolApprovalResponse};
-use crate::domain::model::tool_call::{ToolCall, ToolCallOutput};
+use crate::domain::model::tool_call::ToolCall;
+use crate::domain::model::tool_call_output::ToolCallOutput;
 use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
 use crate::domain::port::llm_provider::{LlmProvider, LlmResponse};
 use crate::domain::repository::awaiting_tool_approval_repository::AwaitingToolApprovalRepository;
@@ -282,7 +283,7 @@ where
         session_id: Uuid,
         output: ToolCallOutput,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
-        let output = LoopSafety::truncate_tool_call_output(output, MAX_TOOL_OUTPUT_CHARS);
+        let output = output.truncate(MAX_TOOL_OUTPUT_CHARS);
         let message = Message::user_tool_call_outputs(vec![output.clone()])?;
 
         self.chat_message_repository
@@ -707,20 +708,20 @@ where
 
                 let output = self.save_tool_call_output(session_id, output).await?;
 
+                let _ = tx
+                    .send(ChatSessionEvent::ToolCallFinished {
+                        session_id,
+                        call_id: tool_call.call_id.clone(),
+                        tool_name: tool_call.name.clone(),
+                        output: output.output.clone(),
+                        status: output.status,
+                    })
+                    .await;
+
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
                     return Err(AgentUsecaseError::Agent(AgentError::from(err)));
                 }
-
-                let _ = tx
-                    .send(ChatSessionEvent::ToolCallFinished {
-                        session_id,
-                        call_id: tool_call.call_id,
-                        tool_name: tool_call.name,
-                        output: output.output,
-                        status: output.status,
-                    })
-                    .await;
 
                 Ok(ToolCallStep::Continued)
             }
@@ -729,20 +730,20 @@ where
 
                 let output = self.save_tool_call_output(session_id, output).await?;
 
+                let _ = tx
+                    .send(ChatSessionEvent::ToolCallFinished {
+                        session_id,
+                        call_id: tool_call.call_id.clone(),
+                        tool_name: tool_call.name.clone(),
+                        output: output.output.clone(),
+                        status: output.status,
+                    })
+                    .await;
+
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
                     return Err(AgentUsecaseError::Agent(AgentError::from(err)));
                 }
-
-                let _ = tx
-                    .send(ChatSessionEvent::ToolCallFinished {
-                        session_id,
-                        call_id: tool_call.call_id,
-                        tool_name: tool_call.name,
-                        output: output.output,
-                        status: output.status,
-                    })
-                    .await;
 
                 Ok(ToolCallStep::Continued)
             }

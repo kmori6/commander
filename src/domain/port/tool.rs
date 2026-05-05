@@ -1,5 +1,6 @@
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::{ToolCallOutputStatus, ToolSpec};
+use crate::domain::model::tool_call::ToolSpec;
+use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 pub use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use async_trait::async_trait;
 use serde_json::Value;

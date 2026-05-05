@@ -157,7 +157,7 @@ fn extract_text_from_body(content_type: &str, body: &str) -> Result<String, Tool
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::model::tool_call::ToolCallOutputStatus;
+    use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 
     use super::*;
 

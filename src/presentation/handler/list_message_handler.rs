@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::domain::model::chat_message::ChatMessage;
 use crate::domain::model::message::MessageContent;
 use crate::domain::model::role::Role;
-use crate::domain::model::tool_call::ToolCallOutputStatus;
+use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::presentation::state::app_state::AppState;

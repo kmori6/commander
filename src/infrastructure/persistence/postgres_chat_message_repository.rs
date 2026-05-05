@@ -2,7 +2,8 @@ use crate::domain::error::chat_repository_error::ChatRepositoryError;
 use crate::domain::model::chat_message::ChatMessage;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
-use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolCallOutputStatus};
+use crate::domain::model::tool_call::ToolCall;
+use crate::domain::model::tool_call_output::{ToolCallOutput, ToolCallOutputStatus};
 use crate::domain::repository::chat_message_repository::{
     ChatMessageRepository, ChatMessageSummary,
 };

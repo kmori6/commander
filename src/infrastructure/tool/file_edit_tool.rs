@@ -128,7 +128,7 @@ impl Tool for FileEditTool {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::model::tool_call::ToolCallOutputStatus;
+    use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 
     use super::*;
     use serde_json::json;

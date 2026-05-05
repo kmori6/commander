@@ -1,6 +1,6 @@
 use crate::domain::model::chat_session_event::ChatSessionEvent;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
-use crate::domain::model::tool_call::ToolCallOutputStatus;
+use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 use crate::presentation::state::app_state::AppState;
 use axum::{
     extract::State,

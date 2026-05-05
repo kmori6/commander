@@ -2,7 +2,8 @@ use crate::domain::error::message_error::MessageError;
 use crate::domain::model::input_file::InputFile;
 use crate::domain::model::input_image::InputImage;
 use crate::domain::model::role::Role;
-use crate::domain::model::tool_call::{ToolCall, ToolCallOutput};
+use crate::domain::model::tool_call::ToolCall;
+use crate::domain::model::tool_call_output::ToolCallOutput;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
