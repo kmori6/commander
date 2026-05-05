@@ -16,7 +16,7 @@ pub struct Job {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
-    AgentTurn,
+    Chat,
     Research,
     Survey,
     Digest,
@@ -106,7 +106,7 @@ impl Job {
 impl JobKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::AgentTurn => "agent_turn",
+            Self::Chat => "chat",
             Self::Research => "research",
             Self::Survey => "survey",
             Self::Digest => "digest",
@@ -116,7 +116,7 @@ impl JobKind {
 
     pub fn from_db(value: &str) -> Option<Self> {
         match value {
-            "agent_turn" => Some(Self::AgentTurn),
+            "chat" => Some(Self::Chat),
             "research" => Some(Self::Research),
             "survey" => Some(Self::Survey),
             "digest" => Some(Self::Digest),
