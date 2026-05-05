@@ -158,6 +158,34 @@ where
             .find_by_id(session_id)
             .await?
             .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+
+        let title = if session.title.is_none() {
+            let summaries = self
+                .chat_message_repository
+                .summarize_by_session_ids(&[session_id])
+                .await?;
+
+            let has_messages = summaries
+                .first()
+                .is_some_and(|summary| summary.message_count > 0);
+
+            if has_messages {
+                None
+            } else {
+                user_message
+                    .content
+                    .iter()
+                    .find_map(|content| match content {
+                        MessageContent::InputText { text } => {
+                            ChatSession::title_from_first_user_message(text)
+                        }
+                        _ => None,
+                    })
+            }
+        } else {
+            None
+        };
+
         let next_status = session.start_turn()?;
 
         self.chat_session_repository
@@ -168,6 +196,15 @@ where
             .chat_message_repository
             .append(session_id, user_message)
             .await?;
+
+        if let Some(title) = title
+            && let Err(err) = self
+                .chat_session_repository
+                .update_title(session_id, title)
+                .await
+        {
+            log::warn!("failed to update chat session title for session {session_id}: {err}");
+        }
 
         Ok(saved_user_message)
     }

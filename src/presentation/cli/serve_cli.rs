@@ -24,6 +24,7 @@ use crate::infrastructure::tool::{
     web_search_tool::WebSearchTool,
 };
 use crate::presentation::handler::create_event_handler::create_event_handler;
+use crate::presentation::handler::create_job_handler::create_job_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
@@ -142,7 +143,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/tools", get(list_tool_handler))
         .route("/tools/{tool_name}/rule", put(update_tool_rule_handler))
         .route("/approvals", get(list_approval_handler))
-        .route("/jobs", get(list_job_handler))
+        .route("/jobs", get(list_job_handler).post(create_job_handler))
         .route("/jobs/{id}", get(get_job_handler))
         .route(
             "/sessions",

@@ -1,4 +1,5 @@
 pub mod create_event_handler;
+pub mod create_job_handler;
 pub mod create_message_handler;
 pub mod create_session_handler;
 pub mod delete_session_handler;

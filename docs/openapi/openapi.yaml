@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Commander Gateway API
   version: 0.1.0
-  description: Simple HTTP API for chat sessions, messages, tools, approvals, events, and usage.
+  description: Simple HTTP API for chat sessions, messages, jobs, tools, approvals, events, and usage.
 
 tags:
   - name: Health
@@ -17,6 +17,8 @@ tags:
     description: Tool approval APIs.
   - name: Events
     description: Server-sent event APIs.
+  - name: Jobs
+    description: Delegated work item APIs.
 
 paths:
   /v1/health:
@@ -238,6 +240,104 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Failed to get session usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/jobs:
+    get:
+      tags:
+        - Jobs
+      summary: List jobs
+      description: Returns recent delegated work items.
+      operationId: listJobs
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of jobs to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListJobsResponse"
+        "500":
+          description: Failed to list jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      tags:
+        - Jobs
+      summary: Create a job
+      description: Creates a delegated work item. Jobs represent work that can be tracked separately from chat messages.
+      operationId: createJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Invalid job kind
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to create job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/jobs/{id}:
+    get:
+      tags:
+        - Jobs
+      summary: Get a job
+      description: Returns one delegated work item.
+      operationId: getJob
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Job ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to get job
           content:
             application/json:
               schema:
@@ -561,6 +661,108 @@ components:
           type: integer
           format: int64
           minimum: 0
+
+    CreateJobRequest:
+      type: object
+      required:
+        - kind
+        - title
+        - objective
+      properties:
+        kind:
+          $ref: "#/components/schemas/JobKind"
+        title:
+          type: string
+          example: Implement persisted job creation
+        objective:
+          type: string
+          example: Add the minimum API path for creating and tracking delegated work.
+        session_id:
+          type: string
+          format: uuid
+          nullable: true
+        parent_job_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    ListJobsResponse:
+      type: object
+      required:
+        - jobs
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+
+    Job:
+      type: object
+      required:
+        - id
+        - kind
+        - status
+        - title
+        - objective
+        - session_id
+        - parent_job_id
+        - created_at
+        - started_at
+        - finished_at
+        - error_message
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/JobKind"
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        title:
+          type: string
+        objective:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+          nullable: true
+        parent_job_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+
+    JobKind:
+      type: string
+      enum:
+        - general
+        - research
+        - survey
+        - digest
+        - experiment
+
+    JobStatus:
+      type: string
+      enum:
+        - queued
+        - running
+        - completed
+        - failed
+        - cancel_requested
+        - cancelled
 
     CreateMessageRequest:
       type: object

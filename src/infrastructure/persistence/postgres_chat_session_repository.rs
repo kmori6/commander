@@ -142,4 +142,30 @@ impl ChatSessionRepository for PostgresChatSessionRepository {
 
         row.try_into()
     }
+
+    async fn update_title(
+        &self,
+        id: Uuid,
+        title: String,
+    ) -> Result<ChatSession, ChatRepositoryError> {
+        let row = sqlx::query_as::<_, ChatSessionRow>(
+            r#"
+            UPDATE chat_sessions
+            SET title = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, title, status, created_at, updated_at
+            "#,
+        )
+        .bind(id)
+        .bind(title)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let Some(row) = row else {
+            return Err(ChatRepositoryError::SessionNotFound(id));
+        };
+
+        row.try_into()
+    }
 }

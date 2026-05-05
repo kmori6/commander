@@ -18,4 +18,10 @@ pub trait ChatSessionRepository: Send + Sync {
         id: Uuid,
         status: ChatSessionStatus,
     ) -> Result<ChatSession, ChatRepositoryError>;
+
+    async fn update_title(
+        &self,
+        id: Uuid,
+        title: String,
+    ) -> Result<ChatSession, ChatRepositoryError>;
 }

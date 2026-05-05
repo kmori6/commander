@@ -25,6 +25,33 @@ pub enum JobKind {
     Experiment,
 }
 
+impl JobKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Research => "research",
+            Self::Survey => "survey",
+            Self::Digest => "digest",
+            Self::Experiment => "experiment",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "general" | "chat" => Some(Self::General),
+            "research" => Some(Self::Research),
+            "survey" => Some(Self::Survey),
+            "digest" => Some(Self::Digest),
+            "experiment" => Some(Self::Experiment),
+            _ => None,
+        }
+    }
+
+    pub fn from_db(value: &str) -> Option<Self> {
+        Self::parse(value)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobStatus {
     Queued,
@@ -110,29 +137,6 @@ impl Job {
 
     pub fn is_active(&self) -> bool {
         !self.is_terminal()
-    }
-}
-
-impl JobKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::General => "general",
-            Self::Research => "research",
-            Self::Survey => "survey",
-            Self::Digest => "digest",
-            Self::Experiment => "experiment",
-        }
-    }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "general" | "chat" => Some(Self::General),
-            "research" => Some(Self::Research),
-            "survey" => Some(Self::Survey),
-            "digest" => Some(Self::Digest),
-            "experiment" => Some(Self::Experiment),
-            _ => None,
-        }
     }
 }
 

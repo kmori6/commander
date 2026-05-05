@@ -49,6 +49,24 @@ Token consumption per LLM call. Used for context management and usage tracking.
 | `cache_write_tokens` | int                       |             |
 | `created_at`         | timestamp                 |             |
 
+### `jobs`
+
+Delegated work items that can be tracked separately from chat messages.
+
+| Column          | Type                      | Description                                                  |
+| --------------- | ------------------------- | ------------------------------------------------------------ |
+| `id`            | UUID PK                   | Job identifier                                               |
+| `kind`          | text                      | `general` / `research` / `survey` / `digest` / `experiment` |
+| `status`        | text                      | `queued` / `running` / `completed` / `failed` / `cancel_requested` / `cancelled` |
+| `title`         | text                      | Human-readable work label                                    |
+| `objective`     | text                      | Work objective                                               |
+| `session_id`    | UUID FK → `chat_sessions` | Optional related chat session                                |
+| `parent_job_id` | UUID FK → `jobs`          | Optional parent job                                          |
+| `created_at`    | timestamp                 |                                                              |
+| `started_at`    | timestamp                 |                                                              |
+| `finished_at`   | timestamp                 |                                                              |
+| `error_message` | text                      | Failure reason when the job failed                           |
+
 ### `tool_call_approvals`
 
 Audit log of user approval/denial decisions for tool calls.
@@ -62,6 +80,17 @@ Audit log of user approval/denial decisions for tool calls.
 | `arguments`    | JSONB                     |                       |
 | `decision`     | text                      | `approved` / `denied` |
 | `decided_at`   | timestamp                 |                       |
+
+### `awaiting_tool_approvals`
+
+Current unresolved tool approval per chat session.
+
+| Column                 | Type                      | Description                            |
+| ---------------------- | ------------------------- | -------------------------------------- |
+| `session_id`           | UUID PK/FK → `chat_sessions` | Session waiting for approval       |
+| `assistant_message_id` | UUID FK → `chat_messages` | Assistant message containing the call  |
+| `tool_call_id`         | text                      | Tool call identifier                   |
+| `created_at`           | timestamp                 |                                        |
 
 ### `tool_execution_rules`
 
@@ -94,3 +123,5 @@ Semantic search index for journal memory files. Rows are replaced per path when 
 3. `V3__create_tool_call_approvals.sql`
 4. `V4__create_tool_execution_rules.sql`
 5. `V5__create_memory_index.sql`
+6. `V6__create_awaiting_tool_approvals.sql`
+7. `V7__create_jobs.sql`
