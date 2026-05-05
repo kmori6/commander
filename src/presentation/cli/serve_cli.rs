@@ -1,4 +1,5 @@
 use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
+use crate::application::usecase::job_usecase::JobUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::{
     agent_service::AgentService, compaction_service::CompactionService,
@@ -10,6 +11,7 @@ use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::persistence::postgres_awaiting_tool_approval_repository::PostgresAwaitingToolApprovalRepository;
 use crate::infrastructure::persistence::postgres_chat_message_repository::PostgresChatMessageRepository;
 use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
+use crate::infrastructure::persistence::postgres_job_repository::PostgresJobRepository;
 use crate::infrastructure::persistence::postgres_memory_index_repository::PostgresMemoryIndexRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
@@ -25,10 +27,12 @@ use crate::presentation::handler::create_event_handler::create_event_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
+use crate::presentation::handler::get_job_handler::get_job_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::get_session_usage_handler::get_session_usage_handler;
 use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_approval_handler::list_approval_handler;
+use crate::presentation::handler::list_job_handler::list_job_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
@@ -104,9 +108,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let chat_session_repository = PostgresChatSessionRepository::new(pool.clone());
     let chat_message_repository = PostgresChatMessageRepository::new(pool.clone());
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
+    let job_repository = PostgresJobRepository::new(pool.clone());
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let awaiting_tool_approval_repository =
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
+    let job_usecase = Arc::new(JobUsecase::new(job_repository));
     let agent_usecase = Arc::new(AgentUsecase::new(
         agent_service,
         instruction_service,
@@ -125,6 +131,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         chat_message_repository,
         token_usage_repository,
         tool_usecase,
+        job_usecase,
         event_service: Arc::new(EventService::new()),
         agent_usecase,
     };
@@ -135,6 +142,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/tools", get(list_tool_handler))
         .route("/tools/{tool_name}/rule", put(update_tool_rule_handler))
         .route("/approvals", get(list_approval_handler))
+        .route("/jobs", get(list_job_handler))
+        .route("/jobs/{id}", get(get_job_handler))
         .route(
             "/sessions",
             get(list_session_handler).post(create_session_handler),

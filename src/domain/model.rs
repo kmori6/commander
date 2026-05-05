@@ -4,6 +4,7 @@ pub mod chat_session;
 pub mod chat_session_event;
 pub mod input_file;
 pub mod input_image;
+pub mod job;
 pub mod loop_safety;
 pub mod memory_index;
 pub mod message;
