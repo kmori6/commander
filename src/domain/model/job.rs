@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+const JOB_TITLE_MAX_CHARS: usize = 60;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: Uuid,
@@ -14,52 +16,6 @@ pub struct Job {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JobKind {
-    General,
-    Research,
-    Survey,
-    Digest,
-    Experiment,
-}
-
-impl JobKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::General => "general",
-            Self::Research => "research",
-            Self::Survey => "survey",
-            Self::Digest => "digest",
-            Self::Experiment => "experiment",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "general" | "chat" => Some(Self::General),
-            "research" => Some(Self::Research),
-            "survey" => Some(Self::Survey),
-            "digest" => Some(Self::Digest),
-            "experiment" => Some(Self::Experiment),
-            _ => None,
-        }
-    }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        Self::parse(value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JobStatus {
-    Queued,
-    Running,
-    Completed,
-    Failed,
-    CancelRequested,
-    Cancelled,
 }
 
 impl Job {
@@ -138,6 +94,63 @@ impl Job {
     pub fn is_active(&self) -> bool {
         !self.is_terminal()
     }
+
+    /// A job objective can seed a stable, human-readable job title.
+    pub fn title_from_objective(objective: &str) -> Option<String> {
+        let normalized = objective.split_whitespace().collect::<Vec<_>>().join(" ");
+        let title = normalized
+            .chars()
+            .take(JOB_TITLE_MAX_CHARS)
+            .collect::<String>();
+
+        if title.is_empty() { None } else { Some(title) }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobKind {
+    General,
+    Research,
+    Survey,
+    Digest,
+    Experiment,
+}
+
+impl JobKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Research => "research",
+            Self::Survey => "survey",
+            Self::Digest => "digest",
+            Self::Experiment => "experiment",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "general" | "chat" => Some(Self::General),
+            "research" => Some(Self::Research),
+            "survey" => Some(Self::Survey),
+            "digest" => Some(Self::Digest),
+            "experiment" => Some(Self::Experiment),
+            _ => None,
+        }
+    }
+
+    pub fn from_db(value: &str) -> Option<Self> {
+        Self::parse(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    CancelRequested,
+    Cancelled,
 }
 
 impl JobStatus {

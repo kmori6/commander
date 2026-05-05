@@ -1,5 +1,6 @@
 use crate::application::usecase::agent_usecase::Attachment;
 use crate::domain::model::chat_session::ChatSession;
+use crate::domain::model::job::Job;
 use crate::domain::model::message::MessageContent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use crate::presentation::util::attachment::load_attachment;
@@ -42,6 +43,15 @@ struct SessionUsageResponse {
     output_tokens: u64,
     cache_read_tokens: u64,
     cache_write_tokens: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct JobResponse {
+    id: Uuid,
+    kind: String,
+    status: String,
+    title: String,
+    objective: String,
 }
 
 struct ChatApiClient {
@@ -229,6 +239,33 @@ impl ChatApiClient {
 
         Ok(response)
     }
+
+    async fn create_job(
+        &self,
+        session_id: Uuid,
+        objective: &str,
+    ) -> Result<JobResponse, AgentCliError> {
+        let title =
+            Job::title_from_objective(objective).unwrap_or_else(|| "Untitled job".to_string());
+
+        let job = self
+            .http
+            .post(format!("{}/v1/jobs", self.base_url))
+            .json(&json!({
+                "kind": "general",
+                "title": title,
+                "objective": objective,
+                "session_id": session_id,
+                "parent_job_id": null,
+            }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<JobResponse>()
+            .await?;
+
+        Ok(job)
+    }
 }
 
 pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), AgentCliError> {
@@ -400,6 +437,25 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                             println!("detached");
                             println!("  {FILE_ICON} {index}  {}", detached.display());
                         }
+                    }
+                    "/job" => {
+                        println!("usage: /job <objective>");
+                    }
+                    _ if line.starts_with("/job ") => {
+                        let objective = line.trim_start_matches("/job ").trim();
+
+                        if objective.is_empty() {
+                            println!("usage: /job <objective>");
+                            continue;
+                        }
+
+                        let job = client.create_job(session.id, objective).await?;
+
+                        println!("created job");
+                        println!("  id      {}", job.id);
+                        println!("  kind    {}", job.kind);
+                        println!("  status  {}", job.status);
+                        println!("  title   {}", job.title);
                     }
                     "/tools" => {
                         let tools = client.list_tools().await?;
