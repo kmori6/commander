@@ -13,7 +13,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 pub struct CreateJobRequest {
     pub kind: String,
-    pub title: String,
+    pub title: Option<String>,
     pub objective: String,
     pub session_id: Option<Uuid>,
     pub parent_job_id: Option<Uuid>,
@@ -47,7 +47,13 @@ pub async fn create_job_handler(
         )
         .await
     {
-        Ok(job) => (StatusCode::CREATED, Json(job_json(job))).into_response(),
+        Ok(output) => {
+            for event in output.events {
+                state.event_service.publish(event);
+            }
+
+            (StatusCode::CREATED, Json(job_json(output.job))).into_response()
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({

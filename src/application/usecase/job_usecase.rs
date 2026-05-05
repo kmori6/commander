@@ -1,8 +1,14 @@
 use uuid::Uuid;
 
 use crate::application::error::job_usecase_error::JobUsecaseError;
+use crate::domain::model::app_event::AppEvent;
 use crate::domain::model::job::{Job, JobKind};
 use crate::domain::repository::job_repository::JobRepository;
+
+pub struct JobUsecaseOutput {
+    pub job: Job,
+    pub events: Vec<AppEvent>,
+}
 
 pub struct JobUsecase<R> {
     repository: R,
@@ -19,14 +25,28 @@ where
     pub async fn create(
         &self,
         kind: JobKind,
-        title: impl Into<String>,
+        title: Option<String>,
         objective: impl Into<String>,
         session_id: Option<Uuid>,
         parent_job_id: Option<Uuid>,
-    ) -> Result<Job, JobUsecaseError> {
+    ) -> Result<JobUsecaseOutput, JobUsecaseError> {
+        let objective = objective.into();
+        let title = Job::title_from_input(title.as_deref(), &objective);
+
         let job = Job::new(kind, title, objective, session_id, parent_job_id);
         self.repository.save(job.clone()).await?;
-        Ok(job)
+
+        Ok(JobUsecaseOutput {
+            events: vec![AppEvent::JobCreated {
+                job_id: job.id,
+                kind: job.kind,
+                status: job.status,
+                title: job.title.clone(),
+                session_id: job.session_id,
+                parent_job_id: job.parent_job_id,
+            }],
+            job,
+        })
     }
 
     pub async fn find(&self, id: Uuid) -> Result<Option<Job>, JobUsecaseError> {
@@ -85,7 +105,7 @@ where
         Ok(job)
     }
 
-    pub async fn cancel(&self, id: Uuid) -> Result<Job, JobUsecaseError> {
+    pub async fn cancel(&self, id: Uuid) -> Result<JobUsecaseOutput, JobUsecaseError> {
         let job = self
             .repository
             .find_by_id(id)
@@ -94,6 +114,14 @@ where
 
         let job = job.cancel()?;
         self.repository.update(job.clone()).await?;
-        Ok(job)
+
+        Ok(JobUsecaseOutput {
+            events: vec![AppEvent::JobCancelled {
+                job_id: job.id,
+                status: job.status,
+                title: job.title.clone(),
+            }],
+            job,
+        })
     }
 }

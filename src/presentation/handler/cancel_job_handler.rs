@@ -17,7 +17,13 @@ pub async fn cancel_job_handler(
     Path(job_id): Path<Uuid>,
 ) -> Response {
     match state.job_usecase.cancel(job_id).await {
-        Ok(job) => (StatusCode::OK, Json(job_json(job))).into_response(),
+        Ok(output) => {
+            for event in output.events {
+                state.event_service.publish(event);
+            }
+
+            (StatusCode::OK, Json(job_json(output.job))).into_response()
+        }
         Err(JobUsecaseError::JobNotFound(id)) => (
             StatusCode::NOT_FOUND,
             Json(json!({

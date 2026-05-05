@@ -1,6 +1,5 @@
 use crate::application::usecase::agent_usecase::Attachment;
 use crate::domain::model::chat_session::ChatSession;
-use crate::domain::model::job::Job;
 use crate::domain::model::message::MessageContent;
 use crate::presentation::error::agent_cli_error::AgentCliError;
 use crate::presentation::util::attachment::load_attachment;
@@ -252,15 +251,11 @@ impl ChatApiClient {
         session_id: Uuid,
         objective: &str,
     ) -> Result<JobResponse, AgentCliError> {
-        let title =
-            Job::title_from_objective(objective).unwrap_or_else(|| "Untitled job".to_string());
-
         let job = self
             .http
             .post(format!("{}/v1/jobs", self.base_url))
             .json(&json!({
                 "kind": "general",
-                "title": title,
                 "objective": objective,
                 "session_id": session_id,
                 "parent_job_id": null,

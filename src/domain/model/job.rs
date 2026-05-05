@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 const JOB_TITLE_MAX_CHARS: usize = 60;
+const DEFAULT_JOB_TITLE: &str = "Untitled job";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
@@ -143,6 +144,16 @@ impl Job {
             .collect::<String>();
 
         if title.is_empty() { None } else { Some(title) }
+    }
+
+    /// A job title is either explicitly provided or derived from the objective.
+    pub fn title_from_input(title: Option<&str>, objective: &str) -> String {
+        let source = title
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(objective);
+
+        Self::title_from_objective(source).unwrap_or_else(|| DEFAULT_JOB_TITLE.to_string())
     }
 }
 
@@ -285,5 +296,29 @@ mod tests {
                 status: JobStatus::Queued,
             }
         );
+    }
+
+    #[test]
+    fn explicit_job_title_takes_priority() {
+        let title = Job::title_from_input(
+            Some("  Write the approval persistence design  "),
+            "Fallback objective",
+        );
+
+        assert_eq!(title, "Write the approval persistence design");
+    }
+
+    #[test]
+    fn missing_job_title_is_derived_from_objective() {
+        let title = Job::title_from_input(None, "  Design   approval persistence  ");
+
+        assert_eq!(title, "Design approval persistence");
+    }
+
+    #[test]
+    fn blank_job_title_and_objective_use_default_title() {
+        let title = Job::title_from_input(Some("  "), "  ");
+
+        assert_eq!(title, "Untitled job");
     }
 }

@@ -1,3 +1,4 @@
+use crate::domain::model::job::{JobKind, JobStatus};
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::domain::model::tool_call_output::ToolCallOutputStatus;
@@ -58,5 +59,18 @@ pub enum AppEvent {
         call_id: String,
         tool_name: String,
         decision: ToolApprovalResponse,
+    },
+    JobCreated {
+        job_id: Uuid,
+        kind: JobKind,
+        status: JobStatus,
+        title: String,
+        session_id: Option<Uuid>,
+        parent_job_id: Option<Uuid>,
+    },
+    JobCancelled {
+        job_id: Uuid,
+        status: JobStatus,
+        title: String,
     },
 }
