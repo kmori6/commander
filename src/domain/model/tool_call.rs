@@ -15,6 +15,17 @@ pub struct ToolCall {
     pub arguments: Value,
 }
 
+impl ToolCall {
+    /// A tool call signature identifies repeated calls by tool name and arguments.
+    pub fn signature(&self) -> String {
+        serde_json::json!({
+            "name": self.name,
+            "arguments": self.arguments,
+        })
+        .to_string()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolCallOutputStatus {
     Success,

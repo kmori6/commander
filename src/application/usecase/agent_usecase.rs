@@ -72,6 +72,7 @@ use uuid::Uuid;
 //     tool calls before the next LLM step.
 
 const MAX_LLM_STEPS: usize = 20;
+const MAX_TOOL_OUTPUT_CHARS: usize = 50_000;
 
 #[derive(Debug, Clone)]
 pub enum Attachment {
@@ -210,6 +211,21 @@ where
             .await
     }
 
+    async fn stop_turn(&self, session_id: Uuid) -> Result<(), AgentUsecaseError> {
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let idle_status = session.complete_turn()?;
+
+        self.chat_session_repository
+            .update_status(session_id, idle_status)
+            .await?;
+
+        Ok(())
+    }
+
     async fn load_compacted_input_messages(
         &self,
         session_id: Uuid,
@@ -265,21 +281,23 @@ where
         &self,
         session_id: Uuid,
         output: ToolCallOutput,
-    ) -> Result<ChatMessage, AgentUsecaseError> {
-        let message = Message::user_tool_call_outputs(vec![output])?;
+    ) -> Result<ToolCallOutput, AgentUsecaseError> {
+        let output = LoopSafety::truncate_tool_call_output(output, MAX_TOOL_OUTPUT_CHARS);
+        let message = Message::user_tool_call_outputs(vec![output.clone()])?;
 
         self.chat_message_repository
             .append(session_id, message)
-            .await
-            .map_err(Into::into)
+            .await?;
+
+        Ok(output)
     }
 
     async fn execute_and_save_tool_call(
         &self,
         session_id: Uuid,
-        tool_call: ToolCall,
+        tool_call: &ToolCall,
         tx: &mpsc::Sender<ChatSessionEvent>,
-    ) -> Result<(), AgentUsecaseError> {
+    ) -> Result<ToolCallOutput, AgentUsecaseError> {
         let call_id = tool_call.call_id.clone();
         let tool_name = tool_call.name.clone();
         let arguments = tool_call.arguments.clone();
@@ -293,18 +311,23 @@ where
             })
             .await;
 
-        let result = self.agent_service.tool_service().execute(tool_call).await;
+        let result = self
+            .agent_service
+            .tool_service()
+            .execute(tool_call.clone())
+            .await;
 
         let tool_call_output = match result {
             Ok(output) => output,
             Err(err) => tool_call_error_output(call_id.clone(), err.to_string()),
         };
 
+        let tool_call_output = self
+            .save_tool_call_output(session_id, tool_call_output)
+            .await?;
+
         let output = tool_call_output.output.clone();
         let status = tool_call_output.status;
-
-        self.save_tool_call_output(session_id, tool_call_output)
-            .await?;
 
         let _ = tx
             .send(ChatSessionEvent::ToolCallFinished {
@@ -316,7 +339,7 @@ where
             })
             .await;
 
-        Ok(())
+        Ok(tool_call_output)
     }
 
     async fn load_compacted_session_messages(
@@ -356,17 +379,7 @@ where
 
         loop {
             if let Err(err) = loop_safety.start_llm_step() {
-                let session = self
-                    .chat_session_repository
-                    .find_by_id(session_id)
-                    .await?
-                    .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-                let idle_status = session.complete_turn()?;
-
-                self.chat_session_repository
-                    .update_status(session_id, idle_status)
-                    .await?;
-
+                self.stop_turn(session_id).await?;
                 return Err(AgentUsecaseError::Agent(AgentError::from(err)));
             }
 
@@ -430,6 +443,7 @@ where
                         saved_agent_message.id,
                         tool_call,
                         &mut events,
+                        &mut loop_safety,
                         &tx,
                     )
                     .await?
@@ -500,10 +514,7 @@ where
             "tool execution was denied by user",
         );
 
-        self.save_tool_call_output(session_id, output.clone())
-            .await?;
-
-        Ok(output)
+        self.save_tool_call_output(session_id, output).await
     }
 
     async fn record_tool_approval_from_tool_call(
@@ -555,7 +566,7 @@ where
 
         match decision {
             ToolApprovalResponse::Approved => {
-                self.execute_and_save_tool_call(session_id, tool_call.clone(), &tx)
+                self.execute_and_save_tool_call(session_id, &tool_call, &tx)
                     .await?;
             }
             ToolApprovalResponse::Denied => {
@@ -628,6 +639,7 @@ where
         assistant_message_id: Uuid,
         tool_call: ToolCall,
         events: &mut Vec<ChatSessionEvent>,
+        loop_safety: &mut LoopSafety,
         tx: &mpsc::Sender<ChatSessionEvent>,
     ) -> Result<ToolCallStep, AgentUsecaseError> {
         match self
@@ -637,8 +649,14 @@ where
             .await
         {
             Ok(ToolExecutionDecision::Allow) => {
-                self.execute_and_save_tool_call(session_id, tool_call, tx)
+                let output = self
+                    .execute_and_save_tool_call(session_id, &tool_call, tx)
                     .await?;
+
+                if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
+                    self.stop_turn(session_id).await?;
+                    return Err(AgentUsecaseError::Agent(AgentError::from(err)));
+                }
 
                 Ok(ToolCallStep::Continued)
             }
@@ -687,8 +705,12 @@ where
                     "tool execution was blocked by execution rule",
                 );
 
-                self.save_tool_call_output(session_id, output.clone())
-                    .await?;
+                let output = self.save_tool_call_output(session_id, output).await?;
+
+                if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
+                    self.stop_turn(session_id).await?;
+                    return Err(AgentUsecaseError::Agent(AgentError::from(err)));
+                }
 
                 let _ = tx
                     .send(ChatSessionEvent::ToolCallFinished {
@@ -705,8 +727,12 @@ where
             Err(err) => {
                 let output = tool_call_error_output(tool_call.call_id.clone(), err.to_string());
 
-                self.save_tool_call_output(session_id, output.clone())
-                    .await?;
+                let output = self.save_tool_call_output(session_id, output).await?;
+
+                if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
+                    self.stop_turn(session_id).await?;
+                    return Err(AgentUsecaseError::Agent(AgentError::from(err)));
+                }
 
                 let _ = tx
                     .send(ChatSessionEvent::ToolCallFinished {
@@ -729,6 +755,7 @@ where
         tx: mpsc::Sender<ChatSessionEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let mut events = Vec::new();
+        let mut loop_safety = LoopSafety::new(MAX_LLM_STEPS);
 
         loop {
             if let Some(unresolved) = self.next_unresolved_tool_call(session_id).await? {
@@ -738,6 +765,7 @@ where
                         unresolved.assistant_message_id,
                         unresolved.tool_call,
                         &mut events,
+                        &mut loop_safety,
                         &tx,
                     )
                     .await?
