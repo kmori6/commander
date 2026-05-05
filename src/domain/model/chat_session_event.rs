@@ -10,6 +10,13 @@ pub enum ChatSessionEvent {
     AgentTurnStarted {
         session_id: Uuid,
     },
+    AgentTurnCompleted {
+        session_id: Uuid,
+    },
+    AgentTurnFailed {
+        session_id: Uuid,
+        reason: String,
+    },
     LlmStarted {
         session_id: Uuid,
     },
@@ -51,12 +58,5 @@ pub enum ChatSessionEvent {
         call_id: String,
         tool_name: String,
         decision: ToolApprovalResponse,
-    },
-    AgentTurnCompleted {
-        session_id: Uuid,
-    },
-    AgentTurnFailed {
-        session_id: Uuid,
-        message: String,
     },
 }

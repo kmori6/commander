@@ -702,12 +702,14 @@ async fn wait_events(
                     if let Some(progress) = spinner.take() {
                         progress.finish_and_clear();
                     }
-                    let message = data
-                        .get("message")
+
+                    let reason = data
+                        .get("reason")
                         .and_then(|v| v.as_str())
                         .unwrap_or("agent turn failed");
-                    println!("[error] {message}");
-                    // Return to the prompt after showing the failure.
+
+                    println!("\x1b[90m[agent stopped] {reason}\x1b[0m");
+
                     break 'turn;
                 }
                 _ => {}

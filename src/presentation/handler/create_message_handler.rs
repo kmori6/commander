@@ -69,11 +69,6 @@ pub async fn create_message_handler(
             .await
         {
             log::warn!("failed to start turn for session {session_id}: {err}");
-
-            event_service.publish(ChatSessionEvent::AgentTurnFailed {
-                session_id,
-                message: err.to_string(),
-            });
         }
 
         if let Err(err) = event_publisher.await {

@@ -46,11 +46,6 @@ pub async fn resolve_approval_handler(
 
         if let Err(err) = result {
             log::warn!("failed to resolve approval for session {session_id}: {err}");
-
-            event_service.publish(ChatSessionEvent::AgentTurnFailed {
-                session_id,
-                message: err.to_string(),
-            });
         }
 
         if let Err(err) = event_publisher.await {

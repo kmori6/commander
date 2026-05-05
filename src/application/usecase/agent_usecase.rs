@@ -381,6 +381,14 @@ where
         loop {
             if let Err(err) = loop_safety.start_llm_step() {
                 self.stop_turn(session_id).await?;
+
+                let event = ChatSessionEvent::AgentTurnFailed {
+                    session_id,
+                    reason: err.to_string(),
+                };
+                let _ = tx.send(event.clone()).await;
+                events.push(event);
+
                 return Err(AgentUsecaseError::Agent(AgentError::from(err)));
             }
 
@@ -656,6 +664,14 @@ where
 
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
+
+                    let event = ChatSessionEvent::AgentTurnFailed {
+                        session_id,
+                        reason: err.to_string(),
+                    };
+                    let _ = tx.send(event.clone()).await;
+                    events.push(event);
+
                     return Err(AgentUsecaseError::Agent(AgentError::from(err)));
                 }
 
@@ -720,6 +736,14 @@ where
 
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
+
+                    let event = ChatSessionEvent::AgentTurnFailed {
+                        session_id,
+                        reason: err.to_string(),
+                    };
+                    let _ = tx.send(event.clone()).await;
+                    events.push(event);
+
                     return Err(AgentUsecaseError::Agent(AgentError::from(err)));
                 }
 
@@ -742,6 +766,14 @@ where
 
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
                     self.stop_turn(session_id).await?;
+
+                    let event = ChatSessionEvent::AgentTurnFailed {
+                        session_id,
+                        reason: err.to_string(),
+                    };
+                    let _ = tx.send(event.clone()).await;
+                    events.push(event);
+
                     return Err(AgentUsecaseError::Agent(AgentError::from(err)));
                 }
 

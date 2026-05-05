@@ -147,16 +147,15 @@ fn to_sse_event(event: ChatSessionEvent) -> Event {
             .event("agent_turn_completed")
             .data(json!({ "session_id": session_id }).to_string()),
 
-        ChatSessionEvent::AgentTurnFailed {
-            session_id,
-            message,
-        } => Event::default().event("agent_turn_failed").data(
-            json!({
-                "session_id": session_id,
-                "message": message,
-            })
-            .to_string(),
-        ),
+        ChatSessionEvent::AgentTurnFailed { session_id, reason } => {
+            Event::default().event("agent_turn_failed").data(
+                json!({
+                    "session_id": session_id,
+                    "reason": reason,
+                })
+                .to_string(),
+            )
+        }
     }
 }
 
