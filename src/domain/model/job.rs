@@ -1,3 +1,4 @@
+use crate::domain::error::job_error::JobError;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -44,44 +45,82 @@ impl Job {
     }
 
     /// A queued job starts work and records when execution began.
-    pub fn start(&self) -> Self {
+    pub fn start(&self) -> Result<Self, JobError> {
+        if self.status != JobStatus::Queued {
+            return Err(JobError::InvalidStatusTransition {
+                job_id: self.id,
+                status: self.status,
+            });
+        }
+
         let mut job = self.clone();
         job.status = JobStatus::Running;
         job.started_at = Some(Utc::now());
-        job
+        Ok(job)
     }
 
     /// A running or cancel-requested job finishes successfully.
-    pub fn complete(&self) -> Self {
+    pub fn complete(&self) -> Result<Self, JobError> {
+        if !matches!(self.status, JobStatus::Running | JobStatus::CancelRequested) {
+            return Err(JobError::InvalidStatusTransition {
+                job_id: self.id,
+                status: self.status,
+            });
+        }
+
         let mut job = self.clone();
         job.status = JobStatus::Completed;
         job.finished_at = Some(Utc::now());
         job.error_message = None;
-        job
+        Ok(job)
     }
 
     /// A running job stops with a failure reason.
-    pub fn fail(&self, reason: impl Into<String>) -> Self {
+    pub fn fail(&self, reason: impl Into<String>) -> Result<Self, JobError> {
+        if !matches!(self.status, JobStatus::Running | JobStatus::CancelRequested) {
+            return Err(JobError::InvalidStatusTransition {
+                job_id: self.id,
+                status: self.status,
+            });
+        }
+
         let mut job = self.clone();
         job.status = JobStatus::Failed;
         job.finished_at = Some(Utc::now());
         job.error_message = Some(reason.into());
-        job
+        Ok(job)
     }
 
     /// A running job records an operator cancellation request.
-    pub fn request_cancel(&self) -> Self {
+    pub fn request_cancel(&self) -> Result<Self, JobError> {
+        if self.status != JobStatus::Running {
+            return Err(JobError::InvalidStatusTransition {
+                job_id: self.id,
+                status: self.status,
+            });
+        }
+
         let mut job = self.clone();
         job.status = JobStatus::CancelRequested;
-        job
+        Ok(job)
     }
 
     /// A queued, running, or cancel-requested job finishes as cancelled.
-    pub fn cancel(&self) -> Self {
+    pub fn cancel(&self) -> Result<Self, JobError> {
+        if !matches!(
+            self.status,
+            JobStatus::Queued | JobStatus::Running | JobStatus::CancelRequested
+        ) {
+            return Err(JobError::InvalidStatusTransition {
+                job_id: self.id,
+                status: self.status,
+            });
+        }
+
         let mut job = self.clone();
         job.status = JobStatus::Cancelled;
         job.finished_at = Some(Utc::now());
-        job
+        Ok(job)
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -175,5 +214,76 @@ impl JobStatus {
             "cancelled" => Some(Self::Cancelled),
             _ => None,
         }
+    }
+}
+
+impl std::fmt::Display for JobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn new_job() -> Job {
+        Job::new(JobKind::General, "test job", "test objective", None, None)
+    }
+
+    #[test]
+    fn queued_job_can_be_cancelled() {
+        let job = new_job();
+
+        let cancelled = job.cancel().expect("queued job should be cancellable");
+
+        assert_eq!(cancelled.status, JobStatus::Cancelled);
+        assert!(cancelled.finished_at.is_some());
+    }
+
+    #[test]
+    fn completed_job_cannot_be_cancelled() {
+        let job = new_job()
+            .start()
+            .expect("queued job should start")
+            .complete()
+            .expect("running job should complete");
+
+        let err = job
+            .cancel()
+            .expect_err("completed job should not be cancellable");
+
+        assert_eq!(
+            err,
+            JobError::InvalidStatusTransition {
+                job_id: job.id,
+                status: JobStatus::Completed,
+            }
+        );
+    }
+
+    #[test]
+    fn queued_job_can_start() {
+        let job = new_job();
+
+        let running = job.start().expect("queued job should start");
+
+        assert_eq!(running.status, JobStatus::Running);
+        assert!(running.started_at.is_some());
+    }
+
+    #[test]
+    fn queued_job_cannot_complete() {
+        let job = new_job();
+
+        let err = job.complete().expect_err("queued job should not complete");
+
+        assert_eq!(
+            err,
+            JobError::InvalidStatusTransition {
+                job_id: job.id,
+                status: JobStatus::Queued,
+            }
+        );
     }
 }

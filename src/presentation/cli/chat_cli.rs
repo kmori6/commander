@@ -299,6 +299,19 @@ impl ChatApiClient {
 
         Ok(job)
     }
+
+    async fn cancel_job(&self, job_id: Uuid) -> Result<JobResponse, AgentCliError> {
+        let job = self
+            .http
+            .post(format!("{}/v1/jobs/{}/cancel", self.base_url, job_id))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<JobResponse>()
+            .await?;
+
+        Ok(job)
+    }
 }
 
 pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), AgentCliError> {
@@ -517,6 +530,24 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                         if let Some(parent_job_id) = job.parent_job_id {
                             println!("  parent     {}", parent_job_id);
                         }
+                    }
+                    "/cancel" => {
+                        println!("usage: /cancel <job_id>");
+                    }
+                    _ if line.starts_with("/cancel ") => {
+                        let id = line.trim_start_matches("/cancel ").trim();
+
+                        let Ok(job_id) = Uuid::parse_str(id) else {
+                            println!("invalid job id: {id}");
+                            continue;
+                        };
+
+                        let job = client.cancel_job(job_id).await?;
+
+                        println!("cancelled job");
+                        println!("  id      {}", job.id);
+                        println!("  status  {}", job.status);
+                        println!("  title   {}", job.title);
                     }
                     "/job" => {
                         println!("usage: /job <objective>");

@@ -44,7 +44,7 @@ where
             .await?
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
-        let job = job.start();
+        let job = job.start()?;
         self.repository.update(job.clone()).await?;
         Ok(job)
     }
@@ -56,7 +56,7 @@ where
             .await?
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
-        let job = job.complete();
+        let job = job.complete()?;
         self.repository.update(job.clone()).await?;
         Ok(job)
     }
@@ -68,7 +68,7 @@ where
             .await?
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
-        let job = job.fail(reason);
+        let job = job.fail(reason)?;
         self.repository.update(job.clone()).await?;
         Ok(job)
     }
@@ -80,7 +80,7 @@ where
             .await?
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
-        let job = job.request_cancel();
+        let job = job.request_cancel()?;
         self.repository.update(job.clone()).await?;
         Ok(job)
     }
@@ -92,7 +92,7 @@ where
             .await?
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
-        let job = job.cancel();
+        let job = job.cancel()?;
         self.repository.update(job.clone()).await?;
         Ok(job)
     }
