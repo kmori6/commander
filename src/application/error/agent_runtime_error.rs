@@ -1,4 +1,3 @@
-use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::domain::error::agent_error::AgentError;
 use crate::domain::error::awaiting_tool_approval_repository_error::AwaitingToolApprovalRepositoryError;
 use crate::domain::error::chat_repository_error::ChatRepositoryError;
@@ -12,7 +11,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
-pub enum AgentUsecaseError {
+pub enum AgentRuntimeError {
     #[error("chat session not found: {0}")]
     SessionNotFound(Uuid),
 
@@ -45,7 +44,4 @@ pub enum AgentUsecaseError {
 
     #[error("invalid message: {0}")]
     Message(#[from] MessageError),
-
-    #[error("failed to run agent runtime: {0}")]
-    AgentRuntime(#[from] AgentRuntimeError),
 }

@@ -1,11 +1,10 @@
 pub mod cancel_job_handler;
-pub mod complete_job_handler;
 pub mod create_event_handler;
 pub mod create_job_handler;
+pub mod create_job_run_handler;
 pub mod create_message_handler;
 pub mod create_session_handler;
 pub mod delete_session_handler;
-pub mod fail_job_handler;
 pub mod get_job_handler;
 pub mod get_session_handler;
 pub mod get_session_usage_handler;
@@ -18,5 +17,4 @@ pub mod list_message_handler;
 pub mod list_session_handler;
 pub mod list_tool_handler;
 pub mod resolve_approval_handler;
-pub mod start_job_handler;
 pub mod update_tool_rule_handler;

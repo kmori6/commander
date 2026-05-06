@@ -383,14 +383,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-  /v1/jobs/{id}/start:
     post:
       tags:
         - Jobs
-      summary: Start a job
-      description: Starts a queued delegated work item, creates a job run, and returns both.
-      operationId: startJob
+      summary: Create a job run
+      description: Creates a new execution attempt for a queued delegated work item and starts it in the background.
+      operationId: createJobRun
       parameters:
         - name: id
           in: path
@@ -400,12 +398,12 @@ paths:
             type: string
             format: uuid
       responses:
-        "200":
-          description: Job started
+        "202":
+          description: Job run accepted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/StartJobResponse"
+                $ref: "#/components/schemas/CreateJobRunResponse"
         "404":
           description: Job not found
           content:
@@ -413,13 +411,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: Job cannot be started from its current status
+          description: Job cannot create a new run from its current status
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Failed to start job
+          description: Failed to create job run
           content:
             application/json:
               schema:
@@ -461,94 +459,6 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Failed to cancel job
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /v1/jobs/{id}/complete:
-    post:
-      tags:
-        - Jobs
-      summary: Complete a job
-      description: Marks a running delegated work item and its latest active run as completed.
-      operationId: completeJob
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Job ID
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Job completed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Job"
-        "404":
-          description: Job not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "409":
-          description: Job cannot be completed from its current status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Failed to complete job
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /v1/jobs/{id}/fail:
-    post:
-      tags:
-        - Jobs
-      summary: Fail a job
-      description: Marks a running delegated work item and its latest active run as failed.
-      operationId: failJob
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Job ID
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FailJobRequest"
-      responses:
-        "200":
-          description: Job failed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Job"
-        "404":
-          description: Job not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "409":
-          description: Job cannot be failed from its current status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Failed to fail job
           content:
             application/json:
               schema:
@@ -897,15 +807,6 @@ components:
           format: uuid
           nullable: true
 
-    FailJobRequest:
-      type: object
-      required:
-        - reason
-      properties:
-        reason:
-          type: string
-          example: Agent turn failed before producing a final answer.
-
     ListJobsResponse:
       type: object
       required:
@@ -926,7 +827,7 @@ components:
           items:
             $ref: "#/components/schemas/JobRun"
 
-    StartJobResponse:
+    CreateJobRunResponse:
       type: object
       required:
         - job

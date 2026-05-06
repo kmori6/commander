@@ -8,6 +8,7 @@ const DEFAULT_CONTEXT_WINDOW_TOKENS: u64 = 256_000;
 const DEFAULT_COMPACTION_THRESHOLD_PERCENT: u64 = 80;
 const RECENT_MESSAGES_TO_KEEP: usize = 10;
 
+#[derive(Debug, Clone)]
 pub struct CompactionService<L> {
     llm_provider: L,
     model: String,

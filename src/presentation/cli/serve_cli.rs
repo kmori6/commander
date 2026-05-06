@@ -1,7 +1,9 @@
 use crate::application::runtime::agent_runtime::AgentRuntime;
+use crate::application::runtime::agent_runtime::AgentRuntimeRepositories;
 use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
 use crate::application::usecase::approval_usecase::ApprovalUsecase;
 use crate::application::usecase::chat_session_usecase::ChatSessionUsecase;
+use crate::application::usecase::job_execution_usecase::JobExecutionUsecase;
 use crate::application::usecase::job_run_usecase::JobRunUsecase;
 use crate::application::usecase::job_usecase::JobUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
@@ -34,13 +36,12 @@ use crate::infrastructure::tool::text_search_tool::TextSearchTool;
 use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use crate::infrastructure::tool::web_search_tool::WebSearchTool;
 use crate::presentation::handler::cancel_job_handler::cancel_job_handler;
-use crate::presentation::handler::complete_job_handler::complete_job_handler;
 use crate::presentation::handler::create_event_handler::create_event_handler;
 use crate::presentation::handler::create_job_handler::create_job_handler;
+use crate::presentation::handler::create_job_run_handler::create_job_run_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
-use crate::presentation::handler::fail_job_handler::fail_job_handler;
 use crate::presentation::handler::get_job_handler::get_job_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::get_session_usage_handler::get_session_usage_handler;
@@ -53,7 +54,6 @@ use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
 use crate::presentation::handler::resolve_approval_handler::resolve_approval_handler;
-use crate::presentation::handler::start_job_handler::start_job_handler;
 use crate::presentation::handler::update_tool_rule_handler::update_tool_rule_handler;
 use crate::presentation::state::app_state::AppState;
 use axum::{
@@ -119,9 +119,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         tool_execution_rule_repository.clone(),
     ));
 
-    let compaction_service = CompactionService::new(llm_client.clone());
-    let agent_runtime = AgentRuntime::new(llm_client, tool_service);
-
     let chat_session_repository = PostgresChatSessionRepository::new(pool.clone());
     let chat_message_repository = PostgresChatMessageRepository::new(pool.clone());
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
@@ -131,20 +128,39 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let awaiting_tool_approval_repository =
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
 
+    let compaction_service = CompactionService::new(llm_client.clone());
+    let agent_runtime = AgentRuntime::new(
+        llm_client,
+        tool_service,
+        instruction_service.clone(),
+        compaction_service.clone(),
+        AgentRuntimeRepositories {
+            chat_session_repository: chat_session_repository.clone(),
+            chat_message_repository: chat_message_repository.clone(),
+            token_usage_repository: token_usage_repository.clone(),
+            tool_approval_repository: tool_approval_repository.clone(),
+            awaiting_tool_approval_repository: awaiting_tool_approval_repository.clone(),
+        },
+    );
+
     let job_usecase = Arc::new(JobUsecase::new(job_repository.clone()));
     let chat_session_usecase = Arc::new(ChatSessionUsecase::new(
         chat_session_repository.clone(),
         chat_message_repository.clone(),
     ));
+    let job_execution_usecase = Arc::new(JobExecutionUsecase::new(
+        job_repository.clone(),
+        job_run_repository.clone(),
+    ));
+
     let job_run_usecase = Arc::new(JobRunUsecase::new(
-        job_repository,
-        job_run_repository,
+        job_repository.clone(),
+        job_run_repository.clone(),
         chat_message_repository.clone(),
     ));
+
     let agent_usecase = Arc::new(AgentUsecase::new(
         agent_runtime,
-        instruction_service,
-        compaction_service,
         AgentUsecaseRepositories {
             chat_session_repository: chat_session_repository.clone(),
             chat_message_repository: chat_message_repository.clone(),
@@ -166,6 +182,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         event_service: Arc::new(EventService::new()),
         agent_usecase,
         approval_usecase,
+        job_execution_usecase,
     };
 
     let api_routes = Router::new()
@@ -176,15 +193,15 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/approvals", get(list_approval_handler))
         .route("/jobs", get(list_job_handler).post(create_job_handler))
         .route("/jobs/{id}", get(get_job_handler))
-        .route("/jobs/{id}/runs", get(list_job_run_handler))
+        .route(
+            "/jobs/{id}/runs",
+            get(list_job_run_handler).post(create_job_run_handler),
+        )
         .route(
             "/jobs/{id}/runs/{run_id}/messages",
             get(list_job_run_message_handler),
         )
-        .route("/jobs/{id}/start", post(start_job_handler))
         .route("/jobs/{id}/cancel", post(cancel_job_handler))
-        .route("/jobs/{id}/complete", post(complete_job_handler))
-        .route("/jobs/{id}/fail", post(fail_job_handler))
         .route(
             "/sessions",
             get(list_session_handler).post(create_session_handler),

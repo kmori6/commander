@@ -1,7 +1,9 @@
+pub mod agent_runtime_error;
 pub mod agent_usecase_error;
 pub mod approval_usecase_error;
 pub mod chat_session_usecase_error;
 pub mod digest_usecase_error;
+pub mod job_execution_usecase_error;
 pub mod job_run_usecase_error;
 pub mod job_usecase_error;
 pub mod research_usecase_error;

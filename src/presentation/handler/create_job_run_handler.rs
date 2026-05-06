@@ -5,34 +5,55 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::{Value, json};
+use std::time::Duration;
 use uuid::Uuid;
 
-use crate::application::error::job_run_usecase_error::JobRunUsecaseError;
+use crate::application::error::job_execution_usecase_error::JobExecutionUsecaseError;
 use crate::domain::error::job_error::JobError;
+use crate::domain::error::job_run_error::JobRunError;
 use crate::domain::model::job::Job;
 use crate::domain::model::job_run::JobRun;
 use crate::presentation::state::app_state::AppState;
 
-pub async fn start_job_handler(
+pub async fn create_job_run_handler(
     State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
 ) -> Response {
-    match state.job_run_usecase.start(job_id).await {
+    match state.job_execution_usecase.create_run(job_id).await {
         Ok(output) => {
             for event in output.events {
                 state.event_service.publish(event);
             }
 
+            let run_id = output.run.id;
+            let usecase = state.job_execution_usecase.clone();
+            let event_service = state.event_service.clone();
+
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
+                match usecase.complete_mock(job_id, run_id).await {
+                    Ok(output) => {
+                        for event in output.events {
+                            event_service.publish(event);
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("failed to complete mock job run {run_id}: {err}");
+                    }
+                }
+            });
+
             (
-                StatusCode::OK,
+                StatusCode::ACCEPTED,
                 Json(json!({
                     "job": job_json(output.job),
-                    "run": output.run.map(job_run_json),
+                    "run": job_run_json(output.run),
                 })),
             )
                 .into_response()
         }
-        Err(JobRunUsecaseError::JobNotFound(id)) => (
+        Err(JobExecutionUsecaseError::JobNotFound(id)) => (
             StatusCode::NOT_FOUND,
             Json(json!({
                 "error": {
@@ -42,12 +63,28 @@ pub async fn start_job_handler(
             })),
         )
             .into_response(),
-        Err(JobRunUsecaseError::Job(JobError::InvalidStatusTransition { job_id, status })) => (
+        Err(JobExecutionUsecaseError::Job(JobError::InvalidStatusTransition {
+            job_id,
+            status,
+        })) => (
             StatusCode::CONFLICT,
             Json(json!({
                 "error": {
                     "code": "invalid_job_status_transition",
-                    "message": format!("cannot start job {job_id} from status {status}"),
+                    "message": format!("cannot create run for job {job_id} from status {status}"),
+                }
+            })),
+        )
+            .into_response(),
+        Err(JobExecutionUsecaseError::JobRun(JobRunError::InvalidStatusTransition {
+            job_run_id,
+            status,
+        })) => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": {
+                    "code": "invalid_job_run_status_transition",
+                    "message": format!("cannot complete job run {job_run_id} from status {status}"),
                 }
             })),
         )
@@ -56,7 +93,7 @@ pub async fn start_job_handler(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "error": {
-                    "code": "failed_to_start_job",
+                    "code": "failed_to_create_job_run",
                     "message": err.to_string(),
                 }
             })),
