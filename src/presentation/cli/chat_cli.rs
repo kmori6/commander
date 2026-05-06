@@ -397,6 +397,9 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
     let mut events = client.connect_events().await?;
     let mut event_buffer = String::new();
 
+    // Temporary in-memory state until approval requests are linked to jobs in storage.
+    let mut pending_job: Option<(Uuid, Uuid)> = None;
+
     println!("commander chat");
     println!("server: {}", client.base_url);
     println!("session: {}", session.id);
@@ -678,6 +681,8 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                                 println!("  error   {}", reason);
                             }
                             AgentTurnOutcome::AwaitingApproval => {
+                                pending_job = Some((job.id, target_session_id));
+
                                 println!("job is waiting for approval");
                                 println!("  id      {}", job.id);
                             }
@@ -706,6 +711,11 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                         println!("  id      {}", job.id);
                         println!("  status  {}", job.status);
                         println!("  title   {}", job.title);
+
+                        if matches!(pending_job, Some((pending_job_id, _)) if pending_job_id == job.id)
+                        {
+                            pending_job = None;
+                        }
                     }
                     "/job" => {
                         println!("usage: /job <objective>");
@@ -796,13 +806,69 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                         );
                     }
                     "/approve" => {
-                        client.resolve_approval(session.id, "approved").await?;
-                        let _ = wait_events(&mut events, &mut event_buffer, session.id).await?;
+                        let approval_session_id = pending_job
+                            .as_ref()
+                            .map(|(_, session_id)| *session_id)
+                            .unwrap_or(session.id);
+
+                        client
+                            .resolve_approval(approval_session_id, "approved")
+                            .await?;
+                        let outcome =
+                            wait_events(&mut events, &mut event_buffer, approval_session_id)
+                                .await?;
+
+                        if let Some((job_id, _)) = pending_job.take() {
+                            match outcome {
+                                AgentTurnOutcome::Completed => {
+                                    let job = client.complete_job(job_id).await?;
+                                    println!("completed job");
+                                    println!("  id      {}", job.id);
+                                    println!("  status  {}", job.status);
+                                    println!("  title   {}", job.title);
+                                }
+                                AgentTurnOutcome::Failed(reason) => {
+                                    let job = client.fail_job(job_id, &reason).await?;
+                                    println!("failed job");
+                                    println!("  id      {}", job.id);
+                                    println!("  status  {}", job.status);
+                                    println!("  title   {}", job.title);
+                                    println!("  error   {}", reason);
+                                }
+                                AgentTurnOutcome::AwaitingApproval => {
+                                    pending_job = Some((job_id, approval_session_id));
+                                }
+                            }
+                        }
                     }
                     "/deny" => {
-                        client.resolve_approval(session.id, "denied").await?;
-                        let _ = wait_events(&mut events, &mut event_buffer, session.id).await?;
+                        let approval_session_id = pending_job
+                            .as_ref()
+                            .map(|(_, session_id)| *session_id)
+                            .unwrap_or(session.id);
+
+                        client
+                            .resolve_approval(approval_session_id, "denied")
+                            .await?;
+                        let outcome =
+                            wait_events(&mut events, &mut event_buffer, approval_session_id)
+                                .await?;
+
+                        if let Some((job_id, _)) = pending_job.take() {
+                            let reason = match outcome {
+                                AgentTurnOutcome::Failed(reason) => reason,
+                                _ => "approval denied".to_string(),
+                            };
+
+                            let job = client.fail_job(job_id, &reason).await?;
+                            println!("failed job");
+                            println!("  id      {}", job.id);
+                            println!("  status  {}", job.status);
+                            println!("  title   {}", job.title);
+                            println!("  error   {}", reason);
+                        }
                     }
+
                     "/usage" => {
                         let usage = client.get_usage(session.id).await?;
 

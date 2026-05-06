@@ -1,4 +1,5 @@
 use crate::application::usecase::agent_usecase::AgentUsecase;
+use crate::application::usecase::job_run_usecase::JobRunUsecase;
 use crate::application::usecase::job_usecase::JobUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
@@ -19,7 +20,8 @@ pub struct AppState {
     pub chat_message_repository: PostgresChatMessageRepository,
     pub token_usage_repository: PostgresTokenUsageRepository,
     pub tool_usecase: Arc<ToolUsecase<PostgresToolExecutionRuleRepository>>,
-    pub job_usecase: Arc<JobUsecase<PostgresJobRepository, PostgresJobRunRepository>>,
+    pub job_usecase: Arc<JobUsecase<PostgresJobRepository>>,
+    pub job_run_usecase: Arc<JobRunUsecase<PostgresJobRepository, PostgresJobRunRepository>>,
     pub event_service: Arc<EventService>,
     pub agent_usecase: Arc<
         AgentUsecase<

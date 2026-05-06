@@ -7,7 +7,7 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::application::error::job_usecase_error::JobUsecaseError;
+use crate::application::error::job_run_usecase_error::JobRunUsecaseError;
 use crate::domain::model::job_run::JobRun;
 use crate::presentation::state::app_state::AppState;
 
@@ -15,7 +15,7 @@ pub async fn list_job_run_handler(
     State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
 ) -> Response {
-    match state.job_usecase.list_runs(job_id).await {
+    match state.job_run_usecase.list(job_id).await {
         Ok(runs) => {
             let runs = runs.into_iter().map(job_run_json).collect::<Vec<_>>();
 
@@ -27,7 +27,7 @@ pub async fn list_job_run_handler(
             )
                 .into_response()
         }
-        Err(JobUsecaseError::JobNotFound(id)) => (
+        Err(JobRunUsecaseError::JobNotFound(id)) => (
             StatusCode::NOT_FOUND,
             Json(json!({
                 "error": {

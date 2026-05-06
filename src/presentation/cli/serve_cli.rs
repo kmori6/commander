@@ -1,4 +1,5 @@
 use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
+use crate::application::usecase::job_run_usecase::JobRunUsecase;
 use crate::application::usecase::job_usecase::JobUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::agent_service::AgentService;
@@ -126,7 +127,9 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let awaiting_tool_approval_repository =
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
-    let job_usecase = Arc::new(JobUsecase::new(job_repository, job_run_repository));
+
+    let job_usecase = Arc::new(JobUsecase::new(job_repository.clone()));
+    let job_run_usecase = Arc::new(JobRunUsecase::new(job_repository, job_run_repository));
     let agent_usecase = Arc::new(AgentUsecase::new(
         agent_service,
         instruction_service,
@@ -146,6 +149,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         token_usage_repository,
         tool_usecase,
         job_usecase,
+        job_run_usecase,
         event_service: Arc::new(EventService::new()),
         agent_usecase,
     };

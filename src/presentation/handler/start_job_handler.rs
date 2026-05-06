@@ -7,7 +7,7 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::application::error::job_usecase_error::JobUsecaseError;
+use crate::application::error::job_run_usecase_error::JobRunUsecaseError;
 use crate::domain::error::job_error::JobError;
 use crate::domain::model::job::Job;
 use crate::presentation::state::app_state::AppState;
@@ -16,7 +16,7 @@ pub async fn start_job_handler(
     State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
 ) -> Response {
-    match state.job_usecase.start(job_id).await {
+    match state.job_run_usecase.start(job_id).await {
         Ok(output) => {
             for event in output.events {
                 state.event_service.publish(event);
@@ -24,7 +24,7 @@ pub async fn start_job_handler(
 
             (StatusCode::OK, Json(job_json(output.job))).into_response()
         }
-        Err(JobUsecaseError::JobNotFound(id)) => (
+        Err(JobRunUsecaseError::JobNotFound(id)) => (
             StatusCode::NOT_FOUND,
             Json(json!({
                 "error": {
@@ -34,7 +34,7 @@ pub async fn start_job_handler(
             })),
         )
             .into_response(),
-        Err(JobUsecaseError::Job(JobError::InvalidStatusTransition { job_id, status })) => (
+        Err(JobRunUsecaseError::Job(JobError::InvalidStatusTransition { job_id, status })) => (
             StatusCode::CONFLICT,
             Json(json!({
                 "error": {
