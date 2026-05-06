@@ -17,5 +17,7 @@ pub trait JobRunRepository: Send + Sync + Clone + 'static {
         job_id: Uuid,
     ) -> Result<Option<JobRun>, JobRunRepositoryError>;
 
+    async fn list_by_job_id(&self, job_id: Uuid) -> Result<Vec<JobRun>, JobRunRepositoryError>;
+
     async fn next_attempt(&self, job_id: Uuid) -> Result<i32, JobRunRepositoryError>;
 }

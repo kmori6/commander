@@ -146,6 +146,23 @@ impl JobRunRepository for PostgresJobRunRepository {
         row.map(TryInto::try_into).transpose()
     }
 
+    async fn list_by_job_id(&self, job_id: Uuid) -> Result<Vec<JobRun>, JobRunRepositoryError> {
+        let rows = sqlx::query_as::<_, JobRunRow>(
+            r#"
+            SELECT id, job_id, attempt, status, started_at, finished_at, error_message
+            FROM job_runs
+            WHERE job_id = $1
+            ORDER BY attempt DESC
+            "#,
+        )
+        .bind(job_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
     async fn next_attempt(&self, job_id: Uuid) -> Result<i32, JobRunRepositoryError> {
         let next_attempt = sqlx::query_scalar::<_, i32>(
             r#"

@@ -42,6 +42,7 @@ use crate::presentation::handler::get_session_usage_handler::get_session_usage_h
 use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_approval_handler::list_approval_handler;
 use crate::presentation::handler::list_job_handler::list_job_handler;
+use crate::presentation::handler::list_job_run_handler::list_job_run_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
@@ -155,6 +156,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/approvals", get(list_approval_handler))
         .route("/jobs", get(list_job_handler).post(create_job_handler))
         .route("/jobs/{id}", get(get_job_handler))
+        .route("/jobs/{id}/runs", get(list_job_run_handler))
         .route("/jobs/{id}/start", post(start_job_handler))
         .route("/jobs/{id}/cancel", post(cancel_job_handler))
         .route(

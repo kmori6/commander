@@ -349,6 +349,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/jobs/{id}/runs:
+    get:
+      tags:
+        - Jobs
+      summary: List job runs
+      description: Returns execution attempts for a delegated work item.
+      operationId: listJobRuns
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Job ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListJobRunsResponse"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to list job runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/jobs/{id}/start:
     post:
       tags:
@@ -784,6 +819,16 @@ components:
           items:
             $ref: "#/components/schemas/Job"
 
+    ListJobRunsResponse:
+      type: object
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobRun"
+
     Job:
       type: object
       required:
@@ -833,6 +878,39 @@ components:
           type: string
           nullable: true
 
+    JobRun:
+      type: object
+      required:
+        - id
+        - job_id
+        - attempt
+        - status
+        - started_at
+        - finished_at
+        - error_message
+      properties:
+        id:
+          type: string
+          format: uuid
+        job_id:
+          type: string
+          format: uuid
+        attempt:
+          type: integer
+          minimum: 1
+        status:
+          $ref: "#/components/schemas/JobRunStatus"
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+
     JobKind:
       type: string
       enum:
@@ -850,6 +928,14 @@ components:
         - completed
         - failed
         - cancel_requested
+        - cancelled
+
+    JobRunStatus:
+      type: string
+      enum:
+        - running
+        - completed
+        - failed
         - cancelled
 
     CreateMessageRequest:

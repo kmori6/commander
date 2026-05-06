@@ -63,6 +63,15 @@ where
         Ok(self.repository.list_recent(limit).await?)
     }
 
+    pub async fn list_runs(&self, id: Uuid) -> Result<Vec<JobRun>, JobUsecaseError> {
+        self.repository
+            .find_by_id(id)
+            .await?
+            .ok_or(JobUsecaseError::JobNotFound(id))?;
+
+        Ok(self.run_repository.list_by_job_id(id).await?)
+    }
+
     pub async fn start(&self, id: Uuid) -> Result<JobUsecaseOutput, JobUsecaseError> {
         let job = self
             .repository
