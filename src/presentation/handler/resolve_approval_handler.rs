@@ -41,7 +41,7 @@ pub async fn resolve_approval_handler(
 
         // resolve approval handler -> agent usecase
         let result = agent_usecase
-            .resolve_awaiting_approval(session_id, decision, event_tx)
+            .resolve_approval(session_id, decision, event_tx)
             .await;
 
         if let Err(err) = result {

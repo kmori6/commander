@@ -1,4 +1,5 @@
 use crate::domain::model::job::{JobKind, JobStatus};
+use crate::domain::model::message::Message;
 use crate::domain::model::token_usage::TokenUsage;
 use crate::domain::model::tool_approval::ToolApprovalResponse;
 use crate::domain::model::tool_call_output::ToolCallOutputStatus;
@@ -94,4 +95,22 @@ pub enum AppEvent {
         status: JobStatus,
         title: String,
     },
+}
+
+impl AppEvent {
+    pub fn assistant_message_created(
+        session_id: Uuid,
+        message_id: Uuid,
+        message: &Message,
+    ) -> Vec<Self> {
+        message
+            .output_texts()
+            .into_iter()
+            .map(|content| Self::AssistantMessageCreated {
+                session_id,
+                message_id,
+                content,
+            })
+            .collect()
+    }
 }

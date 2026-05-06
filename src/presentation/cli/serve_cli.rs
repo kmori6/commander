@@ -1,5 +1,6 @@
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
+use crate::application::usecase::approval_usecase::ApprovalUsecase;
 use crate::application::usecase::chat_session_usecase::ChatSessionUsecase;
 use crate::application::usecase::job_run_usecase::JobRunUsecase;
 use crate::application::usecase::job_usecase::JobUsecase;
@@ -149,9 +150,10 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             chat_message_repository: chat_message_repository.clone(),
             token_usage_repository: token_usage_repository.clone(),
             tool_approval_repository,
-            awaiting_tool_approval_repository,
+            awaiting_tool_approval_repository: awaiting_tool_approval_repository.clone(),
         },
     ));
+    let approval_usecase = Arc::new(ApprovalUsecase::new(awaiting_tool_approval_repository));
 
     let app_state = AppState {
         chat_session_repository,
@@ -163,6 +165,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         job_run_usecase,
         event_service: Arc::new(EventService::new()),
         agent_usecase,
+        approval_usecase,
     };
 
     let api_routes = Router::new()

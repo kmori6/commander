@@ -23,19 +23,29 @@ use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::service::compaction_service::CompactionService;
 use crate::domain::service::instruction_service::InstructionService;
-use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 // Current agent turn flow.
 //
-// start_turn:
+// accept_message:
 //   - Validate the user message.
 //   - Reject the turn unless the session is Idle.
 //   - Mark the session Running.
 //   - Save the user message.
+//
+// run_turn:
 //   - Build the initial compacted LLM context from the DB transcript.
 //   - Delegate the rest of the turn to agent_loop.
+//
+// resolve_approval:
+//   - Load the awaiting approval from the DB.
+//   - Restore the original ToolCall from the saved assistant message.
+//   - Mark the session Running.
+//   - Execute the approved tool or save a denied ToolCallOutput.
+//   - Record the approval audit row and delete awaiting_tool_approvals.
+//   - Continue after the saved tool output, processing any remaining unresolved
+//     tool calls before the next LLM step.
 //
 // agent_loop:
 //   - Call the LLM for one step.
@@ -54,24 +64,6 @@ use uuid::Uuid;
 //     tool calls from the same assistant message after an approval resumes.
 //   - If none exists, rebuild context from the DB transcript and enter agent_loop.
 //
-// approve_approval:
-//   - Load the awaiting approval from the DB.
-//   - Restore the original ToolCall from the saved assistant message.
-//   - Mark the session Running.
-//   - Execute the approved tool and save ToolCallOutput.
-//   - Record the approval audit row and delete awaiting_tool_approvals.
-//   - Continue after the saved tool output, processing any remaining unresolved
-//     tool calls before the next LLM step.
-//
-// deny_approval:
-//   - Load the awaiting approval from the DB.
-//   - Restore the original ToolCall from the saved assistant message.
-//   - Mark the session Running.
-//   - Save a denied ToolCallOutput without executing the tool.
-//   - Record the denial audit row and delete awaiting_tool_approvals.
-//   - Continue after the saved tool output, processing any remaining unresolved
-//     tool calls before the next LLM step.
-
 const MAX_LLM_STEPS: usize = 20;
 const MAX_TOOL_OUTPUT_CHARS: usize = 50_000;
 
@@ -147,7 +139,7 @@ where
         }
     }
 
-    pub async fn submit_user_message(
+    pub async fn accept_message(
         &self,
         session_id: Uuid,
         job_run_id: Option<Uuid>,
@@ -211,7 +203,7 @@ where
         Ok(saved_user_message)
     }
 
-    pub async fn start_turn(
+    pub async fn run_turn(
         &self,
         session_id: Uuid,
         user_message: ChatMessage,
@@ -225,6 +217,68 @@ where
         let instruction = self.instruction_service.build_agent_instruction();
 
         self.agent_loop(session_id, job_run_id, instruction, input_messages, tx)
+            .await
+    }
+
+    pub async fn resolve_approval(
+        &self,
+        session_id: Uuid,
+        decision: ToolApprovalResponse,
+        tx: mpsc::Sender<AppEvent>,
+    ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let next_status = session.resolve_approval()?;
+
+        let awaiting = self.load_awaiting_tool_call(session_id).await?;
+        let job_run_id = awaiting.job_run_id;
+        let tool_call = awaiting.tool_call;
+
+        self.chat_session_repository
+            .update_status(session_id, next_status)
+            .await?;
+
+        let resolved = AppEvent::ToolCallApprovalResolved {
+            session_id,
+            call_id: tool_call.call_id.clone(),
+            tool_name: tool_call.name.clone(),
+            decision,
+        };
+        let _ = tx.send(resolved).await;
+
+        match decision {
+            ToolApprovalResponse::Approved => {
+                self.execute_and_save_tool_call(session_id, job_run_id, &tool_call, &tx)
+                    .await?;
+            }
+            ToolApprovalResponse::Denied => {
+                let output = self
+                    .save_denied_tool_call_output(session_id, job_run_id, &tool_call)
+                    .await?;
+
+                let _ = tx
+                    .send(AppEvent::ToolCallFinished {
+                        session_id,
+                        call_id: tool_call.call_id.clone(),
+                        tool_name: tool_call.name.clone(),
+                        output: output.output,
+                        status: output.status,
+                    })
+                    .await;
+            }
+        }
+
+        self.record_tool_approval_from_tool_call(session_id, &tool_call, decision)
+            .await?;
+
+        self.awaiting_tool_approval_repository
+            .delete_by_session_id(session_id)
+            .await?;
+
+        self.continue_after_tool_output(session_id, job_run_id, tx)
             .await
     }
 
@@ -339,7 +393,7 @@ where
 
         let tool_call_output = match result {
             Ok(output) => output,
-            Err(err) => tool_call_error_output(call_id.clone(), err.to_string()),
+            Err(err) => ToolCallOutput::error_message(call_id.clone(), err.to_string()),
         };
 
         let tool_call_output = self
@@ -425,9 +479,11 @@ where
                 .save_llm_response(session_id, job_run_id, &llm_response)
                 .await?;
 
-            for event in
-                assistant_text_events(session_id, saved_agent_message.id, &llm_response.message)
-            {
+            for event in AppEvent::assistant_message_created(
+                session_id,
+                saved_agent_message.id,
+                &llm_response.message,
+            ) {
                 let _ = tx.send(event.clone()).await;
                 events.push(event);
             }
@@ -543,7 +599,7 @@ where
         job_run_id: Option<Uuid>,
         tool_call: &ToolCall,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
-        let output = tool_call_error_output(
+        let output = ToolCallOutput::error_message(
             tool_call.call_id.clone(),
             "tool execution was denied by user",
         );
@@ -569,68 +625,6 @@ where
             .await?;
 
         Ok(())
-    }
-
-    pub async fn resolve_awaiting_approval(
-        &self,
-        session_id: Uuid,
-        decision: ToolApprovalResponse,
-        tx: mpsc::Sender<AppEvent>,
-    ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
-        let session = self
-            .chat_session_repository
-            .find_by_id(session_id)
-            .await?
-            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-        let next_status = session.resolve_approval()?;
-
-        let awaiting = self.load_awaiting_tool_call(session_id).await?;
-        let job_run_id = awaiting.job_run_id;
-        let tool_call = awaiting.tool_call;
-
-        self.chat_session_repository
-            .update_status(session_id, next_status)
-            .await?;
-
-        let resolved = AppEvent::ToolCallApprovalResolved {
-            session_id,
-            call_id: tool_call.call_id.clone(),
-            tool_name: tool_call.name.clone(),
-            decision,
-        };
-        let _ = tx.send(resolved).await;
-
-        match decision {
-            ToolApprovalResponse::Approved => {
-                self.execute_and_save_tool_call(session_id, job_run_id, &tool_call, &tx)
-                    .await?;
-            }
-            ToolApprovalResponse::Denied => {
-                let output = self
-                    .save_denied_tool_call_output(session_id, job_run_id, &tool_call)
-                    .await?;
-
-                let _ = tx
-                    .send(AppEvent::ToolCallFinished {
-                        session_id,
-                        call_id: tool_call.call_id.clone(),
-                        tool_name: tool_call.name.clone(),
-                        output: output.output,
-                        status: output.status,
-                    })
-                    .await;
-            }
-        }
-
-        self.record_tool_approval_from_tool_call(session_id, &tool_call, decision)
-            .await?;
-
-        self.awaiting_tool_approval_repository
-            .delete_by_session_id(session_id)
-            .await?;
-
-        self.continue_after_tool_output(session_id, job_run_id, tx)
-            .await
     }
 
     async fn next_unresolved_tool_call(
@@ -748,7 +742,7 @@ where
                 }))
             }
             Ok(ToolExecutionDecision::Deny) => {
-                let output = tool_call_error_output(
+                let output = ToolCallOutput::error_message(
                     tool_call.call_id.clone(),
                     "tool execution was blocked by execution rule",
                 );
@@ -783,7 +777,8 @@ where
                 Ok(ToolCallStep::Continued)
             }
             Err(err) => {
-                let output = tool_call_error_output(tool_call.call_id.clone(), err.to_string());
+                let output =
+                    ToolCallOutput::error_message(tool_call.call_id.clone(), err.to_string());
 
                 let output = self
                     .save_tool_call_output(session_id, job_run_id, output)
@@ -856,37 +851,4 @@ where
             return Ok(AgentStartTurnOutput { events: all_events });
         }
     }
-
-    pub async fn list_awaiting_approvals(
-        &self,
-    ) -> Result<Vec<AwaitingToolApproval>, AgentUsecaseError> {
-        self.awaiting_tool_approval_repository
-            .list_all()
-            .await
-            .map_err(Into::into)
-    }
-}
-
-fn assistant_text_events(session_id: Uuid, message_id: Uuid, message: &Message) -> Vec<AppEvent> {
-    message
-        .output_texts()
-        .into_iter()
-        .map(|content| AppEvent::AssistantMessageCreated {
-            session_id,
-            message_id,
-            content,
-        })
-        .collect()
-}
-
-fn tool_call_error_output(
-    call_id: impl Into<String>,
-    message: impl Into<String>,
-) -> ToolCallOutput {
-    ToolCallOutput::error(
-        call_id,
-        json!({
-            "message": message.into(),
-        }),
-    )
 }

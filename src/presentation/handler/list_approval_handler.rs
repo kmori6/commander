@@ -4,7 +4,7 @@ use serde_json::json;
 use crate::presentation::state::app_state::AppState;
 
 pub async fn list_approval_handler(State(state): State<AppState>) -> impl IntoResponse {
-    match state.agent_usecase.list_awaiting_approvals().await {
+    match state.approval_usecase.list_awaiting().await {
         Ok(approvals) => {
             let approvals = approvals
                 .into_iter()

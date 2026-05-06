@@ -70,6 +70,15 @@ impl ToolCallOutput {
             }),
         }
     }
+
+    pub fn error_message(call_id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::error(
+            call_id,
+            json!({
+                "message": message.into(),
+            }),
+        )
+    }
 }
 
 fn truncate_middle(text: &str, max_chars: usize) -> String {

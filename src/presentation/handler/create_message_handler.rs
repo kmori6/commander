@@ -27,7 +27,7 @@ pub async fn create_message_handler(
     let event_service = state.event_service.clone();
 
     let saved = agent_usecase
-        .submit_user_message(session_id, request.job_run_id, request.user_message)
+        .accept_message(session_id, request.job_run_id, request.user_message)
         .await;
 
     let saved = match saved {
@@ -67,7 +67,7 @@ pub async fn create_message_handler(
 
         // create message handler -> agent usecase
         if let Err(err) = agent_usecase
-            .start_turn(session_id, start_message, event_tx)
+            .run_turn(session_id, start_message, event_tx)
             .await
         {
             log::warn!("failed to start turn for session {session_id}: {err}");

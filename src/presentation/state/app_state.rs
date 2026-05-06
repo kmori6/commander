@@ -1,4 +1,5 @@
 use crate::application::usecase::agent_usecase::AgentUsecase;
+use crate::application::usecase::approval_usecase::ApprovalUsecase;
 use crate::application::usecase::chat_session_usecase::ChatSessionUsecase;
 use crate::application::usecase::job_run_usecase::JobRunUsecase;
 use crate::application::usecase::job_usecase::JobUsecase;
@@ -42,4 +43,5 @@ pub struct AppState {
             PostgresAwaitingToolApprovalRepository,
         >,
     >,
+    pub approval_usecase: Arc<ApprovalUsecase<PostgresAwaitingToolApprovalRepository>>,
 }
