@@ -389,7 +389,7 @@ paths:
       tags:
         - Jobs
       summary: Start a job
-      description: Starts a queued delegated work item and returns the updated job.
+      description: Starts a queued delegated work item, creates a job run, and returns both.
       operationId: startJob
       parameters:
         - name: id
@@ -405,7 +405,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Job"
+                $ref: "#/components/schemas/StartJobResponse"
         "404":
           description: Job not found
           content:
@@ -926,6 +926,17 @@ components:
           items:
             $ref: "#/components/schemas/JobRun"
 
+    StartJobResponse:
+      type: object
+      required:
+        - job
+        - run
+      properties:
+        job:
+          $ref: "#/components/schemas/Job"
+        run:
+          $ref: "#/components/schemas/JobRun"
+
     Job:
       type: object
       required:
@@ -1042,6 +1053,11 @@ components:
       properties:
         user_message:
           $ref: "#/components/schemas/UserMessage"
+        job_run_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional job run ID. When provided, the saved user message and following agent-generated messages are associated with this job run.
 
     UserMessage:
       type: object

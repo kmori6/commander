@@ -10,6 +10,7 @@ CREATE TABLE chat_sessions (
 CREATE TABLE chat_messages (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
   session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  job_run_id UUID,
 
   type TEXT NOT NULL CHECK (
     type IN ('message', 'tool')

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 pub struct JobRunUsecaseOutput {
     pub job: Job,
+    pub run: Option<JobRun>,
     pub events: Vec<AppEvent>,
 }
 
@@ -49,15 +50,18 @@ where
         let run = JobRun::start(job.id, attempt);
 
         self.job_repository.update(job.clone()).await?;
-        self.run_repository.save(run).await?;
+        self.run_repository.save(run.clone()).await?;
+
+        let events = vec![AppEvent::JobStarted {
+            job_id: job.id,
+            status: job.status,
+            title: job.title.clone(),
+        }];
 
         Ok(JobRunUsecaseOutput {
-            events: vec![AppEvent::JobStarted {
-                job_id: job.id,
-                status: job.status,
-                title: job.title.clone(),
-            }],
             job,
+            run: Some(run),
+            events,
         })
     }
 
@@ -69,21 +73,30 @@ where
             .ok_or(JobRunUsecaseError::JobNotFound(job_id))?;
 
         let job = job.complete()?;
-        let run = self.run_repository.find_latest_by_job_id(job.id).await?;
+        let latest_run = self.run_repository.find_latest_by_job_id(job.id).await?;
 
         self.job_repository.update(job.clone()).await?;
 
-        if let Some(run) = run.filter(|run| !run.is_terminal()) {
-            self.run_repository.update(run.complete()?).await?;
-        }
+        let completed_run = match latest_run {
+            Some(run) if run.is_terminal() => Some(run),
+            Some(run) => {
+                let run = run.complete()?;
+                self.run_repository.update(run.clone()).await?;
+                Some(run)
+            }
+            None => None,
+        };
+
+        let events = vec![AppEvent::JobCompleted {
+            job_id: job.id,
+            status: job.status,
+            title: job.title.clone(),
+        }];
 
         Ok(JobRunUsecaseOutput {
-            events: vec![AppEvent::JobCompleted {
-                job_id: job.id,
-                status: job.status,
-                title: job.title.clone(),
-            }],
             job,
+            run: completed_run,
+            events,
         })
     }
 
@@ -100,22 +113,31 @@ where
 
         let reason = reason.into();
         let job = job.fail(reason.clone())?;
-        let run = self.run_repository.find_latest_by_job_id(job.id).await?;
+        let latest_run = self.run_repository.find_latest_by_job_id(job.id).await?;
 
         self.job_repository.update(job.clone()).await?;
 
-        if let Some(run) = run.filter(|run| !run.is_terminal()) {
-            self.run_repository.update(run.fail(reason)?).await?;
-        }
+        let failed_run = match latest_run {
+            Some(run) if run.is_terminal() => Some(run),
+            Some(run) => {
+                let run = run.fail(reason)?;
+                self.run_repository.update(run.clone()).await?;
+                Some(run)
+            }
+            None => None,
+        };
+
+        let events = vec![AppEvent::JobFailed {
+            job_id: job.id,
+            status: job.status,
+            title: job.title.clone(),
+            error_message: job.error_message.clone().unwrap_or_default(),
+        }];
 
         Ok(JobRunUsecaseOutput {
-            events: vec![AppEvent::JobFailed {
-                job_id: job.id,
-                status: job.status,
-                title: job.title.clone(),
-                error_message: job.error_message.clone().unwrap_or_default(),
-            }],
             job,
+            run: failed_run,
+            events,
         })
     }
 }

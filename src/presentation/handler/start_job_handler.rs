@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::application::error::job_run_usecase_error::JobRunUsecaseError;
 use crate::domain::error::job_error::JobError;
 use crate::domain::model::job::Job;
+use crate::domain::model::job_run::JobRun;
 use crate::presentation::state::app_state::AppState;
 
 pub async fn start_job_handler(
@@ -22,7 +23,14 @@ pub async fn start_job_handler(
                 state.event_service.publish(event);
             }
 
-            (StatusCode::OK, Json(job_json(output.job))).into_response()
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "job": job_json(output.job),
+                    "run": output.run.map(job_run_json),
+                })),
+            )
+                .into_response()
         }
         Err(JobRunUsecaseError::JobNotFound(id)) => (
             StatusCode::NOT_FOUND,
@@ -70,5 +78,17 @@ fn job_json(job: Job) -> Value {
         "started_at": job.started_at.map(|time| time.to_rfc3339()),
         "finished_at": job.finished_at.map(|time| time.to_rfc3339()),
         "error_message": job.error_message,
+    })
+}
+
+fn job_run_json(run: JobRun) -> Value {
+    json!({
+        "id": run.id.to_string(),
+        "job_id": run.job_id.to_string(),
+        "attempt": run.attempt,
+        "status": run.status.as_str(),
+        "started_at": run.started_at.to_rfc3339(),
+        "finished_at": run.finished_at.map(|time| time.to_rfc3339()),
+        "error_message": run.error_message,
     })
 }

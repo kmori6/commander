@@ -35,6 +35,7 @@ impl From<ChatMessageSummaryRow> for ChatMessageSummary {
 struct ChatMessageRow {
     id: Uuid,
     session_id: Uuid,
+    job_run_id: Option<Uuid>,
     role: String,
     created_at: DateTime<Utc>,
 }
@@ -154,6 +155,7 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
     async fn append(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         message: Message,
     ) -> Result<ChatMessage, ChatRepositoryError> {
         let role = role_to_db(message.role).to_string();
@@ -181,12 +183,13 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
 
         let row = sqlx::query_as::<_, ChatMessageRow>(
             r#"
-            INSERT INTO chat_messages (session_id, role, type)
-            VALUES ($1, $2, $3)
-            RETURNING id, session_id, role, created_at
+            INSERT INTO chat_messages (session_id, job_run_id, role, type)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, session_id, job_run_id, role, created_at
             "#,
         )
         .bind(session_id)
+        .bind(job_run_id)
         .bind(role)
         .bind(message_type)
         .fetch_one(&mut *tx)
@@ -274,6 +277,7 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
         Ok(ChatMessage {
             id: row.id,
             session_id: row.session_id,
+            job_run_id: row.job_run_id,
             message,
             created_at: row.created_at,
         })
@@ -285,7 +289,7 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
     ) -> Result<Vec<ChatMessage>, ChatRepositoryError> {
         let message_rows = sqlx::query_as::<_, ChatMessageRow>(
             r#"
-            SELECT id, session_id, role, created_at
+            SELECT id, session_id, job_run_id, role, created_at
             FROM chat_messages
             WHERE session_id = $1
             ORDER BY id ASC
@@ -351,6 +355,7 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
                 Ok(ChatMessage {
                     id: row.id,
                     session_id: row.session_id,
+                    job_run_id: row.job_run_id,
                     message,
                     created_at: row.created_at,
                 })

@@ -15,6 +15,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 pub struct CreateMessageRequest {
     pub user_message: Message,
+    pub job_run_id: Option<Uuid>,
 }
 
 pub async fn create_message_handler(
@@ -26,7 +27,7 @@ pub async fn create_message_handler(
     let event_service = state.event_service.clone();
 
     let saved = agent_usecase
-        .submit_user_message(session_id, request.user_message)
+        .submit_user_message(session_id, request.job_run_id, request.user_message)
         .await;
 
     let saved = match saved {
@@ -52,6 +53,7 @@ pub async fn create_message_handler(
     });
 
     let start_message = saved.clone();
+
     tokio::spawn(async move {
         let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(32);
 

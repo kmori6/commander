@@ -75,6 +75,12 @@ struct JobRunResponse {
     error_message: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct StartJobResponse {
+    job: JobResponse,
+    run: JobRunResponse,
+}
+
 enum AgentTurnOutcome {
     Completed,
     Failed(String),
@@ -145,6 +151,7 @@ impl ChatApiClient {
     async fn post_message(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         text: &str,
         attached_files: &[PathBuf],
     ) -> Result<(), AgentCliError> {
@@ -189,7 +196,8 @@ impl ChatApiClient {
                 "user_message": {
                     "role": "user",
                     "content": content
-                }
+                },
+                "job_run_id": job_run_id,
             }))
             .send()
             .await?
@@ -329,17 +337,17 @@ impl ChatApiClient {
         Ok(job)
     }
 
-    async fn start_job(&self, job_id: Uuid) -> Result<JobResponse, AgentCliError> {
-        let job = self
+    async fn start_job(&self, job_id: Uuid) -> Result<StartJobResponse, AgentCliError> {
+        let response = self
             .http
             .post(format!("{}/v1/jobs/{}/start", self.base_url, job_id))
             .send()
             .await?
             .error_for_status()?
-            .json::<JobResponse>()
+            .json::<StartJobResponse>()
             .await?;
 
-        Ok(job)
+        Ok(response)
     }
 
     async fn list_job_runs(&self, job_id: Uuid) -> Result<Vec<JobRunResponse>, AgentCliError> {
@@ -646,7 +654,9 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                             continue;
                         };
 
-                        let job = client.start_job(job_id).await?;
+                        let started = client.start_job(job_id).await?;
+                        let job = started.job;
+                        let run = started.run;
 
                         println!("started job");
                         println!("  id      {}", job.id);
@@ -656,7 +666,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                         let target_session_id = job.session_id.unwrap_or(session.id);
 
                         client
-                            .post_message(target_session_id, &job.objective, &[])
+                            .post_message(target_session_id, Some(run.id), &job.objective, &[])
                             .await?;
 
                         let outcome =
@@ -887,7 +897,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     _ => {
                         // Posting a message only starts the agent turn; output arrives later via SSE.
                         client
-                            .post_message(session.id, line, &attached_files)
+                            .post_message(session.id, None, line, &attached_files)
                             .await?;
 
                         attached_files.clear();

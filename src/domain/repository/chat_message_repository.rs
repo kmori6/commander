@@ -20,6 +20,7 @@ pub trait ChatMessageRepository: Send + Sync {
     async fn append(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         message: Message,
     ) -> Result<ChatMessage, ChatRepositoryError>;
 

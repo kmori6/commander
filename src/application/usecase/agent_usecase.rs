@@ -82,11 +82,12 @@ pub enum Attachment {
 }
 
 struct AwaitingToolCall {
+    job_run_id: Option<Uuid>,
     tool_call: ToolCall,
 }
 
 struct UnresolvedToolCall {
-    assistant_message_id: Uuid,
+    assistant_message: ChatMessage,
     tool_call: ToolCall,
 }
 
@@ -149,6 +150,7 @@ where
     pub async fn submit_user_message(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         user_message: Message,
     ) -> Result<ChatMessage, AgentUsecaseError> {
         user_message.validate_user_input()?;
@@ -194,7 +196,7 @@ where
 
         let saved_user_message = self
             .chat_message_repository
-            .append(session_id, user_message)
+            .append(session_id, job_run_id, user_message)
             .await?;
 
         if let Some(title) = title
@@ -239,13 +241,14 @@ where
         user_message: ChatMessage,
         tx: mpsc::Sender<AppEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
+        let job_run_id = user_message.job_run_id;
         let input_messages = self
             .load_compacted_input_messages(session_id, &user_message)
             .await?;
 
         let instruction = self.instruction_service.build_agent_instruction();
 
-        self.agent_loop(session_id, instruction, input_messages, tx)
+        self.agent_loop(session_id, job_run_id, instruction, input_messages, tx)
             .await
     }
 
@@ -299,11 +302,12 @@ where
     async fn save_llm_response(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         response: &LlmResponse,
     ) -> Result<ChatMessage, AgentUsecaseError> {
         let saved_message = self
             .chat_message_repository
-            .append(session_id, response.message.clone())
+            .append(session_id, job_run_id, response.message.clone())
             .await?;
 
         if !response.usage.is_empty() {
@@ -318,13 +322,14 @@ where
     async fn save_tool_call_output(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         output: ToolCallOutput,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
         let output = output.truncate(MAX_TOOL_OUTPUT_CHARS);
         let message = Message::user_tool_call_outputs(vec![output.clone()])?;
 
         self.chat_message_repository
-            .append(session_id, message)
+            .append(session_id, job_run_id, message)
             .await?;
 
         Ok(output)
@@ -333,6 +338,7 @@ where
     async fn execute_and_save_tool_call(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         tool_call: &ToolCall,
         tx: &mpsc::Sender<AppEvent>,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
@@ -361,7 +367,7 @@ where
         };
 
         let tool_call_output = self
-            .save_tool_call_output(session_id, tool_call_output)
+            .save_tool_call_output(session_id, job_run_id, tool_call_output)
             .await?;
 
         let output = tool_call_output.output.clone();
@@ -408,6 +414,7 @@ where
     async fn agent_loop(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         instruction: String,
         mut input_messages: Vec<Message>,
         tx: mpsc::Sender<AppEvent>,
@@ -438,7 +445,9 @@ where
 
             let _ = tx.send(AppEvent::LlmFinished { session_id }).await;
 
-            let saved_agent_message = self.save_llm_response(session_id, &llm_response).await?;
+            let saved_agent_message = self
+                .save_llm_response(session_id, job_run_id, &llm_response)
+                .await?;
 
             for event in
                 assistant_text_events(session_id, saved_agent_message.id, &llm_response.message)
@@ -485,8 +494,7 @@ where
             for tool_call in tool_calls {
                 match self
                     .process_tool_call(
-                        session_id,
-                        saved_agent_message.id,
+                        &saved_agent_message,
                         tool_call,
                         &mut events,
                         &mut loop_safety,
@@ -547,12 +555,16 @@ where
                 ))
             })?;
 
-        Ok(AwaitingToolCall { tool_call })
+        Ok(AwaitingToolCall {
+            job_run_id: assistant_message.job_run_id,
+            tool_call,
+        })
     }
 
     async fn save_denied_tool_call_output(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         tool_call: &ToolCall,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
         let output = tool_call_error_output(
@@ -560,7 +572,8 @@ where
             "tool execution was denied by user",
         );
 
-        self.save_tool_call_output(session_id, output).await
+        self.save_tool_call_output(session_id, job_run_id, output)
+            .await
     }
 
     async fn record_tool_approval_from_tool_call(
@@ -596,6 +609,7 @@ where
         let next_status = session.resolve_approval()?;
 
         let awaiting = self.load_awaiting_tool_call(session_id).await?;
+        let job_run_id = awaiting.job_run_id;
         let tool_call = awaiting.tool_call;
 
         self.chat_session_repository
@@ -612,12 +626,12 @@ where
 
         match decision {
             ToolApprovalResponse::Approved => {
-                self.execute_and_save_tool_call(session_id, &tool_call, &tx)
+                self.execute_and_save_tool_call(session_id, job_run_id, &tool_call, &tx)
                     .await?;
             }
             ToolApprovalResponse::Denied => {
                 let output = self
-                    .save_denied_tool_call_output(session_id, &tool_call)
+                    .save_denied_tool_call_output(session_id, job_run_id, &tool_call)
                     .await?;
 
                 let _ = tx
@@ -639,7 +653,8 @@ where
             .delete_by_session_id(session_id)
             .await?;
 
-        self.continue_after_tool_output(session_id, tx).await
+        self.continue_after_tool_output(session_id, job_run_id, tx)
+            .await
     }
 
     async fn next_unresolved_tool_call(
@@ -669,7 +684,7 @@ where
             for call in entry.message.tool_calls() {
                 if !resolved_call_ids.contains(&call.call_id) {
                     return Ok(Some(UnresolvedToolCall {
-                        assistant_message_id: entry.id,
+                        assistant_message: entry.clone(),
                         tool_call: call,
                     }));
                 }
@@ -681,13 +696,16 @@ where
 
     async fn process_tool_call(
         &self,
-        session_id: Uuid,
-        assistant_message_id: Uuid,
+        assistant_message: &ChatMessage,
         tool_call: ToolCall,
         events: &mut Vec<AppEvent>,
         loop_safety: &mut LoopSafety,
         tx: &mpsc::Sender<AppEvent>,
     ) -> Result<ToolCallStep, AgentUsecaseError> {
+        let session_id = assistant_message.session_id;
+        let job_run_id = assistant_message.job_run_id;
+        let assistant_message_id = assistant_message.id;
+
         match self
             .agent_service
             .tool_service()
@@ -696,7 +714,7 @@ where
         {
             Ok(ToolExecutionDecision::Allow) => {
                 let output = self
-                    .execute_and_save_tool_call(session_id, &tool_call, tx)
+                    .execute_and_save_tool_call(session_id, job_run_id, &tool_call, tx)
                     .await?;
 
                 if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
@@ -759,7 +777,9 @@ where
                     "tool execution was blocked by execution rule",
                 );
 
-                let output = self.save_tool_call_output(session_id, output).await?;
+                let output = self
+                    .save_tool_call_output(session_id, job_run_id, output)
+                    .await?;
 
                 let _ = tx
                     .send(AppEvent::ToolCallFinished {
@@ -789,7 +809,9 @@ where
             Err(err) => {
                 let output = tool_call_error_output(tool_call.call_id.clone(), err.to_string());
 
-                let output = self.save_tool_call_output(session_id, output).await?;
+                let output = self
+                    .save_tool_call_output(session_id, job_run_id, output)
+                    .await?;
 
                 let _ = tx
                     .send(AppEvent::ToolCallFinished {
@@ -822,6 +844,7 @@ where
     async fn continue_after_tool_output(
         &self,
         session_id: Uuid,
+        job_run_id: Option<Uuid>,
         tx: mpsc::Sender<AppEvent>,
     ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
         let mut events = Vec::new();
@@ -831,8 +854,7 @@ where
             if let Some(unresolved) = self.next_unresolved_tool_call(session_id).await? {
                 match self
                     .process_tool_call(
-                        session_id,
-                        unresolved.assistant_message_id,
+                        &unresolved.assistant_message,
                         unresolved.tool_call,
                         &mut events,
                         &mut loop_safety,
@@ -849,7 +871,7 @@ where
             let instruction = self.instruction_service.build_agent_instruction();
 
             let output = self
-                .agent_loop(session_id, instruction, input_messages, tx)
+                .agent_loop(session_id, job_run_id, instruction, input_messages, tx)
                 .await?;
 
             let mut all_events = events;
