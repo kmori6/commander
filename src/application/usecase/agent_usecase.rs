@@ -93,6 +93,11 @@ pub struct AgentStartTurnOutput {
     pub events: Vec<AppEvent>,
 }
 
+struct RecordedLlmResponse {
+    message: ChatMessage,
+    events: Vec<AppEvent>,
+}
+
 pub struct AgentUsecase<L, S, M, T, A, W> {
     agent_runtime: AgentRuntime<L>,
     instruction_service: InstructionService,
@@ -251,23 +256,17 @@ where
 
         match decision {
             ToolApprovalResponse::Approved => {
-                self.execute_and_save_tool_call(session_id, job_run_id, &tool_call, &tx)
+                self.run_tool_call(session_id, job_run_id, &tool_call, &tx)
                     .await?;
             }
             ToolApprovalResponse::Denied => {
-                let output = self
-                    .save_denied_tool_call_output(session_id, job_run_id, &tool_call)
-                    .await?;
+                let output = ToolCallOutput::error_message(
+                    tool_call.call_id.clone(),
+                    "tool execution was denied by user",
+                );
 
-                let _ = tx
-                    .send(AppEvent::ToolCallFinished {
-                        session_id,
-                        call_id: tool_call.call_id.clone(),
-                        tool_name: tool_call.name.clone(),
-                        output: output.output,
-                        status: output.status,
-                    })
-                    .await;
+                self.record_tool_result(session_id, job_run_id, &tool_call, output, &tx)
+                    .await?;
             }
         }
 
@@ -282,7 +281,12 @@ where
             .await
     }
 
-    async fn stop_turn(&self, session_id: Uuid) -> Result<(), AgentUsecaseError> {
+    async fn complete_turn(
+        &self,
+        session_id: Uuid,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<(), AgentUsecaseError> {
         let session = self
             .chat_session_repository
             .find_by_id(session_id)
@@ -294,7 +298,85 @@ where
             .update_status(session_id, idle_status)
             .await?;
 
+        let event = AppEvent::AgentTurnCompleted { session_id };
+        let _ = tx.send(event.clone()).await;
+        events.push(event);
+
         Ok(())
+    }
+
+    async fn fail_turn(
+        &self,
+        session_id: Uuid,
+        reason: impl Into<String>,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<(), AgentUsecaseError> {
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let idle_status = session.complete_turn()?;
+
+        self.chat_session_repository
+            .update_status(session_id, idle_status)
+            .await?;
+
+        let event = AppEvent::AgentTurnFailed {
+            session_id,
+            reason: reason.into(),
+        };
+        let _ = tx.send(event.clone()).await;
+        events.push(event);
+
+        Ok(())
+    }
+
+    async fn request_tool_approval(
+        &self,
+        assistant_message: &ChatMessage,
+        tool_call: ToolCall,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<AgentStartTurnOutput, AgentUsecaseError> {
+        let session_id = assistant_message.session_id;
+        let assistant_message_id = assistant_message.id;
+        let policy = self.agent_runtime.check_tool_policy(&tool_call)?;
+
+        let session = self
+            .chat_session_repository
+            .find_by_id(session_id)
+            .await?
+            .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
+        let next_status = session.await_approval()?;
+
+        self.awaiting_tool_approval_repository
+            .save(AwaitingToolApproval {
+                session_id,
+                assistant_message_id,
+                tool_call_id: tool_call.call_id.clone(),
+            })
+            .await?;
+
+        let event = AppEvent::ToolCallApprovalRequested {
+            session_id,
+            call_id: tool_call.call_id,
+            tool_name: tool_call.name,
+            arguments: tool_call.arguments,
+            policy,
+        };
+
+        self.chat_session_repository
+            .update_status(session_id, next_status)
+            .await?;
+
+        let _ = tx.send(event.clone()).await;
+        events.push(event);
+
+        Ok(AgentStartTurnOutput {
+            events: std::mem::take(events),
+        })
     }
 
     async fn load_compacted_input_messages(
@@ -329,26 +411,6 @@ where
             .map_err(Into::into)
     }
 
-    async fn save_llm_response(
-        &self,
-        session_id: Uuid,
-        job_run_id: Option<Uuid>,
-        response: &LlmResponse,
-    ) -> Result<ChatMessage, AgentUsecaseError> {
-        let saved_message = self
-            .chat_message_repository
-            .append(session_id, job_run_id, response.message.clone())
-            .await?;
-
-        if !response.usage.is_empty() {
-            self.token_usage_repository
-                .record_for_message(saved_message.id, self.agent_runtime.model(), response.usage)
-                .await?;
-        }
-
-        Ok(saved_message)
-    }
-
     async fn save_tool_call_output(
         &self,
         session_id: Uuid,
@@ -365,55 +427,73 @@ where
         Ok(output)
     }
 
-    async fn execute_and_save_tool_call(
+    async fn record_tool_result(
+        &self,
+        session_id: Uuid,
+        job_run_id: Option<Uuid>,
+        tool_call: &ToolCall,
+        output: ToolCallOutput,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<ToolCallOutput, AgentUsecaseError> {
+        let output = self
+            .save_tool_call_output(session_id, job_run_id, output)
+            .await?;
+
+        let _ = tx
+            .send(AppEvent::ToolCallFinished {
+                session_id,
+                call_id: tool_call.call_id.clone(),
+                tool_name: tool_call.name.clone(),
+                output: output.output.clone(),
+                status: output.status,
+            })
+            .await;
+
+        Ok(output)
+    }
+
+    async fn run_tool_call(
         &self,
         session_id: Uuid,
         job_run_id: Option<Uuid>,
         tool_call: &ToolCall,
         tx: &mpsc::Sender<AppEvent>,
     ) -> Result<ToolCallOutput, AgentUsecaseError> {
-        let call_id = tool_call.call_id.clone();
-        let tool_name = tool_call.name.clone();
-        let arguments = tool_call.arguments.clone();
-
         let _ = tx
             .send(AppEvent::ToolCallStarted {
                 session_id,
-                call_id: call_id.clone(),
-                tool_name: tool_name.clone(),
-                arguments: arguments.clone(),
+                call_id: tool_call.call_id.clone(),
+                tool_name: tool_call.name.clone(),
+                arguments: tool_call.arguments.clone(),
             })
             .await;
 
-        let result = self
+        let output = self
             .agent_runtime
-            .tool_service()
-            .execute(tool_call.clone())
+            .execute_tool_call(tool_call.clone())
             .await;
 
-        let tool_call_output = match result {
-            Ok(output) => output,
-            Err(err) => ToolCallOutput::error_message(call_id.clone(), err.to_string()),
-        };
+        self.record_tool_result(session_id, job_run_id, tool_call, output, tx)
+            .await
+    }
 
-        let tool_call_output = self
-            .save_tool_call_output(session_id, job_run_id, tool_call_output)
-            .await?;
+    async fn track_tool_progress(
+        &self,
+        session_id: Uuid,
+        tool_call: &ToolCall,
+        output: &ToolCallOutput,
+        loop_safety: &mut LoopSafety,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<(), AgentUsecaseError> {
+        if let Err(err) = loop_safety.record_tool_call_output(tool_call, output) {
+            self.fail_turn(session_id, err.to_string(), events, tx)
+                .await?;
 
-        let output = tool_call_output.output.clone();
-        let status = tool_call_output.status;
+            return Err(AgentUsecaseError::Agent(AgentError::from(err)));
+        }
 
-        let _ = tx
-            .send(AppEvent::ToolCallFinished {
-                session_id,
-                call_id,
-                tool_name,
-                output,
-                status,
-            })
-            .await;
-
-        Ok(tool_call_output)
+        Ok(())
     }
 
     async fn load_compacted_session_messages(
@@ -454,14 +534,8 @@ where
 
         loop {
             if let Err(err) = loop_safety.start_llm_step() {
-                self.stop_turn(session_id).await?;
-
-                let event = AppEvent::AgentTurnFailed {
-                    session_id,
-                    reason: err.to_string(),
-                };
-                let _ = tx.send(event.clone()).await;
-                events.push(event);
+                self.fail_turn(session_id, err.to_string(), &mut events, &tx)
+                    .await?;
 
                 return Err(AgentUsecaseError::Agent(AgentError::from(err)));
             }
@@ -475,48 +549,19 @@ where
 
             let _ = tx.send(AppEvent::LlmFinished { session_id }).await;
 
-            let saved_agent_message = self
-                .save_llm_response(session_id, job_run_id, &llm_response)
+            let recorded_response = self
+                .record_llm_response(session_id, job_run_id, &llm_response)
                 .await?;
 
-            for event in AppEvent::assistant_message_created(
-                session_id,
-                saved_agent_message.id,
-                &llm_response.message,
-            ) {
+            for event in recorded_response.events {
                 let _ = tx.send(event.clone()).await;
                 events.push(event);
             }
 
-            // Token usage events
-            if !llm_response.usage.is_empty() {
-                let event = AppEvent::LlmUsageRecorded {
-                    session_id,
-                    message_id: saved_agent_message.id,
-                    usage: llm_response.usage,
-                };
-
-                let _ = tx.send(event.clone()).await;
-                events.push(event);
-            }
-
-            let tool_calls = llm_response.message.tool_calls();
+            let tool_calls = recorded_response.message.message.tool_calls();
 
             if tool_calls.is_empty() {
-                let session = self
-                    .chat_session_repository
-                    .find_by_id(session_id)
-                    .await?
-                    .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-                let idle_status = session.complete_turn()?;
-
-                self.chat_session_repository
-                    .update_status(session_id, idle_status)
-                    .await?;
-
-                let event = AppEvent::AgentTurnCompleted { session_id };
-                let _ = tx.send(event.clone()).await;
-                events.push(event);
+                self.complete_turn(session_id, &mut events, &tx).await?;
 
                 return Ok(AgentStartTurnOutput { events });
             }
@@ -526,7 +571,7 @@ where
             for tool_call in tool_calls {
                 match self
                     .process_tool_call(
-                        &saved_agent_message,
+                        &recorded_response.message,
                         tool_call,
                         &mut events,
                         &mut loop_safety,
@@ -591,21 +636,6 @@ where
             job_run_id: assistant_message.job_run_id,
             tool_call,
         })
-    }
-
-    async fn save_denied_tool_call_output(
-        &self,
-        session_id: Uuid,
-        job_run_id: Option<Uuid>,
-        tool_call: &ToolCall,
-    ) -> Result<ToolCallOutput, AgentUsecaseError> {
-        let output = ToolCallOutput::error_message(
-            tool_call.call_id.clone(),
-            "tool execution was denied by user",
-        );
-
-        self.save_tool_call_output(session_id, job_run_id, output)
-            .await
     }
 
     async fn record_tool_approval_from_tool_call(
@@ -674,138 +704,38 @@ where
     ) -> Result<ToolCallStep, AgentUsecaseError> {
         let session_id = assistant_message.session_id;
         let job_run_id = assistant_message.job_run_id;
-        let assistant_message_id = assistant_message.id;
 
-        match self
-            .agent_runtime
-            .tool_service()
-            .decide_execution(&tool_call)
-            .await
-        {
+        match self.agent_runtime.decide_tool_call(&tool_call).await {
             Ok(ToolExecutionDecision::Allow) => {
-                let output = self
-                    .execute_and_save_tool_call(session_id, job_run_id, &tool_call, tx)
+                self.allow_tool_call(session_id, job_run_id, &tool_call, loop_safety, events, tx)
                     .await?;
-
-                if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
-                    self.stop_turn(session_id).await?;
-
-                    let event = AppEvent::AgentTurnFailed {
-                        session_id,
-                        reason: err.to_string(),
-                    };
-                    let _ = tx.send(event.clone()).await;
-                    events.push(event);
-
-                    return Err(AgentUsecaseError::Agent(AgentError::from(err)));
-                }
 
                 Ok(ToolCallStep::Continued)
             }
             Ok(ToolExecutionDecision::Ask) => {
-                let policy = self
-                    .agent_runtime
-                    .tool_service()
-                    .check_execution_policy(&tool_call)?;
-                let session = self
-                    .chat_session_repository
-                    .find_by_id(session_id)
-                    .await?
-                    .ok_or(AgentUsecaseError::SessionNotFound(session_id))?;
-                let next_status = session.await_approval()?;
-
-                self.awaiting_tool_approval_repository
-                    .save(AwaitingToolApproval {
-                        session_id,
-                        assistant_message_id,
-                        tool_call_id: tool_call.call_id.clone(),
-                    })
+                let output = self
+                    .request_tool_approval(assistant_message, tool_call, events, tx)
                     .await?;
 
-                let event = AppEvent::ToolCallApprovalRequested {
-                    session_id,
-                    call_id: tool_call.call_id,
-                    tool_name: tool_call.name,
-                    arguments: tool_call.arguments,
-                    policy,
-                };
-
-                let _ = tx.send(event.clone()).await;
-                events.push(event);
-
-                self.chat_session_repository
-                    .update_status(session_id, next_status)
-                    .await?;
-
-                Ok(ToolCallStep::AwaitingApproval(AgentStartTurnOutput {
-                    events: std::mem::take(events),
-                }))
+                Ok(ToolCallStep::AwaitingApproval(output))
             }
             Ok(ToolExecutionDecision::Deny) => {
-                let output = ToolCallOutput::error_message(
-                    tool_call.call_id.clone(),
-                    "tool execution was blocked by execution rule",
-                );
-
-                let output = self
-                    .save_tool_call_output(session_id, job_run_id, output)
+                self.block_tool_call(session_id, job_run_id, &tool_call, loop_safety, events, tx)
                     .await?;
-
-                let _ = tx
-                    .send(AppEvent::ToolCallFinished {
-                        session_id,
-                        call_id: tool_call.call_id.clone(),
-                        tool_name: tool_call.name.clone(),
-                        output: output.output.clone(),
-                        status: output.status,
-                    })
-                    .await;
-
-                if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
-                    self.stop_turn(session_id).await?;
-
-                    let event = AppEvent::AgentTurnFailed {
-                        session_id,
-                        reason: err.to_string(),
-                    };
-                    let _ = tx.send(event.clone()).await;
-                    events.push(event);
-
-                    return Err(AgentUsecaseError::Agent(AgentError::from(err)));
-                }
 
                 Ok(ToolCallStep::Continued)
             }
             Err(err) => {
-                let output =
-                    ToolCallOutput::error_message(tool_call.call_id.clone(), err.to_string());
-
-                let output = self
-                    .save_tool_call_output(session_id, job_run_id, output)
-                    .await?;
-
-                let _ = tx
-                    .send(AppEvent::ToolCallFinished {
-                        session_id,
-                        call_id: tool_call.call_id.clone(),
-                        tool_name: tool_call.name.clone(),
-                        output: output.output.clone(),
-                        status: output.status,
-                    })
-                    .await;
-
-                if let Err(err) = loop_safety.record_tool_call_output(&tool_call, &output) {
-                    self.stop_turn(session_id).await?;
-
-                    let event = AppEvent::AgentTurnFailed {
-                        session_id,
-                        reason: err.to_string(),
-                    };
-                    let _ = tx.send(event.clone()).await;
-                    events.push(event);
-
-                    return Err(AgentUsecaseError::Agent(AgentError::from(err)));
-                }
+                self.record_tool_error(
+                    session_id,
+                    job_run_id,
+                    &tool_call,
+                    err.to_string(),
+                    loop_safety,
+                    events,
+                    tx,
+                )
+                .await?;
 
                 Ok(ToolCallStep::Continued)
             }
@@ -850,5 +780,95 @@ where
 
             return Ok(AgentStartTurnOutput { events: all_events });
         }
+    }
+
+    async fn record_llm_response(
+        &self,
+        session_id: Uuid,
+        job_run_id: Option<Uuid>,
+        response: &LlmResponse,
+    ) -> Result<RecordedLlmResponse, AgentUsecaseError> {
+        let message = self
+            .chat_message_repository
+            .append(session_id, job_run_id, response.message.clone())
+            .await?;
+
+        if !response.usage.is_empty() {
+            self.token_usage_repository
+                .record_for_message(message.id, self.agent_runtime.model(), response.usage)
+                .await?;
+        }
+
+        let mut events =
+            AppEvent::assistant_message_created(session_id, message.id, &response.message);
+
+        if !response.usage.is_empty() {
+            events.push(AppEvent::LlmUsageRecorded {
+                session_id,
+                message_id: message.id,
+                usage: response.usage,
+            });
+        }
+
+        Ok(RecordedLlmResponse { message, events })
+    }
+
+    async fn block_tool_call(
+        &self,
+        session_id: Uuid,
+        job_run_id: Option<Uuid>,
+        tool_call: &ToolCall,
+        loop_safety: &mut LoopSafety,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<(), AgentUsecaseError> {
+        let output = ToolCallOutput::error_message(
+            tool_call.call_id.clone(),
+            "tool execution was blocked by execution rule",
+        );
+
+        let output = self
+            .record_tool_result(session_id, job_run_id, tool_call, output, tx)
+            .await?;
+
+        self.track_tool_progress(session_id, tool_call, &output, loop_safety, events, tx)
+            .await
+    }
+
+    async fn record_tool_error(
+        &self,
+        session_id: Uuid,
+        job_run_id: Option<Uuid>,
+        tool_call: &ToolCall,
+        reason: impl Into<String>,
+        loop_safety: &mut LoopSafety,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<(), AgentUsecaseError> {
+        let output = ToolCallOutput::error_message(tool_call.call_id.clone(), reason.into());
+
+        let output = self
+            .record_tool_result(session_id, job_run_id, tool_call, output, tx)
+            .await?;
+
+        self.track_tool_progress(session_id, tool_call, &output, loop_safety, events, tx)
+            .await
+    }
+
+    async fn allow_tool_call(
+        &self,
+        session_id: Uuid,
+        job_run_id: Option<Uuid>,
+        tool_call: &ToolCall,
+        loop_safety: &mut LoopSafety,
+        events: &mut Vec<AppEvent>,
+        tx: &mpsc::Sender<AppEvent>,
+    ) -> Result<(), AgentUsecaseError> {
+        let output = self
+            .run_tool_call(session_id, job_run_id, tool_call, tx)
+            .await?;
+
+        self.track_tool_progress(session_id, tool_call, &output, loop_safety, events, tx)
+            .await
     }
 }

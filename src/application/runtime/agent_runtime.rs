@@ -1,6 +1,11 @@
 use crate::domain::error::agent_error::AgentError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::domain::model::role::Role;
+use crate::domain::model::tool_call::ToolCall;
+use crate::domain::model::tool_call_output::ToolCallOutput;
+use crate::domain::model::tool_execution_decision::ToolExecutionDecision;
+use crate::domain::model::tool_execution_policy::ToolExecutionPolicy;
 use crate::domain::port::llm_provider::{LlmProvider, LlmResponse};
 use crate::domain::service::tool_service::ToolService;
 
@@ -19,10 +24,6 @@ impl<L: LlmProvider> AgentRuntime<L> {
             tool_service,
             model: DEFAULT_MODEL.to_string(),
         }
-    }
-
-    pub fn tool_service(&self) -> &ToolService {
-        &self.tool_service
     }
 
     pub fn model(&self) -> &str {
@@ -47,5 +48,28 @@ impl<L: LlmProvider> AgentRuntime<L> {
             .response_with_tool(llm_messages, self.tool_service.specs(), &self.model)
             .await
             .map_err(AgentError::LlmProvider)
+    }
+
+    pub async fn execute_tool_call(&self, tool_call: ToolCall) -> ToolCallOutput {
+        let call_id = tool_call.call_id.clone();
+
+        match self.tool_service.execute(tool_call).await {
+            Ok(output) => output,
+            Err(err) => ToolCallOutput::error_message(call_id, err.to_string()),
+        }
+    }
+
+    pub async fn decide_tool_call(
+        &self,
+        tool_call: &ToolCall,
+    ) -> Result<ToolExecutionDecision, ToolError> {
+        self.tool_service.decide_execution(tool_call).await
+    }
+
+    pub fn check_tool_policy(
+        &self,
+        tool_call: &ToolCall,
+    ) -> Result<ToolExecutionPolicy, ToolError> {
+        self.tool_service.check_execution_policy(tool_call)
     }
 }
