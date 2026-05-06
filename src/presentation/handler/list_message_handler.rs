@@ -76,7 +76,7 @@ pub async fn list_message_handler(
 
     let messages = apply_limit(messages, query.limit)
         .into_iter()
-        .map(message_to_json)
+        .map(chat_message_to_json)
         .collect::<Vec<_>>();
 
     (
@@ -97,9 +97,10 @@ fn role_as_str(role: Role) -> &'static str {
     }
 }
 
-fn message_to_json(chat_message: ChatMessage) -> Value {
+pub(crate) fn chat_message_to_json(chat_message: ChatMessage) -> Value {
     json!({
         "id": chat_message.id.to_string(),
+        "job_run_id": chat_message.job_run_id.map(|id| id.to_string()),
         "role": role_as_str(chat_message.message.role),
         "contents": chat_message
             .message

@@ -363,6 +363,86 @@ impl ChatMessageRepository for PostgresChatMessageRepository {
             .collect()
     }
 
+    async fn list_for_job_run(
+        &self,
+        job_run_id: Uuid,
+    ) -> Result<Vec<ChatMessage>, ChatRepositoryError> {
+        let message_rows = sqlx::query_as::<_, ChatMessageRow>(
+            r#"
+        SELECT id, session_id, job_run_id, role, created_at
+        FROM chat_messages
+        WHERE job_run_id = $1
+        ORDER BY id ASC
+        "#,
+        )
+        .bind(job_run_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        if message_rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let message_ids = message_rows.iter().map(|row| row.id).collect::<Vec<_>>();
+
+        let content_rows = sqlx::query_as::<_, ChatMessageContentRow>(
+            r#"
+        SELECT
+            message_id,
+            content_index,
+            type AS content_type,
+            text,
+            call_id,
+            tool_name,
+            arguments,
+            output,
+            result_status
+        FROM chat_message_contents
+        WHERE message_id = ANY($1::uuid[])
+        ORDER BY message_id ASC, content_index ASC
+        "#,
+        )
+        .bind(message_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let mut contents_by_message_id = HashMap::new();
+
+        for row in content_rows {
+            contents_by_message_id
+                .entry(row.message_id)
+                .or_insert_with(Vec::new)
+                .push(row);
+        }
+
+        message_rows
+            .into_iter()
+            .map(|row| {
+                let role = role_from_db(&row.role)?;
+
+                let contents = contents_by_message_id
+                    .remove(&row.id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(content_row_to_message_content)
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let message = Message::new(role, contents)
+                    .map_err(|err| ChatRepositoryError::Unexpected(err.to_string()))?;
+
+                Ok(ChatMessage {
+                    id: row.id,
+                    session_id: row.session_id,
+                    job_run_id: row.job_run_id,
+                    message,
+                    created_at: row.created_at,
+                })
+            })
+            .collect()
+    }
+
     async fn summarize_by_session_ids(
         &self,
         session_ids: &[Uuid],

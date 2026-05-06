@@ -21,7 +21,13 @@ pub struct AppState {
     pub token_usage_repository: PostgresTokenUsageRepository,
     pub tool_usecase: Arc<ToolUsecase<PostgresToolExecutionRuleRepository>>,
     pub job_usecase: Arc<JobUsecase<PostgresJobRepository>>,
-    pub job_run_usecase: Arc<JobRunUsecase<PostgresJobRepository, PostgresJobRunRepository>>,
+    pub job_run_usecase: Arc<
+        JobRunUsecase<
+            PostgresJobRepository,
+            PostgresJobRunRepository,
+            PostgresChatMessageRepository,
+        >,
+    >,
     pub event_service: Arc<EventService>,
     pub agent_usecase: Arc<
         AgentUsecase<

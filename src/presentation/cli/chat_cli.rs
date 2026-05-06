@@ -66,6 +66,18 @@ struct ListJobRunsResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct ListJobRunMessagesResponse {
+    messages: Vec<ChatLogMessageResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatLogMessageResponse {
+    role: String,
+    contents: Vec<Value>,
+    created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct JobRunResponse {
     id: Uuid,
     attempt: i32,
@@ -363,6 +375,26 @@ impl ChatApiClient {
         Ok(response.runs)
     }
 
+    async fn list_job_run_messages(
+        &self,
+        job_id: Uuid,
+        run_id: Uuid,
+    ) -> Result<Vec<ChatLogMessageResponse>, AgentCliError> {
+        let response = self
+            .http
+            .get(format!(
+                "{}/v1/jobs/{}/runs/{}/messages",
+                self.base_url, job_id, run_id
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ListJobRunMessagesResponse>()
+            .await?;
+
+        Ok(response.messages)
+    }
+
     async fn complete_job(&self, job_id: Uuid) -> Result<JobResponse, AgentCliError> {
         let job = self
             .http
@@ -639,6 +671,120 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
 
                                 if let Some(error_message) = run.error_message {
                                     println!("      error     {}", error_message);
+                                }
+                            }
+                        }
+                    }
+                    "/log" => {
+                        println!("usage: /log <job_id> <run_id>");
+                    }
+                    _ if line.starts_with("/log ") => {
+                        let parts = line.split_whitespace().collect::<Vec<_>>();
+
+                        if parts.len() != 3 {
+                            println!("usage: /log <job_id> <run_id>");
+                            continue;
+                        }
+
+                        let Ok(job_id) = Uuid::parse_str(parts[1]) else {
+                            println!("invalid job id: {}", parts[1]);
+                            continue;
+                        };
+
+                        let Ok(run_id) = Uuid::parse_str(parts[2]) else {
+                            println!("invalid run id: {}", parts[2]);
+                            continue;
+                        };
+
+                        let messages = client.list_job_run_messages(job_id, run_id).await?;
+
+                        if messages.is_empty() {
+                            println!("no messages");
+                        } else {
+                            println!("log");
+
+                            for message in messages {
+                                println!(
+                                    "\n\x1b[90m{}  {}\x1b[0m",
+                                    message.role, message.created_at
+                                );
+
+                                for content in &message.contents {
+                                    match content.get("type").and_then(|value| value.as_str()) {
+                                        Some("input_text") => {
+                                            if let Some(text) =
+                                                content.get("text").and_then(|value| value.as_str())
+                                            {
+                                                println!("{text}");
+                                            }
+                                        }
+                                        Some("output_text") => {
+                                            if let Some(text) =
+                                                content.get("text").and_then(|value| value.as_str())
+                                            {
+                                                if message.role == "assistant" {
+                                                    print_text(text);
+                                                } else {
+                                                    println!("{text}");
+                                                }
+                                            }
+                                        }
+                                        Some("tool_call") => {
+                                            let tool_name = content
+                                                .get("tool_name")
+                                                .and_then(|value| value.as_str())
+                                                .unwrap_or("tool");
+
+                                            println!("[tool call] {tool_name}");
+
+                                            if let Some(arguments) = content.get("arguments") {
+                                                let pretty =
+                                                    serde_json::to_string_pretty(arguments)
+                                                        .unwrap_or_else(|_| arguments.to_string());
+
+                                                let arguments =
+                                                    if pretty.chars().count() > MAX_CHARS {
+                                                        let truncated = pretty
+                                                            .chars()
+                                                            .take(MAX_CHARS)
+                                                            .collect::<String>();
+
+                                                        format!("{truncated}\n... (truncated)")
+                                                    } else {
+                                                        pretty
+                                                    };
+
+                                                println!("[tool arguments]\n{arguments}");
+                                            }
+                                        }
+                                        Some("tool_call_output") => {
+                                            let status = content
+                                                .get("result_status")
+                                                .and_then(|value| value.as_str())
+                                                .unwrap_or("unknown");
+
+                                            println!("[tool call output] {status}");
+
+                                            if let Some(output) = content.get("output") {
+                                                let pretty = serde_json::to_string_pretty(output)
+                                                    .unwrap_or_else(|_| output.to_string());
+
+                                                let output = if pretty.chars().count() > MAX_CHARS {
+                                                    let truncated = pretty
+                                                        .chars()
+                                                        .take(MAX_CHARS)
+                                                        .collect::<String>();
+
+                                                    format!("{truncated}\n... (truncated)")
+                                                } else {
+                                                    pretty
+                                                };
+
+                                                println!("{output}");
+                                            }
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
                         }

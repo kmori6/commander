@@ -30,6 +30,12 @@ pub trait ChatMessageRepository: Send + Sync {
         session_id: Uuid,
     ) -> Result<Vec<ChatMessage>, ChatRepositoryError>;
 
+    /// Return messages associated with one job run in ascending conversation order.
+    async fn list_for_job_run(
+        &self,
+        job_run_id: Uuid,
+    ) -> Result<Vec<ChatMessage>, ChatRepositoryError>;
+
     async fn summarize_by_session_ids(
         &self,
         session_ids: &[Uuid],

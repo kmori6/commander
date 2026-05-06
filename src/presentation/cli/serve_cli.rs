@@ -46,6 +46,7 @@ use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_approval_handler::list_approval_handler;
 use crate::presentation::handler::list_job_handler::list_job_handler;
 use crate::presentation::handler::list_job_run_handler::list_job_run_handler;
+use crate::presentation::handler::list_job_run_message_handler::list_job_run_message_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
@@ -129,7 +130,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
 
     let job_usecase = Arc::new(JobUsecase::new(job_repository.clone()));
-    let job_run_usecase = Arc::new(JobRunUsecase::new(job_repository, job_run_repository));
+    let job_run_usecase = Arc::new(JobRunUsecase::new(
+        job_repository,
+        job_run_repository,
+        chat_message_repository.clone(),
+    ));
     let agent_usecase = Arc::new(AgentUsecase::new(
         agent_service,
         instruction_service,
@@ -163,6 +168,10 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/jobs", get(list_job_handler).post(create_job_handler))
         .route("/jobs/{id}", get(get_job_handler))
         .route("/jobs/{id}/runs", get(list_job_run_handler))
+        .route(
+            "/jobs/{id}/runs/{run_id}/messages",
+            get(list_job_run_message_handler),
+        )
         .route("/jobs/{id}/start", post(start_job_handler))
         .route("/jobs/{id}/cancel", post(cancel_job_handler))
         .route("/jobs/{id}/complete", post(complete_job_handler))

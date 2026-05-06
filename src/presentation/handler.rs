@@ -13,6 +13,7 @@ pub mod health_handler;
 pub mod list_approval_handler;
 pub mod list_job_handler;
 pub mod list_job_run_handler;
+pub mod list_job_run_message_handler;
 pub mod list_message_handler;
 pub mod list_session_handler;
 pub mod list_tool_handler;
