@@ -73,6 +73,17 @@ pub enum AppEvent {
         status: JobStatus,
         title: String,
     },
+    JobCompleted {
+        job_id: Uuid,
+        status: JobStatus,
+        title: String,
+    },
+    JobFailed {
+        job_id: Uuid,
+        status: JobStatus,
+        title: String,
+        error_message: String,
+    },
     JobCancelRequested {
         job_id: Uuid,
         status: JobStatus,

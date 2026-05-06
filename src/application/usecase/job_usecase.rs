@@ -76,7 +76,7 @@ where
         })
     }
 
-    pub async fn complete(&self, id: Uuid) -> Result<Job, JobUsecaseError> {
+    pub async fn complete(&self, id: Uuid) -> Result<JobUsecaseOutput, JobUsecaseError> {
         let job = self
             .repository
             .find_by_id(id)
@@ -85,10 +85,22 @@ where
 
         let job = job.complete()?;
         self.repository.update(job.clone()).await?;
-        Ok(job)
+
+        Ok(JobUsecaseOutput {
+            events: vec![AppEvent::JobCompleted {
+                job_id: job.id,
+                status: job.status,
+                title: job.title.clone(),
+            }],
+            job,
+        })
     }
 
-    pub async fn fail(&self, id: Uuid, reason: impl Into<String>) -> Result<Job, JobUsecaseError> {
+    pub async fn fail(
+        &self,
+        id: Uuid,
+        reason: impl Into<String>,
+    ) -> Result<JobUsecaseOutput, JobUsecaseError> {
         let job = self
             .repository
             .find_by_id(id)
@@ -97,7 +109,16 @@ where
 
         let job = job.fail(reason)?;
         self.repository.update(job.clone()).await?;
-        Ok(job)
+
+        Ok(JobUsecaseOutput {
+            events: vec![AppEvent::JobFailed {
+                job_id: job.id,
+                status: job.status,
+                title: job.title.clone(),
+                error_message: job.error_message.clone().unwrap_or_default(),
+            }],
+            job,
+        })
     }
 
     pub async fn cancel(&self, id: Uuid) -> Result<JobUsecaseOutput, JobUsecaseError> {

@@ -58,6 +58,8 @@ paths:
         - agent_turn_failed
         - job_created
         - job_started
+        - job_completed
+        - job_failed
         - job_cancel_requested
         - job_cancelled
 

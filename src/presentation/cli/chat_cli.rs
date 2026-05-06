@@ -556,7 +556,16 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                         println!("  id      {}", job.id);
                         println!("  status  {}", job.status);
                         println!("  title   {}", job.title);
+
+                        let target_session_id = job.session_id.unwrap_or(session.id);
+
+                        client
+                            .post_message(target_session_id, &job.objective, &[])
+                            .await?;
+
+                        wait_events(&mut events, &mut event_buffer, target_session_id).await?;
                     }
+
                     "/cancel" => {
                         println!("usage: /cancel <job_id>");
                     }
@@ -585,6 +594,16 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     }
                     _ if line.starts_with("/job ") => {
                         let objective = line.trim_start_matches("/job ").trim();
+                        let objective = objective
+                            .strip_prefix('"')
+                            .and_then(|value| value.strip_suffix('"'))
+                            .or_else(|| {
+                                objective
+                                    .strip_prefix('\'')
+                                    .and_then(|value| value.strip_suffix('\''))
+                            })
+                            .unwrap_or(objective)
+                            .trim();
 
                         if objective.is_empty() {
                             println!("usage: /job <objective>");
