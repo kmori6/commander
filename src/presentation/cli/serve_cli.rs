@@ -31,11 +31,13 @@ use crate::infrastructure::tool::text_search_tool::TextSearchTool;
 use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use crate::infrastructure::tool::web_search_tool::WebSearchTool;
 use crate::presentation::handler::cancel_job_handler::cancel_job_handler;
+use crate::presentation::handler::complete_job_handler::complete_job_handler;
 use crate::presentation::handler::create_event_handler::create_event_handler;
 use crate::presentation::handler::create_job_handler::create_job_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::delete_session_handler::delete_session_handler;
+use crate::presentation::handler::fail_job_handler::fail_job_handler;
 use crate::presentation::handler::get_job_handler::get_job_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::get_session_usage_handler::get_session_usage_handler;
@@ -159,6 +161,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/jobs/{id}/runs", get(list_job_run_handler))
         .route("/jobs/{id}/start", post(start_job_handler))
         .route("/jobs/{id}/cancel", post(cancel_job_handler))
+        .route("/jobs/{id}/complete", post(complete_job_handler))
+        .route("/jobs/{id}/fail", post(fail_job_handler))
         .route(
             "/sessions",
             get(list_session_handler).post(create_session_handler),

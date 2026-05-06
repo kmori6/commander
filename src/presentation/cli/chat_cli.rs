@@ -75,6 +75,12 @@ struct JobRunResponse {
     error_message: Option<String>,
 }
 
+enum AgentTurnOutcome {
+    Completed,
+    Failed(String),
+    AwaitingApproval,
+}
+
 struct ChatApiClient {
     base_url: String,
     http: reqwest::Client,
@@ -347,6 +353,33 @@ impl ChatApiClient {
             .await?;
 
         Ok(response.runs)
+    }
+
+    async fn complete_job(&self, job_id: Uuid) -> Result<JobResponse, AgentCliError> {
+        let job = self
+            .http
+            .post(format!("{}/v1/jobs/{}/complete", self.base_url, job_id))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<JobResponse>()
+            .await?;
+
+        Ok(job)
+    }
+
+    async fn fail_job(&self, job_id: Uuid, reason: &str) -> Result<JobResponse, AgentCliError> {
+        let job = self
+            .http
+            .post(format!("{}/v1/jobs/{}/fail", self.base_url, job_id))
+            .json(&json!({ "reason": reason }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<JobResponse>()
+            .await?;
+
+        Ok(job)
     }
 }
 
@@ -623,7 +656,32 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                             .post_message(target_session_id, &job.objective, &[])
                             .await?;
 
-                        wait_events(&mut events, &mut event_buffer, target_session_id).await?;
+                        let outcome =
+                            wait_events(&mut events, &mut event_buffer, target_session_id).await?;
+
+                        match outcome {
+                            AgentTurnOutcome::Completed => {
+                                let job = client.complete_job(job.id).await?;
+
+                                println!("completed job");
+                                println!("  id      {}", job.id);
+                                println!("  status  {}", job.status);
+                                println!("  title   {}", job.title);
+                            }
+                            AgentTurnOutcome::Failed(reason) => {
+                                let job = client.fail_job(job.id, &reason).await?;
+
+                                println!("failed job");
+                                println!("  id      {}", job.id);
+                                println!("  status  {}", job.status);
+                                println!("  title   {}", job.title);
+                                println!("  error   {}", reason);
+                            }
+                            AgentTurnOutcome::AwaitingApproval => {
+                                println!("job is waiting for approval");
+                                println!("  id      {}", job.id);
+                            }
+                        }
                     }
 
                     "/cancel" => {
@@ -739,11 +797,11 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                     }
                     "/approve" => {
                         client.resolve_approval(session.id, "approved").await?;
-                        wait_events(&mut events, &mut event_buffer, session.id).await?;
+                        let _ = wait_events(&mut events, &mut event_buffer, session.id).await?;
                     }
                     "/deny" => {
                         client.resolve_approval(session.id, "denied").await?;
-                        wait_events(&mut events, &mut event_buffer, session.id).await?;
+                        let _ = wait_events(&mut events, &mut event_buffer, session.id).await?;
                     }
                     "/usage" => {
                         let usage = client.get_usage(session.id).await?;
@@ -777,7 +835,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
                         );
 
                         // The event stream is shared by all sessions, so keep only this turn's session.
-                        wait_events(&mut events, &mut event_buffer, session.id).await?;
+                        let _ = wait_events(&mut events, &mut event_buffer, session.id).await?;
                     }
                 }
             }
@@ -803,12 +861,12 @@ async fn wait_events(
     events: &mut reqwest::Response,
     event_buffer: &mut String,
     session_id: Uuid,
-) -> Result<(), AgentCliError> {
+) -> Result<AgentTurnOutcome, AgentCliError> {
     let current_session = session_id.to_string();
 
     let mut spinner: Option<ProgressBar> = None;
 
-    'turn: while let Some(chunk) = events.chunk().await? {
+    while let Some(chunk) = events.chunk().await? {
         event_buffer.push_str(&String::from_utf8_lossy(&chunk));
 
         while let Some(index) = event_buffer.find("\n\n") {
@@ -968,11 +1026,15 @@ async fn wait_events(
                     }
 
                     println!("Run /approve or /deny.");
-                    break 'turn;
+                    return Ok(AgentTurnOutcome::AwaitingApproval);
                 }
                 "agent_turn_completed" => {
+                    if let Some(progress) = spinner.take() {
+                        progress.finish_and_clear();
+                    }
+
                     // Stop waiting once this turn completes.
-                    break 'turn;
+                    return Ok(AgentTurnOutcome::Completed);
                 }
                 "agent_turn_failed" => {
                     // Stop the spinner
@@ -987,12 +1049,14 @@ async fn wait_events(
 
                     println!("\x1b[90m[agent stopped] {reason}\x1b[0m");
 
-                    break 'turn;
+                    return Ok(AgentTurnOutcome::Failed(reason.to_string()));
                 }
                 _ => {}
             }
         }
     }
 
-    Ok(())
+    Ok(AgentTurnOutcome::Failed(
+        "event stream ended before the agent turn completed".to_string(),
+    ))
 }
