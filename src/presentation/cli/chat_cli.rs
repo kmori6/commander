@@ -60,6 +60,21 @@ struct ListJobsResponse {
     jobs: Vec<JobResponse>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ListJobRunsResponse {
+    runs: Vec<JobRunResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JobRunResponse {
+    id: Uuid,
+    attempt: i32,
+    status: String,
+    started_at: String,
+    finished_at: Option<String>,
+    error_message: Option<String>,
+}
+
 struct ChatApiClient {
     base_url: String,
     http: reqwest::Client,
@@ -320,6 +335,19 @@ impl ChatApiClient {
 
         Ok(job)
     }
+
+    async fn list_job_runs(&self, job_id: Uuid) -> Result<Vec<JobRunResponse>, AgentCliError> {
+        let response = self
+            .http
+            .get(format!("{}/v1/jobs/{}/runs", self.base_url, job_id))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ListJobRunsResponse>()
+            .await?;
+
+        Ok(response.runs)
+    }
 }
 
 pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), AgentCliError> {
@@ -537,6 +565,38 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), Agent
 
                         if let Some(parent_job_id) = job.parent_job_id {
                             println!("  parent     {}", parent_job_id);
+                        }
+                    }
+                    "/runs" => {
+                        println!("usage: /runs <job_id>");
+                    }
+                    _ if line.starts_with("/runs ") => {
+                        let id = line.trim_start_matches("/runs ").trim();
+
+                        let Ok(job_id) = Uuid::parse_str(id) else {
+                            println!("invalid job id: {id}");
+                            continue;
+                        };
+
+                        let runs = client.list_job_runs(job_id).await?;
+
+                        if runs.is_empty() {
+                            println!("no job runs");
+                        } else {
+                            println!("job runs");
+
+                            for run in runs {
+                                println!("  #{}  {:<10}  {}", run.attempt, run.status, run.id);
+                                println!("      started   {}", run.started_at);
+
+                                if let Some(finished_at) = run.finished_at {
+                                    println!("      finished  {}", finished_at);
+                                }
+
+                                if let Some(error_message) = run.error_message {
+                                    println!("      error     {}", error_message);
+                                }
+                            }
                         }
                     }
                     "/run" => {
