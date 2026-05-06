@@ -129,7 +129,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
 
     let compaction_service = CompactionService::new(llm_client.clone());
-    let agent_runtime = AgentRuntime::new(
+    let agent_runtime = Arc::new(AgentRuntime::new(
         llm_client,
         tool_service,
         instruction_service.clone(),
@@ -141,7 +141,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             tool_approval_repository: tool_approval_repository.clone(),
             awaiting_tool_approval_repository: awaiting_tool_approval_repository.clone(),
         },
-    );
+    ));
 
     let job_usecase = Arc::new(JobUsecase::new(job_repository.clone()));
     let chat_session_usecase = Arc::new(ChatSessionUsecase::new(
@@ -149,8 +149,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         chat_message_repository.clone(),
     ));
     let job_execution_usecase = Arc::new(JobExecutionUsecase::new(
+        agent_runtime.clone(),
         job_repository.clone(),
         job_run_repository.clone(),
+        chat_session_repository.clone(),
+        chat_message_repository.clone(),
     ));
 
     let job_run_usecase = Arc::new(JobRunUsecase::new(
@@ -160,7 +163,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ));
 
     let agent_usecase = Arc::new(AgentUsecase::new(
-        agent_runtime,
+        agent_runtime.clone(),
         AgentUsecaseRepositories {
             chat_session_repository: chat_session_repository.clone(),
             chat_message_repository: chat_message_repository.clone(),

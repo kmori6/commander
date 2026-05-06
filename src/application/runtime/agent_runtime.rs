@@ -67,6 +67,7 @@ pub struct AgentRuntimeRepositories<S, M, T, A, W> {
     pub awaiting_tool_approval_repository: W,
 }
 
+#[derive(Clone)]
 pub struct AgentRuntime<L, S, M, T, A, W> {
     llm_provider: L,
     tool_service: ToolService,

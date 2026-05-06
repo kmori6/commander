@@ -13,6 +13,7 @@ use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -28,7 +29,7 @@ pub struct AgentStartTurnOutput {
 }
 
 pub struct AgentUsecase<L, S, M, T, A, W> {
-    agent_runtime: AgentRuntime<L, S, M, T, A, W>,
+    agent_runtime: Arc<AgentRuntime<L, S, M, T, A, W>>,
     chat_session_repository: S,
     chat_message_repository: M,
 }
@@ -51,7 +52,7 @@ where
     W: AwaitingToolApprovalRepository,
 {
     pub fn new(
-        agent_runtime: AgentRuntime<L, S, M, T, A, W>,
+        agent_runtime: Arc<AgentRuntime<L, S, M, T, A, W>>,
         repositories: AgentUsecaseRepositories<S, M, T, A, W>,
     ) -> Self {
         Self {

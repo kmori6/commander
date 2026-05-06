@@ -1,3 +1,10 @@
+use crate::application::error::job_execution_usecase_error::JobExecutionUsecaseError;
+use crate::domain::error::job_error::JobError;
+use crate::domain::error::job_run_error::JobRunError;
+use crate::domain::model::app_event::AppEvent;
+use crate::domain::model::job::Job;
+use crate::domain::model::job_run::JobRun;
+use crate::presentation::state::app_state::AppState;
 use axum::{
     Json,
     extract::{Path, State},
@@ -5,15 +12,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::{Value, json};
-use std::time::Duration;
+use tokio::sync::mpsc;
 use uuid::Uuid;
-
-use crate::application::error::job_execution_usecase_error::JobExecutionUsecaseError;
-use crate::domain::error::job_error::JobError;
-use crate::domain::error::job_run_error::JobRunError;
-use crate::domain::model::job::Job;
-use crate::domain::model::job_run::JobRun;
-use crate::presentation::state::app_state::AppState;
 
 pub async fn create_job_run_handler(
     State(state): State<AppState>,
@@ -30,17 +30,28 @@ pub async fn create_job_run_handler(
             let event_service = state.event_service.clone();
 
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(32);
 
-                match usecase.complete_mock(job_id, run_id).await {
+                let publisher_event_service = event_service.clone();
+                let event_publisher = tokio::spawn(async move {
+                    while let Some(event) = event_rx.recv().await {
+                        publisher_event_service.publish(event);
+                    }
+                });
+
+                match usecase.execute_run(job_id, run_id, event_tx).await {
                     Ok(output) => {
                         for event in output.events {
                             event_service.publish(event);
                         }
                     }
                     Err(err) => {
-                        log::warn!("failed to complete mock job run {run_id}: {err}");
+                        log::warn!("failed to execute job run {run_id}: {err}");
                     }
+                }
+
+                if let Err(err) = event_publisher.await {
+                    log::warn!("failed to publish job run events for run {run_id}: {err}");
                 }
             });
 

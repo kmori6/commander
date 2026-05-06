@@ -45,6 +45,16 @@ pub struct AppState {
         >,
     >,
     pub approval_usecase: Arc<ApprovalUsecase<PostgresAwaitingToolApprovalRepository>>,
-    pub job_execution_usecase:
-        Arc<JobExecutionUsecase<PostgresJobRepository, PostgresJobRunRepository>>,
+    pub job_execution_usecase: Arc<
+        JobExecutionUsecase<
+            BedrockLlmProvider,
+            PostgresJobRepository,
+            PostgresJobRunRepository,
+            PostgresChatSessionRepository,
+            PostgresChatMessageRepository,
+            PostgresTokenUsageRepository,
+            PostgresToolApprovalRepository,
+            PostgresAwaitingToolApprovalRepository,
+        >,
+    >,
 }
