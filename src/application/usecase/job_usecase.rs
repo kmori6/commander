@@ -1,7 +1,9 @@
 use crate::application::error::job_usecase_error::JobUsecaseError;
 use crate::domain::model::app_event::AppEvent;
 use crate::domain::model::job::{Job, JobKind, JobStatus};
+use crate::domain::model::job_run::JobRun;
 use crate::domain::repository::job_repository::JobRepository;
+use crate::domain::repository::job_run_repository::JobRunRepository;
 use uuid::Uuid;
 
 pub struct JobUsecaseOutput {
@@ -9,16 +11,21 @@ pub struct JobUsecaseOutput {
     pub events: Vec<AppEvent>,
 }
 
-pub struct JobUsecase<R> {
+pub struct JobUsecase<R, RR> {
     repository: R,
+    run_repository: RR,
 }
 
-impl<R> JobUsecase<R>
+impl<R, RR> JobUsecase<R, RR>
 where
     R: JobRepository,
+    RR: JobRunRepository,
 {
-    pub fn new(repository: R) -> Self {
-        Self { repository }
+    pub fn new(repository: R, run_repository: RR) -> Self {
+        Self {
+            repository,
+            run_repository,
+        }
     }
 
     pub async fn create(
@@ -64,7 +71,11 @@ where
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
         let job = job.start()?;
+        let attempt = self.run_repository.next_attempt(job.id).await?;
+        let run = JobRun::start(job.id, attempt);
+
         self.repository.update(job.clone()).await?;
+        self.run_repository.save(run).await?;
 
         Ok(JobUsecaseOutput {
             events: vec![AppEvent::JobStarted {
@@ -84,7 +95,13 @@ where
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
         let job = job.complete()?;
+        let run = self.run_repository.find_latest_by_job_id(job.id).await?;
+
         self.repository.update(job.clone()).await?;
+
+        if let Some(run) = run.filter(|run| !run.is_terminal()) {
+            self.run_repository.update(run.complete()?).await?;
+        }
 
         Ok(JobUsecaseOutput {
             events: vec![AppEvent::JobCompleted {
@@ -107,8 +124,15 @@ where
             .await?
             .ok_or(JobUsecaseError::JobNotFound(id))?;
 
-        let job = job.fail(reason)?;
+        let reason = reason.into();
+        let job = job.fail(reason.clone())?;
+        let run = self.run_repository.find_latest_by_job_id(job.id).await?;
+
         self.repository.update(job.clone()).await?;
+
+        if let Some(run) = run.filter(|run| !run.is_terminal()) {
+            self.run_repository.update(run.fail(reason)?).await?;
+        }
 
         Ok(JobUsecaseOutput {
             events: vec![AppEvent::JobFailed {

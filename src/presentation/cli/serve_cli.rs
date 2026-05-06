@@ -13,6 +13,7 @@ use crate::infrastructure::persistence::postgres_awaiting_tool_approval_reposito
 use crate::infrastructure::persistence::postgres_chat_message_repository::PostgresChatMessageRepository;
 use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
 use crate::infrastructure::persistence::postgres_job_repository::PostgresJobRepository;
+use crate::infrastructure::persistence::postgres_job_run_repository::PostgresJobRunRepository;
 use crate::infrastructure::persistence::postgres_memory_index_repository::PostgresMemoryIndexRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
@@ -118,10 +119,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let chat_message_repository = PostgresChatMessageRepository::new(pool.clone());
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
     let job_repository = PostgresJobRepository::new(pool.clone());
+    let job_run_repository = PostgresJobRunRepository::new(pool.clone());
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let awaiting_tool_approval_repository =
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
-    let job_usecase = Arc::new(JobUsecase::new(job_repository));
+    let job_usecase = Arc::new(JobUsecase::new(job_repository, job_run_repository));
     let agent_usecase = Arc::new(AgentUsecase::new(
         agent_service,
         instruction_service,

@@ -7,6 +7,8 @@ pub mod deep_research_error;
 pub mod embedding_provider_error;
 pub mod job_error;
 pub mod job_repository_error;
+pub mod job_run_error;
+pub mod job_run_repository_error;
 pub mod llm_provider_error;
 pub mod loop_safety_error;
 pub mod memory_index_repository_error;

@@ -7,6 +7,7 @@ use crate::infrastructure::persistence::postgres_awaiting_tool_approval_reposito
 use crate::infrastructure::persistence::postgres_chat_message_repository::PostgresChatMessageRepository;
 use crate::infrastructure::persistence::postgres_chat_session_repository::PostgresChatSessionRepository;
 use crate::infrastructure::persistence::postgres_job_repository::PostgresJobRepository;
+use crate::infrastructure::persistence::postgres_job_run_repository::PostgresJobRunRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::persistence::postgres_tool_execution_rule_repository::PostgresToolExecutionRuleRepository;
@@ -18,7 +19,7 @@ pub struct AppState {
     pub chat_message_repository: PostgresChatMessageRepository,
     pub token_usage_repository: PostgresTokenUsageRepository,
     pub tool_usecase: Arc<ToolUsecase<PostgresToolExecutionRuleRepository>>,
-    pub job_usecase: Arc<JobUsecase<PostgresJobRepository>>,
+    pub job_usecase: Arc<JobUsecase<PostgresJobRepository, PostgresJobRunRepository>>,
     pub event_service: Arc<EventService>,
     pub agent_usecase: Arc<
         AgentUsecase<
