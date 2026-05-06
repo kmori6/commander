@@ -1,11 +1,12 @@
 use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
 use crate::application::usecase::job_usecase::JobUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
-use crate::domain::service::{
-    agent_service::AgentService, compaction_service::CompactionService,
-    event_service::EventService, instruction_service::InstructionService,
-    memory_index_service::MemoryIndexService, tool_service::ToolService,
-};
+use crate::domain::service::agent_service::AgentService;
+use crate::domain::service::compaction_service::CompactionService;
+use crate::domain::service::event_service::EventService;
+use crate::domain::service::instruction_service::InstructionService;
+use crate::domain::service::memory_index_service::MemoryIndexService;
+use crate::domain::service::tool_service::ToolService;
 use crate::infrastructure::embedding::bedrock_embedding_provider::BedrockEmbeddingProvider;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::persistence::postgres_awaiting_tool_approval_repository::PostgresAwaitingToolApprovalRepository;
@@ -16,13 +17,18 @@ use crate::infrastructure::persistence::postgres_memory_index_repository::Postgr
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::persistence::postgres_tool_execution_rule_repository::PostgresToolExecutionRuleRepository;
-use crate::infrastructure::tool::{
-    asr_tool::AsrTool, file_edit_tool::FileEditTool, file_read_tool::FileReadTool,
-    file_search_tool::FileSearchTool, file_write_tool::FileWriteTool,
-    memory_search_tool::MemorySearchTool, memory_write_tool::MemoryWriteTool, ocr_tool::OcrTool,
-    shell_exec_tool::ShellExecTool, text_search_tool::TextSearchTool, web_fetch_tool::WebFetchTool,
-    web_search_tool::WebSearchTool,
-};
+use crate::infrastructure::tool::asr_tool::AsrTool;
+use crate::infrastructure::tool::file_edit_tool::FileEditTool;
+use crate::infrastructure::tool::file_read_tool::FileReadTool;
+use crate::infrastructure::tool::file_search_tool::FileSearchTool;
+use crate::infrastructure::tool::file_write_tool::FileWriteTool;
+use crate::infrastructure::tool::memory_search_tool::MemorySearchTool;
+use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
+use crate::infrastructure::tool::ocr_tool::OcrTool;
+use crate::infrastructure::tool::shell_exec_tool::ShellExecTool;
+use crate::infrastructure::tool::text_search_tool::TextSearchTool;
+use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
+use crate::infrastructure::tool::web_search_tool::WebSearchTool;
 use crate::presentation::handler::cancel_job_handler::cancel_job_handler;
 use crate::presentation::handler::create_event_handler::create_event_handler;
 use crate::presentation::handler::create_job_handler::create_job_handler;
@@ -39,6 +45,7 @@ use crate::presentation::handler::list_message_handler::list_message_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
 use crate::presentation::handler::resolve_approval_handler::resolve_approval_handler;
+use crate::presentation::handler::start_job_handler::start_job_handler;
 use crate::presentation::handler::update_tool_rule_handler::update_tool_rule_handler;
 use crate::presentation::state::app_state::AppState;
 use axum::{
@@ -146,6 +153,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/approvals", get(list_approval_handler))
         .route("/jobs", get(list_job_handler).post(create_job_handler))
         .route("/jobs/{id}", get(get_job_handler))
+        .route("/jobs/{id}/start", post(start_job_handler))
         .route("/jobs/{id}/cancel", post(cancel_job_handler))
         .route(
             "/sessions",

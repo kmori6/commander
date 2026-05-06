@@ -176,6 +176,32 @@ fn to_sse_event(event: AppEvent) -> Event {
             .to_string(),
         ),
 
+        AppEvent::JobStarted {
+            job_id,
+            status,
+            title,
+        } => Event::default().event("job_started").data(
+            json!({
+                "job_id": job_id,
+                "status": status.as_str(),
+                "title": title,
+            })
+            .to_string(),
+        ),
+
+        AppEvent::JobCancelRequested {
+            job_id,
+            status,
+            title,
+        } => Event::default().event("job_cancel_requested").data(
+            json!({
+                "job_id": job_id,
+                "status": status.as_str(),
+                "title": title,
+            })
+            .to_string(),
+        ),
+
         AppEvent::JobCancelled {
             job_id,
             status,

@@ -14,4 +14,5 @@ pub mod list_message_handler;
 pub mod list_session_handler;
 pub mod list_tool_handler;
 pub mod resolve_approval_handler;
+pub mod start_job_handler;
 pub mod update_tool_rule_handler;

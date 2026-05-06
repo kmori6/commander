@@ -57,6 +57,8 @@ paths:
         - agent_turn_completed
         - agent_turn_failed
         - job_created
+        - job_started
+        - job_cancel_requested
         - job_cancelled
 
         The stream also sends keep-alive comments.
@@ -345,12 +347,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/jobs/{id}/start:
+    post:
+      tags:
+        - Jobs
+      summary: Start a job
+      description: Starts a queued delegated work item and returns the updated job.
+      operationId: startJob
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Job ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Job cannot be started from its current status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to start job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/jobs/{id}/cancel:
     post:
       tags:
         - Jobs
       summary: Cancel a job
-      description: Cancels one delegated work item and returns the updated job.
+      description: Cancels a queued job or requests cancellation for a running job.
       operationId: cancelJob
       parameters:
         - name: id
@@ -362,7 +405,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Job cancelled
+          description: Job cancelled or cancellation requested
           content:
             application/json:
               schema:

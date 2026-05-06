@@ -1,9 +1,8 @@
-use uuid::Uuid;
-
 use crate::application::error::job_usecase_error::JobUsecaseError;
 use crate::domain::model::app_event::AppEvent;
-use crate::domain::model::job::{Job, JobKind};
+use crate::domain::model::job::{Job, JobKind, JobStatus};
 use crate::domain::repository::job_repository::JobRepository;
+use uuid::Uuid;
 
 pub struct JobUsecaseOutput {
     pub job: Job,
@@ -57,7 +56,7 @@ where
         Ok(self.repository.list_recent(limit).await?)
     }
 
-    pub async fn start(&self, id: Uuid) -> Result<Job, JobUsecaseError> {
+    pub async fn start(&self, id: Uuid) -> Result<JobUsecaseOutput, JobUsecaseError> {
         let job = self
             .repository
             .find_by_id(id)
@@ -66,7 +65,15 @@ where
 
         let job = job.start()?;
         self.repository.update(job.clone()).await?;
-        Ok(job)
+
+        Ok(JobUsecaseOutput {
+            events: vec![AppEvent::JobStarted {
+                job_id: job.id,
+                status: job.status,
+                title: job.title.clone(),
+            }],
+            job,
+        })
     }
 
     pub async fn complete(&self, id: Uuid) -> Result<Job, JobUsecaseError> {
@@ -93,18 +100,6 @@ where
         Ok(job)
     }
 
-    pub async fn request_cancel(&self, id: Uuid) -> Result<Job, JobUsecaseError> {
-        let job = self
-            .repository
-            .find_by_id(id)
-            .await?
-            .ok_or(JobUsecaseError::JobNotFound(id))?;
-
-        let job = job.request_cancel()?;
-        self.repository.update(job.clone()).await?;
-        Ok(job)
-    }
-
     pub async fn cancel(&self, id: Uuid) -> Result<JobUsecaseOutput, JobUsecaseError> {
         let job = self
             .repository
@@ -115,13 +110,20 @@ where
         let job = job.cancel()?;
         self.repository.update(job.clone()).await?;
 
-        Ok(JobUsecaseOutput {
-            events: vec![AppEvent::JobCancelled {
+        let events = match job.status {
+            JobStatus::CancelRequested => vec![AppEvent::JobCancelRequested {
                 job_id: job.id,
                 status: job.status,
                 title: job.title.clone(),
             }],
-            job,
-        })
+            JobStatus::Cancelled => vec![AppEvent::JobCancelled {
+                job_id: job.id,
+                status: job.status,
+                title: job.title.clone(),
+            }],
+            _ => Vec::new(),
+        };
+
+        Ok(JobUsecaseOutput { events, job })
     }
 }

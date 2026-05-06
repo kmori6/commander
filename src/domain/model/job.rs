@@ -92,36 +92,26 @@ impl Job {
         Ok(job)
     }
 
-    /// A running job records an operator cancellation request.
-    pub fn request_cancel(&self) -> Result<Self, JobError> {
-        if self.status != JobStatus::Running {
-            return Err(JobError::InvalidStatusTransition {
-                job_id: self.id,
-                status: self.status,
-            });
-        }
-
-        let mut job = self.clone();
-        job.status = JobStatus::CancelRequested;
-        Ok(job)
-    }
-
-    /// A queued, running, or cancel-requested job finishes as cancelled.
+    /// Cancelling a queued job finishes it; cancelling a running job requests cooperative stop.
     pub fn cancel(&self) -> Result<Self, JobError> {
-        if !matches!(
-            self.status,
-            JobStatus::Queued | JobStatus::Running | JobStatus::CancelRequested
-        ) {
-            return Err(JobError::InvalidStatusTransition {
+        match self.status {
+            JobStatus::Queued => {
+                let mut job = self.clone();
+                job.status = JobStatus::Cancelled;
+                job.finished_at = Some(Utc::now());
+                Ok(job)
+            }
+            JobStatus::Running => {
+                let mut job = self.clone();
+                job.status = JobStatus::CancelRequested;
+                Ok(job)
+            }
+            JobStatus::CancelRequested => Ok(self.clone()),
+            _ => Err(JobError::InvalidStatusTransition {
                 job_id: self.id,
                 status: self.status,
-            });
+            }),
         }
-
-        let mut job = self.clone();
-        job.status = JobStatus::Cancelled;
-        job.finished_at = Some(Utc::now());
-        Ok(job)
     }
 
     pub fn is_terminal(&self) -> bool {

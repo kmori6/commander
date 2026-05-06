@@ -68,6 +68,16 @@ pub enum AppEvent {
         session_id: Option<Uuid>,
         parent_job_id: Option<Uuid>,
     },
+    JobStarted {
+        job_id: Uuid,
+        status: JobStatus,
+        title: String,
+    },
+    JobCancelRequested {
+        job_id: Uuid,
+        status: JobStatus,
+        title: String,
+    },
     JobCancelled {
         job_id: Uuid,
         status: JobStatus,
