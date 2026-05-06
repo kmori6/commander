@@ -6,13 +6,13 @@ use crate::domain::service::tool_service::ToolService;
 
 const DEFAULT_MODEL: &str = "global.anthropic.claude-sonnet-4-6";
 
-pub struct AgentService<L> {
+pub struct AgentRuntime<L> {
     llm_provider: L,
     tool_service: ToolService,
     model: String,
 }
 
-impl<L: LlmProvider> AgentService<L> {
+impl<L: LlmProvider> AgentRuntime<L> {
     pub fn new(llm_provider: L, tool_service: ToolService) -> Self {
         Self {
             llm_provider,

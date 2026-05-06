@@ -1,8 +1,9 @@
+use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::agent_usecase::{AgentUsecase, AgentUsecaseRepositories};
+use crate::application::usecase::chat_session_usecase::ChatSessionUsecase;
 use crate::application::usecase::job_run_usecase::JobRunUsecase;
 use crate::application::usecase::job_usecase::JobUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
-use crate::domain::service::agent_service::AgentService;
 use crate::domain::service::compaction_service::CompactionService;
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
@@ -118,7 +119,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ));
 
     let compaction_service = CompactionService::new(llm_client.clone());
-    let agent_service = AgentService::new(llm_client, tool_service);
+    let agent_runtime = AgentRuntime::new(llm_client, tool_service);
 
     let chat_session_repository = PostgresChatSessionRepository::new(pool.clone());
     let chat_message_repository = PostgresChatMessageRepository::new(pool.clone());
@@ -130,13 +131,17 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         PostgresAwaitingToolApprovalRepository::new(pool.clone());
 
     let job_usecase = Arc::new(JobUsecase::new(job_repository.clone()));
+    let chat_session_usecase = Arc::new(ChatSessionUsecase::new(
+        chat_session_repository.clone(),
+        chat_message_repository.clone(),
+    ));
     let job_run_usecase = Arc::new(JobRunUsecase::new(
         job_repository,
         job_run_repository,
         chat_message_repository.clone(),
     ));
     let agent_usecase = Arc::new(AgentUsecase::new(
-        agent_service,
+        agent_runtime,
         instruction_service,
         compaction_service,
         AgentUsecaseRepositories {
@@ -152,6 +157,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         chat_session_repository,
         chat_message_repository,
         token_usage_repository,
+        chat_session_usecase,
         tool_usecase,
         job_usecase,
         job_run_usecase,

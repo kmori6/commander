@@ -1,11 +1,10 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde_json::json;
 
-use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::presentation::state::app_state::AppState;
 
 pub async fn create_session_handler(State(state): State<AppState>) -> impl IntoResponse {
-    match state.chat_session_repository.create().await {
+    match state.chat_session_usecase.start().await {
         Ok(session) => (
             StatusCode::CREATED,
             Json(json!({

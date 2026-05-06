@@ -1,4 +1,5 @@
 use crate::application::error::agent_usecase_error::AgentUsecaseError;
+use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::domain::error::agent_error::AgentError;
 use crate::domain::error::chat_session_error::ChatSessionError;
 use crate::domain::model::app_event::AppEvent;
@@ -20,7 +21,6 @@ use crate::domain::repository::chat_message_repository::ChatMessageRepository;
 use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
-use crate::domain::service::agent_service::AgentService;
 use crate::domain::service::compaction_service::CompactionService;
 use crate::domain::service::instruction_service::InstructionService;
 use serde_json::json;
@@ -102,7 +102,7 @@ pub struct AgentStartTurnOutput {
 }
 
 pub struct AgentUsecase<L, S, M, T, A, W> {
-    agent_service: AgentService<L>,
+    agent_runtime: AgentRuntime<L>,
     instruction_service: InstructionService,
     compaction_service: CompactionService<L>,
     chat_session_repository: S,
@@ -130,13 +130,13 @@ where
     W: AwaitingToolApprovalRepository,
 {
     pub fn new(
-        agent_service: AgentService<L>,
+        agent_runtime: AgentRuntime<L>,
         instruction_service: InstructionService,
         compaction_service: CompactionService<L>,
         repositories: AgentUsecaseRepositories<S, M, T, A, W>,
     ) -> Self {
         Self {
-            agent_service,
+            agent_runtime,
             instruction_service,
             compaction_service,
             chat_session_repository: repositories.chat_session_repository,
@@ -209,30 +209,6 @@ where
         }
 
         Ok(saved_user_message)
-    }
-
-    pub async fn start_session(&self) -> Result<ChatSession, AgentUsecaseError> {
-        self.chat_session_repository
-            .create()
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn find_session(
-        &self,
-        session_id: Uuid,
-    ) -> Result<Option<ChatSession>, AgentUsecaseError> {
-        self.chat_session_repository
-            .find_by_id(session_id)
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn list_sessions(&self, limit: usize) -> Result<Vec<ChatSession>, AgentUsecaseError> {
-        self.chat_session_repository
-            .list_recent(limit)
-            .await
-            .map_err(Into::into)
     }
 
     pub async fn start_turn(
@@ -312,7 +288,7 @@ where
 
         if !response.usage.is_empty() {
             self.token_usage_repository
-                .record_for_message(saved_message.id, self.agent_service.model(), response.usage)
+                .record_for_message(saved_message.id, self.agent_runtime.model(), response.usage)
                 .await?;
         }
 
@@ -356,7 +332,7 @@ where
             .await;
 
         let result = self
-            .agent_service
+            .agent_runtime
             .tool_service()
             .execute(tool_call.clone())
             .await;
@@ -439,7 +415,7 @@ where
             let _ = tx.send(AppEvent::LlmStarted { session_id }).await;
 
             let llm_response = self
-                .agent_service
+                .agent_runtime
                 .llm_step(instruction.clone(), input_messages.clone())
                 .await?;
 
@@ -707,7 +683,7 @@ where
         let assistant_message_id = assistant_message.id;
 
         match self
-            .agent_service
+            .agent_runtime
             .tool_service()
             .decide_execution(&tool_call)
             .await
@@ -734,7 +710,7 @@ where
             }
             Ok(ToolExecutionDecision::Ask) => {
                 let policy = self
-                    .agent_service
+                    .agent_runtime
                     .tool_service()
                     .check_execution_policy(&tool_call)?;
                 let session = self

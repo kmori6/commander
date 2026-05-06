@@ -7,14 +7,13 @@ use axum::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::presentation::state::app_state::AppState;
 
 pub async fn get_session_handler(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
 ) -> Response {
-    match state.chat_session_repository.find_by_id(session_id).await {
+    match state.chat_session_usecase.find(session_id).await {
         Ok(Some(session)) => (
             StatusCode::OK,
             Json(json!({

@@ -13,7 +13,6 @@ use crate::domain::model::message::MessageContent;
 use crate::domain::model::role::Role;
 use crate::domain::model::tool_call_output::ToolCallOutputStatus;
 use crate::domain::repository::chat_message_repository::ChatMessageRepository;
-use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -26,7 +25,7 @@ pub async fn list_message_handler(
     Path(session_id): Path<Uuid>,
     Query(query): Query<ListMessageQuery>,
 ) -> Response {
-    match state.chat_session_repository.find_by_id(session_id).await {
+    match state.chat_session_usecase.find(session_id).await {
         Ok(Some(_)) => {}
         Ok(None) => {
             return (

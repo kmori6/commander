@@ -1,4 +1,3 @@
-use crate::domain::repository::chat_session_repository::ChatSessionRepository;
 use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 use crate::presentation::state::app_state::AppState;
 use axum::{
@@ -14,7 +13,7 @@ pub async fn get_session_usage_handler(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
 ) -> Response {
-    match state.chat_session_repository.find_by_id(session_id).await {
+    match state.chat_session_usecase.find(session_id).await {
         Ok(Some(_)) => {}
         Ok(None) => {
             return (

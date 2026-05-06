@@ -1,4 +1,5 @@
 pub mod agent_usecase;
+pub mod chat_session_usecase;
 pub mod digest_usecase;
 pub mod job_run_usecase;
 pub mod job_usecase;
