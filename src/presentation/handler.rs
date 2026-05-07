@@ -1,7 +1,11 @@
+pub mod cancel_task_handler;
 pub mod create_message_handler;
 pub mod create_session_handler;
+pub mod create_task_handler;
 pub mod get_session_handler;
+pub mod get_task_handler;
 pub mod health_handler;
 pub mod list_message_handler;
 pub mod list_session_handler;
+pub mod list_task_handler;
 pub mod update_session_handler;
