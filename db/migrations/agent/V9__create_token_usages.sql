@@ -1,6 +1,6 @@
 CREATE TABLE token_usages (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
-  message_id UUID NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+  message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   model TEXT NOT NULL,
   input_tokens BIGINT NOT NULL CHECK (input_tokens >= 0),
   output_tokens BIGINT NOT NULL CHECK (output_tokens >= 0),
