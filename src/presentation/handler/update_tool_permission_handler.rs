@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::application::error::tool_usecase_error::ToolUsecaseError;
 use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
-use crate::domain::model::tool::{ToolPermission, ToolPermissionMode};
+use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode};
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]

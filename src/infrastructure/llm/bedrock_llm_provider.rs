@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::message::{MessageContent, Role, ToolCallOutputStatus};
 use crate::domain::model::token_usage::TokenUsageCounts;
-use crate::domain::model::tool::ToolSpec;
+use crate::domain::model::tool_call::ToolSpec;
 use crate::domain::port::llm_provider::{
     LlmMessage, LlmProvider, LlmRequest, LlmResponse, StructuredOutputSchema,
 };

@@ -18,7 +18,6 @@ use crate::infrastructure::persistence::postgres_task_result_repository::Postgre
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::persistence::postgres_tool_permission_repository::PostgresToolPermissionRepository;
-use crate::infrastructure::tool::mock_tool_executor::MockToolExecutor;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -55,7 +54,6 @@ pub struct AppState {
     pub agent_runtime: Arc<
         AgentRuntime<
             BedrockLlmProvider,
-            MockToolExecutor,
             PostgresTaskRepository,
             PostgresMessageRepository,
             PostgresTaskResultRepository,

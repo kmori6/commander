@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
-use crate::domain::model::tool::{ToolApproval, ToolApprovalStatus};
+use crate::domain::model::tool_call::{ToolApproval, ToolApprovalStatus};
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 
 #[derive(Clone)]

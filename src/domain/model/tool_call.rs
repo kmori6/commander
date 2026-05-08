@@ -32,13 +32,6 @@ impl ToolPermissionMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Tool {
-    pub name: String,
-    pub description: String,
-    pub default_permission: ToolPermissionMode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolPermission {
     pub id: Uuid,
     pub tool_name: String,

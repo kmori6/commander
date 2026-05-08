@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::token_usage::TokenUsageCounts;
-use crate::domain::model::tool::ToolSpec;
+use crate::domain::model::tool_call::ToolSpec;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlmMessage {

@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde_json::json;
 
-use crate::domain::model::tool::ToolPermission;
+use crate::domain::model::tool_call::ToolPermission;
 use crate::presentation::state::app_state::AppState;
 
 fn permission_json(permission: ToolPermission) -> serde_json::Value {

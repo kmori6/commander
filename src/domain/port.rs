@@ -1,2 +1,2 @@
 pub mod llm_provider;
-pub mod tool_executor;
+pub mod tool;

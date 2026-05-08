@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::application::error::tool_approval_usecase_error::ToolApprovalUsecaseError;
 use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
-use crate::domain::model::tool::ToolApproval;
+use crate::domain::model::tool_call::ToolApproval;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Clone, Copy)]

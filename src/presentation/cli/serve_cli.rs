@@ -6,7 +6,7 @@ use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
-use crate::domain::service::tool_registry::ToolRegistry;
+use crate::domain::service::tool_executor::ToolExecutor;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
@@ -17,7 +17,7 @@ use crate::infrastructure::persistence::postgres_task_result_repository::Postgre
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::persistence::postgres_tool_permission_repository::PostgresToolPermissionRepository;
-use crate::infrastructure::tool::mock_tool_executor::MockToolExecutor;
+use crate::infrastructure::tool::echo_tool::EchoTool;
 use crate::presentation::handler::cancel_task_handler::cancel_task_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
 use crate::presentation::handler::create_schedule_handler::create_schedule_handler;
@@ -65,6 +65,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
 
     // services
     let event_service = Arc::new(EventService::new());
+    let tool_executor = Arc::new(ToolExecutor::new(vec![Arc::new(EchoTool)]));
 
     // repositories
     let session_repository = PostgresSessionRepository::new(pool.clone());
@@ -92,7 +93,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         token_usage_repository.clone(),
     ));
     let tool_usecase = Arc::new(ToolUsecase::new(
-        ToolRegistry::new_mock(),
+        tool_executor.clone(),
         tool_permission_repository.clone(),
     ));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
@@ -106,7 +107,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let llm_provider = BedrockLlmProvider::from_default_config().await;
     let model = env::var("BEDROCK_MODEL")
         .unwrap_or_else(|_| "global.anthropic.claude-sonnet-4-6".to_string());
-    let tool_executor = MockToolExecutor::new();
 
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_provider,

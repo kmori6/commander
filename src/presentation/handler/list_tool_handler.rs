@@ -1,14 +1,14 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde_json::json;
 
-use crate::domain::model::tool::Tool;
+use crate::domain::model::tool_call::ToolSpec;
 use crate::presentation::state::app_state::AppState;
 
-fn tool_json(tool: Tool) -> serde_json::Value {
+fn tool_json(tool: ToolSpec) -> serde_json::Value {
     json!({
         "name": tool.name,
         "description": tool.description,
-        "default_permission": tool.default_permission.as_str(),
+        "parameters": tool.parameters,
     })
 }
 

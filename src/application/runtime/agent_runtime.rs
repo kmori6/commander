@@ -7,11 +7,10 @@ use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, Role};
 use crate::domain::model::task::TaskStatus;
 use crate::domain::model::task_result::TaskResultStatus;
-use crate::domain::model::tool::{
+use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode,
 };
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
-use crate::domain::port::tool_executor::ToolExecutor;
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::TaskRepository;
@@ -20,6 +19,7 @@ use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenU
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use crate::domain::service::event_service::EventService;
+use crate::domain::service::tool_executor::ToolExecutor;
 
 const MAX_LLM_STEPS: usize = 20;
 
@@ -29,9 +29,9 @@ enum ToolCallRunOutcome {
 }
 
 #[derive(Clone)]
-pub struct AgentRuntime<L, X, T, M, R, E, U, P, A> {
+pub struct AgentRuntime<L, T, M, R, E, U, P, A> {
     llm_provider: L,
-    tool_executor: X,
+    tool_executor: Arc<ToolExecutor>,
     task_repository: T,
     message_repository: M,
     task_result_repository: R,
@@ -43,10 +43,9 @@ pub struct AgentRuntime<L, X, T, M, R, E, U, P, A> {
     model: String,
 }
 
-impl<L, X, T, M, R, E, U, P, A> AgentRuntime<L, X, T, M, R, E, U, P, A>
+impl<L, T, M, R, E, U, P, A> AgentRuntime<L, T, M, R, E, U, P, A>
 where
     L: LlmProvider,
-    X: ToolExecutor,
     T: TaskRepository,
     M: MessageRepository,
     R: TaskResultRepository,
@@ -57,7 +56,7 @@ where
 {
     pub fn new(
         llm_provider: L,
-        tool_executor: X,
+        tool_executor: Arc<ToolExecutor>,
         task_repository: T,
         message_repository: M,
         task_result_repository: R,

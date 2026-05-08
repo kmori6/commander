@@ -1,10 +1,11 @@
 use crate::application::error::tool_usecase_error::ToolUsecaseError;
-use crate::domain::model::tool::{Tool, ToolPermission, ToolPermissionMode};
+use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode, ToolSpec};
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
-use crate::domain::service::tool_registry::ToolRegistry;
+use crate::domain::service::tool_executor::ToolExecutor;
+use std::sync::Arc;
 
 pub struct ToolUsecase<R> {
-    tool_registry: ToolRegistry,
+    tool_executor: Arc<ToolExecutor>,
     tool_permission_repository: R,
 }
 
@@ -12,15 +13,15 @@ impl<R> ToolUsecase<R>
 where
     R: ToolPermissionRepository,
 {
-    pub fn new(tool_registry: ToolRegistry, tool_permission_repository: R) -> Self {
+    pub fn new(tool_executor: Arc<ToolExecutor>, tool_permission_repository: R) -> Self {
         Self {
-            tool_registry,
+            tool_executor,
             tool_permission_repository,
         }
     }
 
-    pub fn list_tools(&self) -> Vec<Tool> {
-        self.tool_registry.list()
+    pub fn list_tools(&self) -> Vec<ToolSpec> {
+        self.tool_executor.list_tools()
     }
 
     pub async fn list_permissions(&self) -> Result<Vec<ToolPermission>, ToolUsecaseError> {
@@ -35,7 +36,7 @@ where
         tool_name: &str,
         mode: ToolPermissionMode,
     ) -> Result<ToolPermission, ToolUsecaseError> {
-        if !self.tool_registry.exists(tool_name) {
+        if !self.tool_executor.exists(tool_name) {
             return Err(ToolUsecaseError::ToolNotFound(tool_name.to_string()));
         }
 

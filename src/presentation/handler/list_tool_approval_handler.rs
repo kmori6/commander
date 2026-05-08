@@ -7,7 +7,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::domain::model::tool::{ToolApproval, ToolApprovalStatus};
+use crate::domain::model::tool_call::{ToolApproval, ToolApprovalStatus};
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]

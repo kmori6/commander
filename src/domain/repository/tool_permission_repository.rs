@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
-use crate::domain::model::tool::{ToolPermission, ToolPermissionMode};
+use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode};
 
 #[async_trait]
 pub trait ToolPermissionRepository: Send + Sync {
