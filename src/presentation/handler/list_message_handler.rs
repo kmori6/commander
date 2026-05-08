@@ -16,6 +16,18 @@ fn content_json(content: MessageContent) -> serde_json::Value {
             "type": "input_text",
             "text": text,
         }),
+        MessageContent::InputImage { image_url } => json!({
+            "type": "input_image",
+            "image_url": image_url,
+        }),
+        MessageContent::InputFile {
+            filename,
+            file_data,
+        } => json!({
+            "type": "input_file",
+            "filename": filename,
+            "file_data": file_data,
+        }),
         MessageContent::OutputText { text } => json!({
             "type": "output_text",
             "text": text,

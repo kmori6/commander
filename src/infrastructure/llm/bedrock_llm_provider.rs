@@ -2,15 +2,17 @@ use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::Client;
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, JsonSchemaDefinition, Message as BedrockMessage, OutputConfig,
+    ContentBlock, ConversationRole, DocumentBlock, DocumentFormat, DocumentSource, ImageBlock,
+    ImageFormat, ImageSource, JsonSchemaDefinition, Message as BedrockMessage, OutputConfig,
     OutputFormat, OutputFormatStructure, OutputFormatType, SystemContentBlock, TokenUsage, Tool,
     ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus,
     ToolSpecification, ToolUseBlock,
 };
 use aws_smithy_types::error::metadata::ProvideErrorMetadata;
-use aws_smithy_types::{Document, Number};
+use aws_smithy_types::{Blob, Document, Number};
 use serde_json::Value;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::message::{MessageContent, Role, ToolCallOutputStatus};
@@ -19,6 +21,7 @@ use crate::domain::model::tool_call::ToolSpec;
 use crate::domain::port::llm_provider::{
     LlmMessage, LlmProvider, LlmRequest, LlmResponse, StructuredOutputSchema,
 };
+use crate::domain::util::data_uri::decode_data_uri;
 
 #[derive(Clone)]
 pub struct BedrockLlmProvider {
@@ -182,6 +185,24 @@ fn message_content_to_content_block(
     match content {
         MessageContent::InputText { text } | MessageContent::OutputText { text } => {
             Ok(ContentBlock::Text(text.clone()))
+        }
+        MessageContent::InputImage { image_url } => {
+            if role != Role::User {
+                return Err(LlmProviderError::RequestBuild(
+                    "images must be in user messages for Bedrock Converse".to_string(),
+                ));
+            }
+
+            input_image_to_content_block(image_url)
+        }
+        MessageContent::InputFile { file_data, .. } => {
+            if role != Role::User {
+                return Err(LlmProviderError::RequestBuild(
+                    "documents must be in user messages for Bedrock Converse".to_string(),
+                ));
+            }
+
+            input_file_to_content_block(file_data)
         }
         MessageContent::ToolCall {
             call_id,
@@ -393,6 +414,70 @@ fn json_to_document(value: &Value) -> Result<Document, LlmProviderError> {
         Value::Bool(value) => Ok(Document::Bool(*value)),
         Value::Null => Ok(Document::Null),
     }
+}
+
+fn input_image_to_content_block(image_url: &str) -> Result<ContentBlock, LlmProviderError> {
+    let decoded = decode_data_uri(image_url)
+        .map_err(|err| LlmProviderError::RequestBuild(format!("invalid image data URI: {err}")))?;
+
+    let format = match decoded.mime_type.as_str() {
+        "image/png" => ImageFormat::Png,
+        "image/jpeg" | "image/jpg" => ImageFormat::Jpeg,
+        "image/gif" => ImageFormat::Gif,
+        "image/webp" => ImageFormat::Webp,
+        other => {
+            return Err(LlmProviderError::RequestBuild(format!(
+                "unsupported image format: {other}"
+            )));
+        }
+    };
+
+    let image_block = ImageBlock::builder()
+        .format(format)
+        .source(ImageSource::Bytes(Blob::new(decoded.data)))
+        .build()
+        .map_err(|err| {
+            LlmProviderError::RequestBuild(format!("failed to build Bedrock image block: {err}"))
+        })?;
+
+    Ok(ContentBlock::Image(image_block))
+}
+
+fn input_file_to_content_block(file_data: &str) -> Result<ContentBlock, LlmProviderError> {
+    let decoded = decode_data_uri(file_data)
+        .map_err(|err| LlmProviderError::RequestBuild(format!("invalid file data URI: {err}")))?;
+
+    let format = match decoded.mime_type.as_str() {
+        "application/pdf" => DocumentFormat::Pdf,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        | "application/msword" => DocumentFormat::Docx,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        | "application/vnd.ms-excel" => DocumentFormat::Xlsx,
+        "text/html" => DocumentFormat::Html,
+        "text/markdown" | "text/x-markdown" => DocumentFormat::Md,
+        "text/plain" => DocumentFormat::Txt,
+        "text/csv" => DocumentFormat::Csv,
+        other => {
+            return Err(LlmProviderError::RequestBuild(format!(
+                "unsupported document format: {other}"
+            )));
+        }
+    };
+
+    let document_block = DocumentBlock::builder()
+        .format(format)
+        .name(bedrock_document_name())
+        .source(DocumentSource::Bytes(Blob::new(decoded.data)))
+        .build()
+        .map_err(|err| {
+            LlmProviderError::RequestBuild(format!("failed to build Bedrock document block: {err}"))
+        })?;
+
+    Ok(ContentBlock::Document(document_block))
+}
+
+fn bedrock_document_name() -> String {
+    format!("document-{}", Uuid::new_v4())
 }
 
 fn convert_token_usage(usage: Option<&TokenUsage>) -> TokenUsageCounts {

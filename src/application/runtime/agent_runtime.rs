@@ -99,8 +99,12 @@ where
         Ok(event)
     }
 
-    pub async fn run(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
-        match self.execute(task_id, true).await {
+    pub async fn run(
+        &self,
+        task_id: Uuid,
+        user_contents: Option<Vec<MessageContent>>,
+    ) -> Result<(), AgentRuntimeError> {
+        match self.execute(task_id, true, user_contents).await {
             Ok(()) => Ok(()),
             Err(err) => {
                 if let Err(fail_err) = self.fail_task(task_id, &err).await {
@@ -111,7 +115,12 @@ where
         }
     }
 
-    async fn execute(&self, task_id: Uuid, emit_started: bool) -> Result<(), AgentRuntimeError> {
+    async fn execute(
+        &self,
+        task_id: Uuid,
+        emit_started: bool,
+        user_contents: Option<Vec<MessageContent>>,
+    ) -> Result<(), AgentRuntimeError> {
         let task = self
             .task_repository
             .find_by_id(task_id)
@@ -128,7 +137,7 @@ where
 
         for step in 0..MAX_LLM_STEPS {
             let messages = self
-                .build_llm_messages(task.session_id, &task.request)
+                .build_llm_messages(task.session_id, &task.request, user_contents.as_ref())
                 .await?;
 
             self.emit(
@@ -231,7 +240,7 @@ where
     pub async fn resume(&self, approval_id: Uuid) -> Result<(), AgentRuntimeError> {
         let task_id = self.apply_approval(approval_id).await?;
 
-        match self.execute(task_id, false).await {
+        match self.execute(task_id, false, None).await {
             Ok(()) => Ok(()),
             Err(err) => {
                 if let Err(fail_err) = self.fail_task(task_id, &err).await {
@@ -322,6 +331,7 @@ where
         &self,
         session_id: Uuid,
         request: &str,
+        user_contents: Option<&Vec<MessageContent>>,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut messages = Vec::new();
 
@@ -329,8 +339,16 @@ where
         "You are Commander, an autonomous task execution agent. Complete the given task clearly and concisely.",
     ));
 
-        messages.push(LlmMessage::user_text(request.to_string()));
+        match user_contents {
+            Some(contents) => {
+                messages.push(LlmMessage::new(Role::User, contents.clone()));
+            }
+            None => {
+                messages.push(LlmMessage::user_text(request.to_string()));
+            }
+        }
 
+        // load previous messages from the task session (does not include the user message)
         let session_messages = self.message_repository.list_for_session(session_id).await?;
         messages.extend(session_messages.into_iter().map(to_llm_message));
 

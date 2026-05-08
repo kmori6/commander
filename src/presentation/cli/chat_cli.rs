@@ -1,9 +1,12 @@
-use std::io;
-
+use crate::domain::util::data_uri::encode_data_uri;
 use reqwest::Client;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use serde::{Deserialize, Serialize};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 use uuid::Uuid;
 
 const PROMPT: &str = "\x1b[38;2;0;71;171m❯\x1b[0m ";
@@ -26,9 +29,26 @@ struct ListSessionsResponse {
     sessions: Vec<SessionResponse>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Serialize)]
 struct CreateMessageRequest {
     text: String,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    input_images: Vec<CreateInputImage>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    input_files: Vec<CreateInputFile>,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateInputImage {
+    image_url: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateInputFile {
+    filename: String,
+    file_data: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -79,6 +99,21 @@ struct ToolApprovalResponse {
 #[derive(Debug, Deserialize)]
 struct ListTasksResponse {
     tasks: Vec<TaskResponse>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingAttachment {
+    path: std::path::PathBuf,
+    filename: String,
+    media_type: String,
+    data_uri: String,
+    kind: AttachmentKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttachmentKind {
+    Image,
+    File,
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,7 +208,29 @@ impl ChatApiClient {
         Ok(response.sessions)
     }
 
-    async fn post_message(&self, session_id: Uuid, text: &str) -> io::Result<Uuid> {
+    async fn post_message(
+        &self,
+        session_id: Uuid,
+        text: &str,
+        attachments: &[PendingAttachment],
+    ) -> io::Result<Uuid> {
+        let input_images = attachments
+            .iter()
+            .filter(|attachment| attachment.kind == AttachmentKind::Image)
+            .map(|attachment| CreateInputImage {
+                image_url: attachment.data_uri.clone(),
+            })
+            .collect::<Vec<_>>();
+
+        let input_files = attachments
+            .iter()
+            .filter(|attachment| attachment.kind == AttachmentKind::File)
+            .map(|attachment| CreateInputFile {
+                filename: attachment.filename.clone(),
+                file_data: attachment.data_uri.clone(),
+            })
+            .collect::<Vec<_>>();
+
         let response = self
             .http
             .post(format!(
@@ -182,6 +239,8 @@ impl ChatApiClient {
             ))
             .json(&CreateMessageRequest {
                 text: text.to_string(),
+                input_images,
+                input_files,
             })
             .send()
             .await
@@ -377,6 +436,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
 
     let mut prompt = build_prompt(session.id);
     let mut awaiting_task_id: Option<Uuid> = None;
+    let mut pending_attachments = Vec::<PendingAttachment>::new();
 
     println!("commander chat");
     println!("server: {}", client.base_url);
@@ -603,6 +663,65 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         println!("  id      {}", task.id);
                         println!("  status  {}", task.status);
                     }
+                    // attachment
+                    "/files" => {
+                        if pending_attachments.is_empty() {
+                            println!("no attached files");
+                        } else {
+                            println!("attached files");
+                            println!("  {:<4}  {:<8}  {:<24}  path", "no", "kind", "media_type");
+
+                            for (index, attachment) in pending_attachments.iter().enumerate() {
+                                let kind = match attachment.kind {
+                                    AttachmentKind::Image => "image",
+                                    AttachmentKind::File => "file",
+                                };
+
+                                println!(
+                                    "  {:<4}  {:<8}  {:<24}  {}",
+                                    index + 1,
+                                    kind,
+                                    attachment.media_type,
+                                    attachment.path.display(),
+                                );
+                            }
+                        }
+                    }
+                    _ if line.starts_with("/attach ") => {
+                        let path = line.trim_start_matches("/attach ").trim();
+
+                        match build_attachment(path) {
+                            Ok(attachment) => {
+                                println!("attached: {}", attachment.path.display());
+                                pending_attachments.push(attachment);
+                            }
+                            Err(err) => {
+                                println!("failed to attach file: {err}");
+                            }
+                        }
+                    }
+                    _ if line.starts_with("/detach ") => {
+                        let value = line.trim_start_matches("/detach ").trim();
+
+                        if value == "all" {
+                            pending_attachments.clear();
+                            println!("detached all files");
+                            continue;
+                        }
+
+                        let Ok(index) = value.parse::<usize>() else {
+                            println!("usage: /detach <no|all>");
+                            continue;
+                        };
+
+                        if index == 0 || index > pending_attachments.len() {
+                            println!("attachment not found: {value}");
+                            continue;
+                        }
+
+                        let removed = pending_attachments.remove(index - 1);
+                        println!("detached: {}", removed.path.display());
+                    }
 
                     // exit
                     "/exit" => break,
@@ -611,7 +730,12 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                     }
                     // message
                     _ => {
-                        let task_id = client.post_message(session.id, line).await?;
+                        let task_id = client
+                            .post_message(session.id, line, &pending_attachments)
+                            .await?;
+
+                        pending_attachments.clear();
+
                         let outcome = wait_events(&client, task_id).await?;
 
                         if matches!(outcome, AgentTurnOutcome::AwaitingApproval) {
@@ -750,4 +874,65 @@ fn truncate(value: &str, max_chars: usize) -> String {
     let mut truncated = value.chars().take(max_chars).collect::<String>();
     truncated.push_str("...");
     truncated
+}
+
+fn build_attachment(path: &str) -> io::Result<PendingAttachment> {
+    let path = PathBuf::from(path.trim_matches('"').trim_matches('\''));
+    let bytes = fs::read(&path)?;
+
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("attachment")
+        .to_string();
+
+    let media_type = detect_media_type(&path)?;
+    let kind = if media_type.starts_with("image/") {
+        AttachmentKind::Image
+    } else {
+        AttachmentKind::File
+    };
+
+    let data_uri = encode_data_uri(&media_type, &bytes);
+
+    Ok(PendingAttachment {
+        path,
+        filename,
+        media_type,
+        data_uri,
+        kind,
+    })
+}
+
+fn detect_media_type(path: &Path) -> io::Result<String> {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    let media_type = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "pdf" => "application/pdf",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "html" | "htm" => "text/html",
+        "md" | "markdown" => "text/markdown",
+        "csv" => "text/csv",
+        "txt" | "log" | "rs" | "toml" | "json" | "yaml" | "yml" | "js" | "ts" | "tsx" | "jsx"
+        | "py" | "go" | "java" | "c" | "cc" | "cpp" | "h" | "hpp" | "sh" | "sql" => "text/plain",
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unsupported attachment type: {}", path.display()),
+            ));
+        }
+    };
+
+    Ok(media_type.to_string())
 }

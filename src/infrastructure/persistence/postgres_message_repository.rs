@@ -99,17 +99,20 @@ fn build_message(
 
 fn content_to_db(
     content: &MessageContent,
-) -> (
-    &'static str,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<Value>,
-    Option<Value>,
-    Option<&'static str>,
-) {
+) -> Result<
+    (
+        &'static str,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<Value>,
+        Option<Value>,
+        Option<&'static str>,
+    ),
+    MessageRepositoryError,
+> {
     match content {
-        MessageContent::InputText { text } => (
+        MessageContent::InputText { text } => Ok((
             "input_text",
             Some(text.clone()),
             None,
@@ -117,8 +120,14 @@ fn content_to_db(
             None,
             None,
             None,
-        ),
-        MessageContent::OutputText { text } => (
+        )),
+        MessageContent::InputImage { .. } | MessageContent::InputFile { .. } => {
+            Err(MessageRepositoryError::InvalidMessage(
+                "input_image and input_file are runtime-only contents and cannot be persisted"
+                    .to_string(),
+            ))
+        }
+        MessageContent::OutputText { text } => Ok((
             "output_text",
             Some(text.clone()),
             None,
@@ -126,12 +135,12 @@ fn content_to_db(
             None,
             None,
             None,
-        ),
+        )),
         MessageContent::ToolCall {
             call_id,
             tool_name,
             arguments,
-        } => (
+        } => Ok((
             "tool_call",
             None,
             Some(call_id.clone()),
@@ -139,12 +148,12 @@ fn content_to_db(
             Some(arguments.clone()),
             None,
             None,
-        ),
+        )),
         MessageContent::ToolCallOutput {
             call_id,
             output,
             status,
-        } => (
+        } => Ok((
             "tool_call_output",
             None,
             Some(call_id.clone()),
@@ -152,7 +161,7 @@ fn content_to_db(
             None,
             Some(output.clone()),
             Some(status.as_str()),
-        ),
+        )),
     }
 }
 
@@ -164,9 +173,10 @@ impl MessageRepository for PostgresMessageRepository {
         role: Role,
         contents: Vec<MessageContent>,
     ) -> Result<Message, MessageRepositoryError> {
-        if contents.is_empty() {
+        if contents.iter().any(|content| !content.is_persistable()) {
             return Err(MessageRepositoryError::InvalidMessage(
-                "message contents must not be empty".to_string(),
+                "input_image and input_file are runtime-only contents and cannot be persisted"
+                    .to_string(),
             ));
         }
 
@@ -204,7 +214,7 @@ impl MessageRepository for PostgresMessageRepository {
 
         for (index, content) in contents.iter().enumerate() {
             let (content_type, text, call_id, tool_name, arguments, output, output_status) =
-                content_to_db(content);
+                content_to_db(content)?;
 
             sqlx::query(
                 r#"
