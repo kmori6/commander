@@ -8,6 +8,7 @@ services:
       - WHISPER__INFERENCE_DEVICE=cuda
       - WHISPER__BEAM_SIZE=5
       - WHISPER__VAD_FILTER=true
+      - WHISPER__COMPUTE_TYPE=int8_float16
     deploy:
       resources:
         reservations:

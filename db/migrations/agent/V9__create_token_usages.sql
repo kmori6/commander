@@ -1,6 +1,7 @@
 CREATE TABLE token_usages (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
-  message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
   model TEXT NOT NULL,
   input_tokens BIGINT NOT NULL CHECK (input_tokens >= 0),
   output_tokens BIGINT NOT NULL CHECK (output_tokens >= 0),
@@ -9,5 +10,9 @@ CREATE TABLE token_usages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_token_usages_task_created
+  ON token_usages(task_id, created_at, id);
+
 CREATE INDEX idx_token_usages_message_created
-  ON token_usages(message_id, created_at, id);
+  ON token_usages(message_id, created_at, id)
+  WHERE message_id IS NOT NULL;
