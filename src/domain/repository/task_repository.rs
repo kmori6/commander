@@ -31,4 +31,9 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<Task, TaskRepositoryError>;
 
     async fn request_cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
+
+    async fn find_by_session_id(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<Task>, TaskRepositoryError>;
 }

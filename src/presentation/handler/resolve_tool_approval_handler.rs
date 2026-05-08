@@ -54,7 +54,18 @@ async fn resolve(
     };
 
     match result {
-        Ok(approval) => (StatusCode::OK, Json(approval_json(approval))).into_response(),
+        Ok(approval) => {
+            let runtime = state.agent_runtime.clone();
+            let approval_id = approval.id;
+
+            tokio::spawn(async move {
+                if let Err(err) = runtime.resume(approval_id).await {
+                    log::error!("failed to resume task from approval {approval_id}: {err}");
+                }
+            });
+
+            (StatusCode::OK, Json(approval_json(approval))).into_response()
+        }
         Err(ToolApprovalUsecaseError::ToolApprovalRepository(
             ToolApprovalRepositoryError::NotFound(_),
         )) => (

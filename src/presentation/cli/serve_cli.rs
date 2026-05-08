@@ -100,7 +100,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         session_repository.clone(),
         task_repository.clone(),
     ));
-    let tool_approval_usecase = Arc::new(ToolApprovalUsecase::new(tool_approval_repository));
+    let tool_approval_usecase =
+        Arc::new(ToolApprovalUsecase::new(tool_approval_repository.clone()));
 
     let llm_provider = BedrockLlmProvider::from_default_config().await;
     let model = env::var("BEDROCK_MODEL")
@@ -117,6 +118,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         token_usage_repository,
         event_service.clone(),
         tool_permission_repository,
+        tool_approval_repository.clone(),
         model,
     ));
 

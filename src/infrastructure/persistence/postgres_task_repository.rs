@@ -222,4 +222,26 @@ impl TaskRepository for PostgresTaskRepository {
     async fn request_cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
         self.update_status(id, TaskStatus::CancelRequested).await
     }
+
+    async fn find_by_session_id(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<Task>, TaskRepositoryError> {
+        let row = sqlx::query_as::<_, TaskRow>(
+            r#"
+            SELECT id, request, status, session_id, source_message_id, parent_task_id,
+                created_at, updated_at, started_at, finished_at
+            FROM tasks
+            WHERE session_id = $1
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        row.map(TryInto::try_into).transpose()
+    }
 }
