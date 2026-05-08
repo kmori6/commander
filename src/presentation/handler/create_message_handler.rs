@@ -71,14 +71,25 @@ pub async fn create_message_handler(
         .save_user_text(session_id, request.text)
         .await
     {
-        Ok(message) => (
-            StatusCode::ACCEPTED,
-            Json(json!({
-                "message": message_json(message),
-                "task_id": null,
-            })),
-        )
-            .into_response(),
+        Ok(message_task) => {
+            let task_id = message_task.task.id;
+            let agent_runtime = state.agent_runtime.clone();
+
+            tokio::spawn(async move {
+                if let Err(err) = agent_runtime.run(task_id).await {
+                    log::warn!("failed to run task {task_id}: {err}");
+                }
+            });
+
+            (
+                StatusCode::ACCEPTED,
+                Json(json!({
+                    "message": message_json(message_task.message),
+                    "task_id": task_id.to_string(),
+                })),
+            )
+                .into_response()
+        }
         Err(MessageUsecaseError::MessageRepository(MessageRepositoryError::SessionNotFound(_))) => {
             (
                 StatusCode::NOT_FOUND,
