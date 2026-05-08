@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::domain::model::event::Event;
-use crate::domain::model::message::{Message, Role};
-use crate::domain::model::task::TaskStatus;
+use crate::domain::model::message::{Message, MessageContent, Role};
+use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::model::task_result::TaskResultStatus;
 use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode,
@@ -434,10 +434,18 @@ where
     }
 
     async fn complete_task(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
+        let task = self
+            .task_repository
+            .find_by_id(task_id)
+            .await?
+            .ok_or(AgentRuntimeError::TaskNotFound)?;
+
         let result = self
             .task_result_repository
-            .save(task_id, TaskResultStatus::Success, output)
+            .save(task_id, TaskResultStatus::Success, output.clone())
             .await?;
+
+        self.save_chat_assistant_message(&task, &output).await?;
 
         self.emit(
             task_id,
@@ -512,6 +520,34 @@ where
             .tool_executor
             .default_permission(tool_name)
             .unwrap_or(ToolPermissionMode::Deny))
+    }
+
+    async fn save_chat_assistant_message(
+        &self,
+        task: &Task,
+        output: &str,
+    ) -> Result<(), AgentRuntimeError> {
+        let Some(source_message_id) = task.source_message_id else {
+            return Ok(());
+        };
+
+        let Some(source_message) = self
+            .message_repository
+            .find_by_id(source_message_id)
+            .await?
+        else {
+            return Ok(());
+        };
+
+        self.message_repository
+            .save(
+                source_message.session_id,
+                Role::Assistant,
+                vec![MessageContent::output_text(output.to_string())],
+            )
+            .await?;
+
+        Ok(())
     }
 }
 
