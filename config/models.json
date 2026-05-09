@@ -1,0 +1,40 @@
+{
+  "default_model": "qwen3.6-35b-a3b",
+  "providers": {
+    "openai": {
+      "type": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "llama-cpp": {
+      "type": "openai",
+      "base_url": "http://localhost:8080/v1",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "bedrock": {
+      "type": "bedrock",
+      "base_url": null,
+      "api_key_env": null
+    }
+  },
+  "models": [
+    {
+      "id": "qwen3.6-35b-a3b",
+      "provider": "llama-cpp",
+      "model": "qwen3.6-35b-a3b",
+      "context_window": 131072
+    },
+    {
+      "id": "claude-sonnet-4.6",
+      "provider": "bedrock",
+      "model": "global.anthropic.claude-sonnet-4-6",
+      "context_window": 262144
+    },
+    {
+      "id": "gpt-5.5",
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "context_window": 262144
+    }
+  ]
+}

@@ -82,6 +82,10 @@ where
         }
     }
 
+    pub fn llm_provider(&self) -> &L {
+        &self.llm_provider
+    }
+
     // agent runtime -> event service -> event handler -> sse event
     async fn emit(
         &self,

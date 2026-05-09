@@ -7,7 +7,7 @@ use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::tool_executor::ToolExecutor;
-use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
+use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_schedule_repository::PostgresScheduleRepository;
@@ -26,6 +26,7 @@ use crate::presentation::handler::create_schedule_handler::create_schedule_handl
 use crate::presentation::handler::create_session_handler::create_session_handler;
 use crate::presentation::handler::create_task_handler::create_task_handler;
 use crate::presentation::handler::get_event_handler::get_event_handler;
+use crate::presentation::handler::get_model_handler::get_model_handler;
 use crate::presentation::handler::get_schedule_handler::get_schedule_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::get_task_handler::get_task_handler;
@@ -33,6 +34,7 @@ use crate::presentation::handler::get_task_result_handler::get_task_result_handl
 use crate::presentation::handler::get_task_usage_handler::get_task_usage_handler;
 use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
+use crate::presentation::handler::list_model_handler::list_model_handler;
 use crate::presentation::handler::list_schedule_handler::list_schedule_handler;
 use crate::presentation::handler::list_schedule_run_handler::list_schedule_run_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
@@ -45,6 +47,7 @@ use crate::presentation::handler::resolve_tool_approval_handler::{
     approve_tool_approval_handler, reject_tool_approval_handler,
 };
 use crate::presentation::handler::run_schedule_handler::run_schedule_handler;
+use crate::presentation::handler::update_model_handler::update_model_handler;
 use crate::presentation::handler::update_schedule_handler::update_schedule_handler;
 use crate::presentation::handler::update_session_handler::update_session_handler;
 use crate::presentation::handler::update_tool_permission_handler::update_tool_permission_handler;
@@ -111,20 +114,22 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_approval_usecase =
         Arc::new(ToolApprovalUsecase::new(tool_approval_repository.clone()));
 
-    let llm_provider = BedrockLlmProvider::from_default_config().await;
-    let model = env::var("BEDROCK_MODEL")
-        .unwrap_or_else(|_| "global.anthropic.claude-sonnet-4-6".to_string());
+    let llm_gateway = LlmGateway::from_default_config()
+        .await
+        .map_err(std::io::Error::other)?;
+
+    let model = llm_gateway.default_model_id().await;
 
     let agent_runtime = Arc::new(AgentRuntime::new(
-        llm_provider,
-        tool_executor,
+        llm_gateway,
+        tool_executor.clone(),
         task_repository.clone(),
-        message_repository,
-        task_result_repository,
-        event_repository,
-        token_usage_repository,
+        message_repository.clone(),
+        task_result_repository.clone(),
+        event_repository.clone(),
+        token_usage_repository.clone(),
         event_service.clone(),
-        tool_permission_repository,
+        tool_permission_repository.clone(),
         tool_approval_repository.clone(),
         model,
     ));
@@ -187,6 +192,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             "/tools/approvals/{id}/reject",
             post(reject_tool_approval_handler),
         )
+        .route("/models", get(list_model_handler))
+        .route("/model", get(get_model_handler).put(update_model_handler))
         .with_state(app_state);
 
     let app = Router::new().nest("/v1", api_routes);

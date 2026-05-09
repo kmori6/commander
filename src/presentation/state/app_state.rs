@@ -8,7 +8,7 @@ use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
-use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
+use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_schedule_repository::PostgresScheduleRepository;
@@ -53,7 +53,7 @@ pub struct AppState {
     // runtimes
     pub agent_runtime: Arc<
         AgentRuntime<
-            BedrockLlmProvider,
+            LlmGateway,
             PostgresTaskRepository,
             PostgresMessageRepository,
             PostgresTaskResultRepository,
