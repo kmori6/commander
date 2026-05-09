@@ -1,8 +1,10 @@
 use crate::domain::util::data_uri::encode_data_uri;
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use reqwest::Client;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -764,9 +766,35 @@ fn build_prompt(session_id: Uuid) -> String {
     format!("\n\x1b[90m{}\x1b[0m\n{}", session_id, PROMPT)
 }
 
+fn start_spinner(spinner: &mut Option<ProgressBar>) {
+    if spinner.is_some() {
+        return;
+    }
+
+    let progress = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
+
+    progress.set_style(
+        ProgressStyle::with_template("{spinner} {msg}")
+            .expect("spinner template should be valid")
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+
+    progress.set_message("Figuring...");
+    progress.enable_steady_tick(Duration::from_millis(100));
+
+    *spinner = Some(progress);
+}
+
+fn stop_spinner(spinner: &mut Option<ProgressBar>) {
+    if let Some(progress) = spinner.take() {
+        progress.finish_and_clear();
+    }
+}
+
 async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentTurnOutcome> {
     let mut events = client.connect_events(task_id).await?;
     let mut event_buffer = String::new();
+    let mut spinner: Option<ProgressBar> = None;
 
     while let Some(chunk) = events.chunk().await.map_err(io::Error::other)? {
         event_buffer.push_str(&String::from_utf8_lossy(&chunk));
@@ -800,9 +828,11 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
 
             match event_name {
                 "llm_started" => {
-                    println!("[llm] started");
+                    start_spinner(&mut spinner);
                 }
                 "llm_finished" => {
+                    stop_spinner(&mut spinner);
+
                     let input = payload
                         .get("input_tokens")
                         .and_then(|v| v.as_u64())
@@ -811,9 +841,16 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
                         .get("output_tokens")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0);
-                    println!("[llm] finished input={} output={}", input, output);
+
+                    println!(
+                        "\x1b[90mtoken input={:.1}k output={:.1}k\x1b[0m",
+                        input as f64 / 1000.0,
+                        output as f64 / 1000.0,
+                    );
                 }
                 "tool_call_started" => {
+                    stop_spinner(&mut spinner);
+
                     let tool_name = payload
                         .get("tool_name")
                         .and_then(|v| v.as_str())
@@ -821,15 +858,9 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
 
                     println!("[tool] {tool_name}");
                 }
-                "tool_call_finished" => {
-                    let status = payload
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-
-                    println!("[tool] finished {status}");
-                }
                 "tool_approval_requested" => {
+                    stop_spinner(&mut spinner);
+
                     let approval_id = payload
                         .get("approval_id")
                         .and_then(|v| v.as_str())
@@ -846,16 +877,19 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
                     return Ok(AgentTurnOutcome::AwaitingApproval);
                 }
                 "task_completed" => {
+                    stop_spinner(&mut spinner);
+
                     let result = client.get_task_result(task_id).await?;
                     termimad::print_text(&result.output);
                     return Ok(AgentTurnOutcome::Completed);
                 }
                 "task_failed" => {
+                    stop_spinner(&mut spinner);
+
                     match client.get_task_result(task_id).await {
                         Ok(result) => termimad::print_text(&result.output),
                         Err(_) => println!("[task failed]"),
                     }
-
                     return Ok(AgentTurnOutcome::Failed);
                 }
                 _ => {}
@@ -863,6 +897,7 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
         }
     }
 
+    stop_spinner(&mut spinner);
     Ok(AgentTurnOutcome::Failed)
 }
 
