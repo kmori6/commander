@@ -24,6 +24,7 @@ use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
 use crate::infrastructure::tool::text_search_tool::TextSearchTool;
+use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use crate::infrastructure::tool::web_search_tool::WebSearchTool;
 use crate::presentation::handler::cancel_task_handler::cancel_task_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
@@ -85,6 +86,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(TextSearchTool::new(workspace_root.clone())),
         Arc::new(ShellTool::new(workspace_root)),
         Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
+        Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
     ]));
 
     // repositories

@@ -5,4 +5,5 @@ pub mod file_search_tool;
 pub mod file_write_tool;
 pub mod shell_tool;
 pub mod text_search_tool;
+pub mod web_fetch_tool;
 pub mod web_search_tool;
