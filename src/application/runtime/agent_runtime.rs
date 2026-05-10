@@ -1,7 +1,3 @@
-use serde_json::{Value, json};
-use std::sync::Arc;
-use uuid::Uuid;
-
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
@@ -19,8 +15,12 @@ use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenU
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use crate::domain::service::event_service::EventService;
+use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::tool_executor::ToolExecutor;
+use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 const MAX_LLM_STEPS: usize = 20;
 
@@ -40,6 +40,7 @@ pub struct AgentRuntime<L, T, M, R, E, U, P, A> {
     tool_permission_repository: P,
     tool_approval_repository: A,
     event_service: Arc<EventService>,
+    instruction_service: Arc<InstructionService>,
     model: RwLock<String>,
 }
 
@@ -65,6 +66,7 @@ where
         event_service: Arc<EventService>,
         tool_permission_repository: P,
         tool_approval_repository: A,
+        instruction_service: Arc<InstructionService>,
         model: String,
     ) -> Self {
         Self {
@@ -78,6 +80,7 @@ where
             event_service,
             tool_permission_repository,
             tool_approval_repository,
+            instruction_service,
             model: RwLock::new(model),
         }
     }
@@ -348,8 +351,8 @@ where
         let mut messages = Vec::new();
 
         messages.push(LlmMessage::system_text(
-        "You are Commander, an autonomous task execution agent. Complete the given task clearly and concisely.",
-    ));
+            self.instruction_service.build_agent_instruction(),
+        ));
 
         match user_contents {
             Some(contents) => {

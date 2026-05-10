@@ -6,6 +6,7 @@ use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
+use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::memory_index_service::MemoryIndexService;
 use crate::domain::service::tool_executor::ToolExecutor;
 use crate::infrastructure::embedding::bedrock_embedding_provider::BedrockEmbeddingProvider;
@@ -102,6 +103,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         memory_index_repository,
     ));
     let event_service = Arc::new(EventService::new());
+    let instruction_service = Arc::new(InstructionService::new(workspace_root.clone()));
     let tool_executor = Arc::new(ToolExecutor::new(vec![
         Arc::new(FileReadTool::new(workspace_root.clone())),
         Arc::new(FileWriteTool::new(workspace_root.clone())),
@@ -158,6 +160,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         event_service.clone(),
         tool_permission_repository.clone(),
         tool_approval_repository.clone(),
+        instruction_service.clone(),
         model,
     ));
 
