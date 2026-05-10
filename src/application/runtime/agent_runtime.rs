@@ -20,6 +20,7 @@ use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::tool_executor::ToolExecutor;
+use tokio::sync::RwLock;
 
 const MAX_LLM_STEPS: usize = 20;
 
@@ -28,7 +29,6 @@ enum ToolCallRunOutcome {
     AwaitingApproval,
 }
 
-#[derive(Clone)]
 pub struct AgentRuntime<L, T, M, R, E, U, P, A> {
     llm_provider: L,
     tool_executor: Arc<ToolExecutor>,
@@ -40,7 +40,7 @@ pub struct AgentRuntime<L, T, M, R, E, U, P, A> {
     tool_permission_repository: P,
     tool_approval_repository: A,
     event_service: Arc<EventService>,
-    model: String,
+    model: RwLock<String>,
 }
 
 impl<L, T, M, R, E, U, P, A> AgentRuntime<L, T, M, R, E, U, P, A>
@@ -78,12 +78,20 @@ where
             event_service,
             tool_permission_repository,
             tool_approval_repository,
-            model,
+            model: RwLock::new(model),
         }
     }
 
     pub fn llm_provider(&self) -> &L {
         &self.llm_provider
+    }
+
+    pub async fn model(&self) -> String {
+        self.model.read().await.clone()
+    }
+
+    pub async fn set_model(&self, model: impl Into<String>) {
+        *self.model.write().await = model.into();
     }
 
     // agent runtime -> event service -> event handler -> sse event
@@ -143,12 +151,13 @@ where
             let messages = self
                 .build_llm_messages(task.session_id, &task.request, user_contents.as_ref())
                 .await?;
+            let model = self.model().await;
 
             self.emit(
                 task_id,
                 "llm_started",
                 json!({
-                    "model": self.model,
+                    "model": model.clone(),
                     "step": step + 1,
                 }),
             )
@@ -157,8 +166,7 @@ where
             let response = match self
                 .llm_provider
                 .respond(
-                    LlmRequest::new(self.model.clone(), messages)
-                        .with_tools(self.tool_executor.specs()),
+                    LlmRequest::new(model.clone(), messages).with_tools(self.tool_executor.specs()),
                 )
                 .await
             {
@@ -168,7 +176,7 @@ where
                         task_id,
                         "llm_failed",
                         json!({
-                            "model": self.model,
+                            "model": model.clone(),
                             "step": step + 1,
                             "error": err.to_string(),
                         }),
@@ -183,7 +191,7 @@ where
                 task_id,
                 "llm_finished",
                 json!({
-                    "model": self.model,
+                    "model": model.clone(),
                     "step": step + 1,
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,
@@ -206,7 +214,7 @@ where
                 .save(CreateTokenUsage {
                     task_id,
                     message_id: Some(assistant_message.id),
-                    model: self.model.clone(),
+                    model: model.clone(),
                     input_tokens: response.usage.input_tokens,
                     output_tokens: response.usage.output_tokens,
                     cache_read_tokens: response.usage.cache_read_tokens,

@@ -139,6 +139,34 @@ struct TaskEventResponse {
     created_at: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ListModelsResponse {
+    models: Vec<ModelResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GetModelResponse {
+    model: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateModelRequest {
+    model: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateModelResponse {
+    model: ModelResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelResponse {
+    id: String,
+    provider: String,
+    model: String,
+    context_window: i64,
+}
+
 struct ChatApiClient {
     base_url: String,
     http: Client,
@@ -293,6 +321,57 @@ impl ChatApiClient {
             .map_err(io::Error::other)?;
 
         Ok(response.tools)
+    }
+
+    async fn list_models(&self) -> io::Result<Vec<ModelResponse>> {
+        let response = self
+            .http
+            .get(format!("{}/v1/models", self.base_url))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<ListModelsResponse>()
+            .await
+            .map_err(io::Error::other)?;
+
+        Ok(response.models)
+    }
+
+    async fn get_model(&self) -> io::Result<String> {
+        let response = self
+            .http
+            .get(format!("{}/v1/model", self.base_url))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<GetModelResponse>()
+            .await
+            .map_err(io::Error::other)?;
+
+        Ok(response.model)
+    }
+
+    async fn update_model(&self, model: &str) -> io::Result<ModelResponse> {
+        let response = self
+            .http
+            .put(format!("{}/v1/model", self.base_url))
+            .json(&UpdateModelRequest {
+                model: model.to_string(),
+            })
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<UpdateModelResponse>()
+            .await
+            .map_err(io::Error::other)?;
+
+        Ok(response.model)
     }
 
     async fn update_tool_permission(
@@ -501,6 +580,54 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         prompt = build_prompt(session.id);
 
                         println!("switched session: {}", session.id);
+                    }
+                    // model
+                    "/models" => {
+                        let current_model = client.get_model().await?;
+                        let models = client.list_models().await?;
+
+                        if models.is_empty() {
+                            println!("no models");
+                        } else {
+                            println!("models");
+                            println!(
+                                "  {:<1}  {:<22}  {:<10}  {:<28}  context",
+                                "", "id", "provider", "model"
+                            );
+
+                            for model in models {
+                                let marker = if model.id == current_model { "*" } else { " " };
+
+                                println!(
+                                    "  {:<1}  {:<22}  {:<10}  {:<28}  {}",
+                                    marker,
+                                    model.id,
+                                    model.provider,
+                                    model.model,
+                                    model.context_window,
+                                );
+                            }
+                        }
+                    }
+                    "/model" => {
+                        let model = client.get_model().await?;
+                        println!("current model: {model}");
+                    }
+                    _ if line.starts_with("/model ") => {
+                        let model_id = line.trim_start_matches("/model ").trim();
+
+                        if model_id.is_empty() {
+                            println!("usage: /model <model>");
+                            continue;
+                        }
+
+                        let model = client.update_model(model_id).await?;
+
+                        println!("model switched");
+                        println!("  id       {}", model.id);
+                        println!("  provider {}", model.provider);
+                        println!("  model    {}", model.model);
+                        println!("  context  {}", model.context_window);
                     }
                     // tool
                     "/tools" => {

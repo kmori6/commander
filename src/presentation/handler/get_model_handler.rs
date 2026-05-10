@@ -10,6 +10,6 @@ pub struct GetModelResponse {
 
 pub async fn get_model_handler(State(state): State<AppState>) -> Json<GetModelResponse> {
     Json(GetModelResponse {
-        model: state.agent_runtime.llm_provider().default_model_id().await,
+        model: state.agent_runtime.model().await,
     })
 }
