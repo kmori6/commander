@@ -20,6 +20,7 @@ use crate::infrastructure::persistence::postgres_tool_permission_repository::Pos
 use crate::infrastructure::tool::file_edit_tool::FileEditTool;
 use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
+use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
 use crate::presentation::handler::cancel_task_handler::cancel_task_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
@@ -76,7 +77,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(FileReadTool::new(workspace_root.clone())),
         Arc::new(FileWriteTool::new(workspace_root.clone())),
         Arc::new(FileEditTool::new(workspace_root.clone())),
-        Arc::new(FileListTool::new(workspace_root)),
+        Arc::new(FileListTool::new(workspace_root.clone())),
+        Arc::new(FileSearchTool::new(workspace_root)),
     ]));
 
     // repositories
