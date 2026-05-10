@@ -1,4 +1,5 @@
 pub mod event_repository;
+pub mod memory_index_repository;
 pub mod message_repository;
 pub mod schedule_repository;
 pub mod session_repository;

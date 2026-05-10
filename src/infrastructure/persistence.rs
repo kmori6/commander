@@ -1,4 +1,5 @@
 pub mod postgres_event_repository;
+pub mod postgres_memory_index_repository;
 pub mod postgres_message_repository;
 pub mod postgres_schedule_repository;
 pub mod postgres_session_repository;

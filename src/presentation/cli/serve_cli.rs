@@ -6,9 +6,12 @@ use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
+use crate::domain::service::memory_index_service::MemoryIndexService;
 use crate::domain::service::tool_executor::ToolExecutor;
+use crate::infrastructure::embedding::bedrock_embedding_provider::BedrockEmbeddingProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
+use crate::infrastructure::persistence::postgres_memory_index_repository::PostgresMemoryIndexRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_schedule_repository::PostgresScheduleRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
@@ -22,6 +25,7 @@ use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
 use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
+use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
 use crate::infrastructure::tool::text_search_tool::TextSearchTool;
 use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
@@ -75,20 +79,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .await
         .map_err(std::io::Error::other)?;
 
-    // services
-    let event_service = Arc::new(EventService::new());
-    let tool_executor = Arc::new(ToolExecutor::new(vec![
-        Arc::new(FileReadTool::new(workspace_root.clone())),
-        Arc::new(FileWriteTool::new(workspace_root.clone())),
-        Arc::new(FileEditTool::new(workspace_root.clone())),
-        Arc::new(FileListTool::new(workspace_root.clone())),
-        Arc::new(FileSearchTool::new(workspace_root.clone())),
-        Arc::new(TextSearchTool::new(workspace_root.clone())),
-        Arc::new(ShellTool::new(workspace_root)),
-        Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
-        Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
-    ]));
-
     // repositories
     let session_repository = PostgresSessionRepository::new(pool.clone());
     let task_repository = PostgresTaskRepository::new(pool.clone());
@@ -99,6 +89,33 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
+    let memory_index_repository = Arc::new(PostgresMemoryIndexRepository::new(pool.clone()));
+
+    // services
+    let llm_gateway = LlmGateway::from_default_config()
+        .await
+        .map_err(std::io::Error::other)?;
+    let embedding_provider = Arc::new(BedrockEmbeddingProvider::from_default_config().await);
+    let memory_index_service = Arc::new(MemoryIndexService::new(
+        embedding_provider,
+        memory_index_repository,
+    ));
+    let event_service = Arc::new(EventService::new());
+    let tool_executor = Arc::new(ToolExecutor::new(vec![
+        Arc::new(FileReadTool::new(workspace_root.clone())),
+        Arc::new(FileWriteTool::new(workspace_root.clone())),
+        Arc::new(FileEditTool::new(workspace_root.clone())),
+        Arc::new(FileListTool::new(workspace_root.clone())),
+        Arc::new(FileSearchTool::new(workspace_root.clone())),
+        Arc::new(TextSearchTool::new(workspace_root.clone())),
+        Arc::new(ShellTool::new(workspace_root.clone())),
+        Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
+        Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
+        Arc::new(
+            MemoryWriteTool::new(workspace_root.clone(), memory_index_service.clone())
+                .map_err(std::io::Error::other)?,
+        ),
+    ]));
 
     // usecases
     let session_usecase = Arc::new(SessionUsecase::new(session_repository.clone()));
@@ -125,10 +142,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ));
     let tool_approval_usecase =
         Arc::new(ToolApprovalUsecase::new(tool_approval_repository.clone()));
-
-    let llm_gateway = LlmGateway::from_default_config()
-        .await
-        .map_err(std::io::Error::other)?;
 
     let model = llm_gateway.default_model_id().await;
 
