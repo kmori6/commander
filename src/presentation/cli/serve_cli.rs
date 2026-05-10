@@ -25,6 +25,7 @@ use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
 use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
+use crate::infrastructure::tool::memory_search_tool::MemorySearchTool;
 use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
 use crate::infrastructure::tool::text_search_tool::TextSearchTool;
@@ -111,6 +112,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(ShellTool::new(workspace_root.clone())),
         Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
         Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
+        Arc::new(MemorySearchTool::new(memory_index_service.clone())),
         Arc::new(
             MemoryWriteTool::new(workspace_root.clone(), memory_index_service.clone())
                 .map_err(std::io::Error::other)?,
