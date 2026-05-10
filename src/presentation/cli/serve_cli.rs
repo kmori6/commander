@@ -18,6 +18,7 @@ use crate::infrastructure::persistence::postgres_token_usage_repository::Postgre
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::persistence::postgres_tool_permission_repository::PostgresToolPermissionRepository;
 use crate::infrastructure::tool::file_edit_tool::FileEditTool;
+use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
 use crate::presentation::handler::cancel_task_handler::cancel_task_handler;
@@ -74,7 +75,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_executor = Arc::new(ToolExecutor::new(vec![
         Arc::new(FileReadTool::new(workspace_root.clone())),
         Arc::new(FileWriteTool::new(workspace_root.clone())),
-        Arc::new(FileEditTool::new(workspace_root)),
+        Arc::new(FileEditTool::new(workspace_root.clone())),
+        Arc::new(FileListTool::new(workspace_root)),
     ]));
 
     // repositories
