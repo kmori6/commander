@@ -30,7 +30,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-const MAX_LLM_STEPS: usize = 20;
+const MAX_LLM_STEPS: usize = 30;
 
 enum ToolCallRunOutcome {
     Continue,

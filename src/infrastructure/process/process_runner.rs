@@ -1,13 +1,10 @@
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
-
 use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::infrastructure::error::process_runner_error::ProcessRunnerError;
-
-const DEFAULT_MAX_OUTPUT_BYTES: usize = 32_000;
 
 #[derive(Debug, Clone)]
 pub struct ProcessRequest {
@@ -31,16 +28,11 @@ pub struct ProcessRunner {
 }
 
 impl ProcessRunner {
-    pub fn new(workspace_root: PathBuf) -> Self {
+    pub fn new(workspace_root: PathBuf, max_output_bytes: usize) -> Self {
         Self {
             workspace_root,
-            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            max_output_bytes,
         }
-    }
-
-    pub fn with_max_output_bytes(mut self, max_output_bytes: usize) -> Self {
-        self.max_output_bytes = max_output_bytes;
-        self
     }
 
     pub async fn run_shell(
