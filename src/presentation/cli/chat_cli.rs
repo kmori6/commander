@@ -515,9 +515,10 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
         None => client.create_session().await?,
     };
 
-    let mut prompt = build_prompt(session.id);
     let mut awaiting_task_id: Option<Uuid> = None;
     let mut pending_attachments = Vec::<PendingAttachment>::new();
+    let mut current_model = client.get_model().await?;
+    let mut prompt = build_prompt(&current_model, session.id, pending_attachments.len());
 
     println!("commander chat");
     println!("server: {}", client.base_url);
@@ -540,7 +541,8 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                     // session
                     "/new" => {
                         session = client.create_session().await?;
-                        prompt = build_prompt(session.id);
+                        prompt =
+                            build_prompt(&current_model, session.id, pending_attachments.len());
                         println!("new session: {}", session.id);
                     }
                     "/sessions" => {
@@ -577,7 +579,8 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         };
 
                         session = client.get_session(next_session_id).await?;
-                        prompt = build_prompt(session.id);
+                        prompt =
+                            build_prompt(&current_model, session.id, pending_attachments.len());
 
                         println!("switched session: {}", session.id);
                     }
@@ -622,6 +625,9 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         }
 
                         let model = client.update_model(model_id).await?;
+                        current_model = model.id.clone();
+                        prompt =
+                            build_prompt(&current_model, session.id, pending_attachments.len());
 
                         println!("model switched");
                         println!("  id       {}", model.id);
@@ -889,8 +895,11 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
     Ok(())
 }
 
-fn build_prompt(session_id: Uuid) -> String {
-    format!("\n\x1b[90m{}\x1b[0m\n{}", session_id, PROMPT)
+fn build_prompt(model: &str, session_id: Uuid, attachment_count: usize) -> String {
+    format!(
+        "\n\x1b[90m{} | {} | files {}\x1b[0m\n{}",
+        model, session_id, attachment_count, PROMPT
+    )
 }
 
 fn start_spinner(spinner: &mut Option<ProgressBar>) {
@@ -984,6 +993,31 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
                         .unwrap_or("tool");
 
                     println!("[tool] {tool_name}");
+
+                    if let Some(arguments) = payload.get("arguments") {
+                        let pretty = serde_json::to_string_pretty(arguments)
+                            .unwrap_or_else(|_| arguments.to_string());
+
+                        println!("  args:");
+                        println!("{}", truncate(&pretty, 2000));
+                    }
+                }
+                "tool_call_finished" => {
+                    let status = payload
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+
+                    println!("[tool result] {status}");
+
+                    if let Some(output) = payload.get("output") {
+                        let pretty = serde_json::to_string_pretty(output)
+                            .unwrap_or_else(|_| output.to_string());
+
+                        println!("{}", truncate(&pretty, 2000));
+                    }
+
+                    start_spinner(&mut spinner);
                 }
                 "tool_approval_requested" => {
                     stop_spinner(&mut spinner);

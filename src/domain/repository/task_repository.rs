@@ -36,4 +36,9 @@ pub trait TaskRepository: Send + Sync {
         &self,
         session_id: Uuid,
     ) -> Result<Option<Task>, TaskRepositoryError>;
+
+    async fn list_by_source_message_ids(
+        &self,
+        source_message_ids: &[Uuid],
+    ) -> Result<Vec<Task>, TaskRepositoryError>;
 }

@@ -1,15 +1,20 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
+use crate::application::runtime::subagent;
+use crate::application::runtime::subagent::AgentProfile;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
+use crate::domain::model::session::SessionKind;
 use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::model::task_result::TaskResultStatus;
+use crate::domain::model::tool_call::ToolSpec;
 use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode,
 };
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
-use crate::domain::repository::task_repository::TaskRepository;
+use crate::domain::repository::session_repository::SessionRepository;
+use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 use crate::domain::repository::task_result_repository::TaskResultRepository;
 use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenUsageRepository};
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
@@ -17,7 +22,10 @@ use crate::domain::repository::tool_permission_repository::ToolPermissionReposit
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::tool_executor::ToolExecutor;
+use async_recursion::async_recursion;
+use futures::future::join_all;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -29,7 +37,29 @@ enum ToolCallRunOutcome {
     AwaitingApproval,
 }
 
-pub struct AgentRuntime<L, T, M, R, E, U, P, A> {
+#[derive(Clone, Copy)]
+struct RuntimeOptions {
+    profile: Option<&'static AgentProfile>,
+    expose_subagent: bool,
+}
+
+impl RuntimeOptions {
+    fn root() -> Self {
+        Self {
+            profile: None,
+            expose_subagent: true,
+        }
+    }
+
+    fn child(profile: &'static AgentProfile) -> Self {
+        Self {
+            profile: Some(profile),
+            expose_subagent: false,
+        }
+    }
+}
+
+pub struct AgentRuntime<L, T, M, R, E, U, P, A, S> {
     llm_provider: L,
     tool_executor: Arc<ToolExecutor>,
     task_repository: T,
@@ -39,12 +69,13 @@ pub struct AgentRuntime<L, T, M, R, E, U, P, A> {
     token_usage_repository: U,
     tool_permission_repository: P,
     tool_approval_repository: A,
+    session_repository: S,
     event_service: Arc<EventService>,
     instruction_service: Arc<InstructionService>,
     model: RwLock<String>,
 }
 
-impl<L, T, M, R, E, U, P, A> AgentRuntime<L, T, M, R, E, U, P, A>
+impl<L, T, M, R, E, U, P, A, S> AgentRuntime<L, T, M, R, E, U, P, A, S>
 where
     L: LlmProvider,
     T: TaskRepository,
@@ -54,6 +85,7 @@ where
     U: TokenUsageRepository,
     P: ToolPermissionRepository,
     A: ToolApprovalRepository,
+    S: SessionRepository,
 {
     pub fn new(
         llm_provider: L,
@@ -66,6 +98,7 @@ where
         event_service: Arc<EventService>,
         tool_permission_repository: P,
         tool_approval_repository: A,
+        session_repository: S,
         instruction_service: Arc<InstructionService>,
         model: String,
     ) -> Self {
@@ -81,6 +114,7 @@ where
             tool_permission_repository,
             tool_approval_repository,
             instruction_service,
+            session_repository,
             model: RwLock::new(model),
         }
     }
@@ -119,7 +153,10 @@ where
         task_id: Uuid,
         user_contents: Option<Vec<MessageContent>>,
     ) -> Result<(), AgentRuntimeError> {
-        match self.execute(task_id, true, user_contents).await {
+        match self
+            .execute(task_id, true, user_contents, RuntimeOptions::root())
+            .await
+        {
             Ok(()) => Ok(()),
             Err(err) => {
                 if let Err(fail_err) = self.fail_task(task_id, &err).await {
@@ -130,11 +167,13 @@ where
         }
     }
 
+    #[async_recursion]
     async fn execute(
         &self,
         task_id: Uuid,
         emit_started: bool,
         user_contents: Option<Vec<MessageContent>>,
+        options: RuntimeOptions,
     ) -> Result<(), AgentRuntimeError> {
         let task = self
             .task_repository
@@ -152,7 +191,7 @@ where
 
         for step in 0..MAX_LLM_STEPS {
             let messages = self
-                .build_llm_messages(task.session_id, &task.request, user_contents.as_ref())
+                .build_llm_messages(&task, user_contents.as_ref(), options)
                 .await?;
             let model = self.model().await;
 
@@ -169,7 +208,7 @@ where
             let response = match self
                 .llm_provider
                 .respond(
-                    LlmRequest::new(model.clone(), messages).with_tools(self.tool_executor.specs()),
+                    LlmRequest::new(model.clone(), messages).with_tools(self.tool_specs(options)),
                 )
                 .await
             {
@@ -239,7 +278,13 @@ where
             }
 
             match self
-                .run_tool_calls(task_id, task.session_id, assistant_message.id, tool_calls)
+                .run_tool_calls(
+                    task_id,
+                    task.session_id,
+                    assistant_message.id,
+                    tool_calls,
+                    options,
+                )
                 .await?
             {
                 ToolCallRunOutcome::Continue => {}
@@ -255,7 +300,10 @@ where
     pub async fn resume(&self, approval_id: Uuid) -> Result<(), AgentRuntimeError> {
         let task_id = self.apply_approval(approval_id).await?;
 
-        match self.execute(task_id, false, None).await {
+        match self
+            .execute(task_id, false, None, RuntimeOptions::root())
+            .await
+        {
             Ok(()) => Ok(()),
             Err(err) => {
                 if let Err(fail_err) = self.fail_task(task_id, &err).await {
@@ -344,28 +392,118 @@ where
 
     async fn build_llm_messages(
         &self,
-        session_id: Uuid,
-        request: &str,
+        task: &Task,
         user_contents: Option<&Vec<MessageContent>>,
+        options: RuntimeOptions,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut messages = Vec::new();
 
-        messages.push(LlmMessage::system_text(
-            self.instruction_service.build_agent_instruction(),
-        ));
+        // agent instruction
+        let mut instruction = self.instruction_service.build_agent_instruction();
 
-        match user_contents {
-            Some(contents) => {
-                messages.push(LlmMessage::new(Role::User, contents.clone()));
+        if let Some(profile) = options.profile {
+            instruction.push_str("\n\n# Child Agent Profile\n");
+            instruction.push_str(profile.instruction);
+        }
+
+        messages.push(LlmMessage::system_text(instruction));
+
+        let Some(source_message_id) = task.source_message_id else {
+            // task case: session messages + user message (with optional contents)
+            match user_contents {
+                Some(contents) => messages.push(LlmMessage::new(Role::User, contents.clone())),
+                None => messages.push(LlmMessage::user_text(task.request.clone())),
             }
-            None => {
-                messages.push(LlmMessage::user_text(request.to_string()));
+
+            // load previous messages from the task session (does not include the user message)
+            let session_messages = self
+                .message_repository
+                .list_for_session(task.session_id)
+                .await?;
+            messages.extend(session_messages.into_iter().map(to_llm_message));
+
+            return Ok(messages);
+        };
+
+        // chat case
+        let source_message = self
+            .message_repository
+            .find_by_id(source_message_id)
+            .await?
+            .ok_or(AgentRuntimeError::MessageNotFound(source_message_id))?;
+
+        let mut chat_messages = Vec::new();
+
+        for message in self
+            .message_repository
+            .list_for_session(source_message.session_id)
+            .await?
+        {
+            let is_current = message.id == source_message_id;
+            chat_messages.push(message);
+
+            if is_current {
+                break;
             }
         }
 
-        // load previous messages from the task session (does not include the user message)
-        let session_messages = self.message_repository.list_for_session(session_id).await?;
-        messages.extend(session_messages.into_iter().map(to_llm_message));
+        let source_message_ids = chat_messages
+            .iter()
+            .filter(|message| message.role == Role::User)
+            .map(|message| message.id)
+            .collect::<Vec<_>>();
+
+        let tasks = self
+            .task_repository
+            .list_by_source_message_ids(&source_message_ids)
+            .await?;
+
+        let mut tasks_by_source_message_id = HashMap::new();
+
+        for task in tasks {
+            if let Some(source_message_id) = task.source_message_id {
+                tasks_by_source_message_id.insert(source_message_id, task);
+            }
+        }
+
+        for message in chat_messages {
+            let message_id = message.id;
+            let role = message.role;
+
+            if message_id == source_message_id {
+                match user_contents {
+                    Some(contents) => messages.push(LlmMessage::new(Role::User, contents.clone())),
+                    None => messages.push(to_llm_message(message)),
+                }
+            } else {
+                messages.push(to_llm_message(message));
+            }
+
+            // insert tool calls and tool call outputs between the user message and the assistant message
+            if role == Role::User
+                && let Some(task) = tasks_by_source_message_id.get(&message_id)
+            {
+                let scratch_messages = self
+                    .message_repository
+                    .list_for_session(task.session_id)
+                    .await?;
+
+                messages.extend(
+                    scratch_messages
+                        .into_iter()
+                        .filter(|message| {
+                            message.contents.iter().any(|content| {
+                                matches!(
+                                    content,
+                                    MessageContent::ToolCall { .. }
+                                        | MessageContent::ToolCallOutput { .. }
+                                )
+                            })
+                        })
+                        .map(to_llm_message),
+                );
+            }
+        }
 
         Ok(messages)
     }
@@ -376,6 +514,7 @@ where
         session_id: Uuid,
         assistant_message_id: Uuid,
         tool_calls: Vec<ToolCall>,
+        options: RuntimeOptions,
     ) -> Result<ToolCallRunOutcome, AgentRuntimeError> {
         let mut outputs = Vec::new();
 
@@ -391,7 +530,17 @@ where
             )
             .await?;
 
-            let mode = self.resolve_tool_permission(&call.tool_name).await?;
+            // tool executor does not have subagent, so we need to resolve permission for subagent tool call here
+            let mode = if call.tool_name == subagent::SUBAGENT_TOOL_NAME {
+                if options.expose_subagent {
+                    ToolPermissionMode::Allow
+                } else {
+                    ToolPermissionMode::Deny
+                }
+            } else {
+                self.resolve_tool_permission(&call.tool_name, options)
+                    .await?
+            };
 
             self.emit(
                 task_id,
@@ -405,10 +554,6 @@ where
             .await?;
 
             let output = match mode {
-                ToolPermissionMode::Allow => match self.tool_executor.execute(call.clone()).await {
-                    Ok(output) => output,
-                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
-                },
                 ToolPermissionMode::Deny => ToolCallOutput::error(
                     call.call_id.clone(),
                     format!("tool execution denied: {}", call.tool_name),
@@ -443,6 +588,23 @@ where
 
                     return Ok(ToolCallRunOutcome::AwaitingApproval);
                 }
+                ToolPermissionMode::Allow => {
+                    if call.tool_name == subagent::SUBAGENT_TOOL_NAME {
+                        match self.execute_subagent(task_id, call.arguments.clone()).await {
+                            Ok(output) => ToolCallOutput::success(call.call_id.clone(), output),
+                            Err(err) => {
+                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
+                            }
+                        }
+                    } else {
+                        match self.tool_executor.execute(call.clone()).await {
+                            Ok(output) => output,
+                            Err(err) => {
+                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
+                            }
+                        }
+                    }
+                }
             };
 
             self.emit(
@@ -464,6 +626,96 @@ where
             .await?;
 
         Ok(ToolCallRunOutcome::Continue)
+    }
+
+    async fn execute_subagent(
+        &self,
+        parent_task_id: Uuid,
+        arguments: Value,
+    ) -> Result<Value, AgentRuntimeError> {
+        let input = subagent::parse_input(arguments).map_err(AgentRuntimeError::Unsupported)?;
+
+        let mut child_jobs = Vec::new();
+
+        for (index, task_input) in input.tasks.into_iter().enumerate() {
+            let profile = subagent::find_profile(&task_input.profile).ok_or_else(|| {
+                AgentRuntimeError::Unsupported(format!(
+                    "unsupported profile: {}",
+                    task_input.profile
+                ))
+            })?;
+
+            let task_session = self
+                .session_repository
+                .create(SessionKind::Task, Some(task_input.request.clone()))
+                .await?;
+
+            let child_task = self
+                .task_repository
+                .create(CreateTask {
+                    request: task_input.request,
+                    session_id: task_session.id,
+                    source_message_id: None,
+                    parent_task_id: Some(parent_task_id),
+                })
+                .await?;
+
+            child_jobs.push((index, child_task.id, profile));
+        }
+
+        let results = join_all(child_jobs.into_iter().map(
+            |(index, task_id, profile)| async move {
+                let run_result = self
+                    .execute(task_id, true, None, RuntimeOptions::child(profile))
+                    .await;
+
+                if let Err(err) = run_result {
+                    if let Err(fail_err) = self.fail_task(task_id, &err).await {
+                        log::warn!("failed to mark child task {task_id} as failed: {fail_err}");
+                    }
+
+                    return subagent::SubagentTaskOutput {
+                        index,
+                        task_id: task_id.to_string(),
+                        profile: profile.name.to_string(),
+                        status: subagent::SubagentTaskStatus::Failed,
+                        output: None,
+                        error: Some(err.to_string()),
+                    };
+                }
+
+                match self.task_result_repository.find_by_task_id(task_id).await {
+                    Ok(Some(result)) => subagent::SubagentTaskOutput {
+                        index,
+                        task_id: task_id.to_string(),
+                        profile: profile.name.to_string(),
+                        status: subagent::SubagentTaskStatus::Completed,
+                        output: Some(result.output),
+                        error: None,
+                    },
+                    Ok(None) => subagent::SubagentTaskOutput {
+                        index,
+                        task_id: task_id.to_string(),
+                        profile: profile.name.to_string(),
+                        status: subagent::SubagentTaskStatus::Failed,
+                        output: None,
+                        error: Some("child task finished without a result".to_string()),
+                    },
+                    Err(err) => subagent::SubagentTaskOutput {
+                        index,
+                        task_id: task_id.to_string(),
+                        profile: profile.name.to_string(),
+                        status: subagent::SubagentTaskStatus::Failed,
+                        output: None,
+                        error: Some(err.to_string()),
+                    },
+                }
+            },
+        ))
+        .await;
+
+        serde_json::to_value(subagent::SubagentOutput { results })
+            .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))
     }
 
     async fn complete_task(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
@@ -540,7 +792,27 @@ where
     async fn resolve_tool_permission(
         &self,
         tool_name: &str,
+        options: RuntimeOptions,
     ) -> Result<ToolPermissionMode, AgentRuntimeError> {
+        // check for subagent allowed tools
+        if let Some(profile) = options.profile {
+            if !profile.allowed_tools.contains(&tool_name) {
+                return Ok(ToolPermissionMode::Deny);
+            }
+
+            if let Some(permission) = self
+                .tool_permission_repository
+                .find_by_tool_name(tool_name)
+                .await?
+                && permission.mode == ToolPermissionMode::Deny
+            {
+                return Ok(ToolPermissionMode::Deny);
+            }
+
+            return Ok(ToolPermissionMode::Allow);
+        }
+
+        // check for root agent tools
         if let Some(permission) = self
             .tool_permission_repository
             .find_by_tool_name(tool_name)
@@ -581,6 +853,21 @@ where
             .await?;
 
         Ok(())
+    }
+
+    fn tool_specs(&self, options: RuntimeOptions) -> Vec<ToolSpec> {
+        let mut specs = self.tool_executor.specs();
+
+        if let Some(profile) = options.profile {
+            specs.retain(|spec| profile.allowed_tools.contains(&spec.name.as_str()));
+            return specs;
+        }
+
+        if options.expose_subagent {
+            specs.push(subagent::tool_spec());
+        }
+
+        specs
     }
 }
 

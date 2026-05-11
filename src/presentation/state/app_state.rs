@@ -61,6 +61,7 @@ pub struct AppState {
             PostgresTokenUsageRepository,
             PostgresToolPermissionRepository,
             PostgresToolApprovalRepository,
+            PostgresSessionRepository,
         >,
     >,
 }

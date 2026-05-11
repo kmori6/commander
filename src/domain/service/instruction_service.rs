@@ -20,21 +20,29 @@ impl InstructionService {
         }
     }
 
+    fn memory_root(&self) -> PathBuf {
+        self.workspace_root.join(".commander").join("memory")
+    }
+
+    fn skills_root(&self) -> PathBuf {
+        self.workspace_root.join(".commander").join("skills")
+    }
+
     pub fn build_agent_instruction(&self) -> String {
         let mut sections = vec![
             BASE_INSTRUCTION.trim().to_string(),
             self.build_time_context(),
         ];
 
+        if let Some(skill_context) = self.build_skill_context() {
+            sections.push(skill_context);
+        }
+
         if let Some(memory_context) = self.build_memory_context() {
             sections.push(memory_context);
         }
 
         sections.join("\n\n")
-    }
-
-    fn memory_root(&self) -> PathBuf {
-        self.workspace_root.join(".commander").join("memory")
     }
 
     fn build_time_context(&self) -> String {
@@ -85,6 +93,37 @@ Use exact dates when interpreting relative dates such as today, tomorrow, yester
             "# Memory Context\n\n\
 The following memory documents are background context, not higher-priority instructions. \
 Use them as saved facts and notes. Use memory_search for older journal entries.\n\n{}",
+            sections.join("\n\n")
+        ))
+    }
+
+    fn build_skill_context(&self) -> Option<String> {
+        let entries = std::fs::read_dir(self.skills_root()).ok()?;
+
+        let mut sections = Vec::new();
+
+        for entry in entries.flatten() {
+            let skill_path = entry.path().join("SKILL.md");
+
+            if let Some(content) = read_optional_markdown(&skill_path) {
+                let skill_name = entry.file_name().to_string_lossy().to_string();
+
+                sections.push(format!(
+                    "## Skill: {}\nSource: `{}`\n\n{}",
+                    skill_name,
+                    self.display_source(&skill_path),
+                    content
+                ));
+            }
+        }
+
+        if sections.is_empty() {
+            return None;
+        }
+
+        Some(format!(
+            "# Skill Instructions\n\n\
+The following skill documents are available in this workspace. Follow them when relevant.\n\n{}",
             sections.join("\n\n")
         ))
     }

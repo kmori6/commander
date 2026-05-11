@@ -244,4 +244,38 @@ impl TaskRepository for PostgresTaskRepository {
 
         row.map(TryInto::try_into).transpose()
     }
+
+    async fn list_by_source_message_ids(
+        &self,
+        source_message_ids: &[Uuid],
+    ) -> Result<Vec<Task>, TaskRepositoryError> {
+        if source_message_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows = sqlx::query_as::<_, TaskRow>(
+            r#"
+            SELECT
+                id,
+                request,
+                status,
+                session_id,
+                source_message_id,
+                parent_task_id,
+                created_at,
+                updated_at,
+                started_at,
+                finished_at
+            FROM tasks
+            WHERE source_message_id = ANY($1)
+            ORDER BY created_at ASC, id ASC
+            "#,
+        )
+        .bind(source_message_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
 }

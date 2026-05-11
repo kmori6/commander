@@ -160,6 +160,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         event_service.clone(),
         tool_permission_repository.clone(),
         tool_approval_repository.clone(),
+        session_repository.clone(),
         instruction_service.clone(),
         model,
     ));
