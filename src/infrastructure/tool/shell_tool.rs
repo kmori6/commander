@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::domain::error::tool_executor_error::ToolExecutorError;
@@ -15,12 +15,14 @@ const MAX_OUTPUT_BYTES: usize = 32_000;
 
 #[derive(Debug, Clone)]
 pub struct ShellTool {
+    workspace_root: PathBuf,
     process_runner: ProcessRunner,
 }
 
 impl ShellTool {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self {
+            workspace_root: workspace_root.clone(),
             process_runner: ProcessRunner::new(workspace_root)
                 .with_max_output_bytes(MAX_OUTPUT_BYTES),
         }
@@ -31,6 +33,7 @@ impl ShellTool {
 struct ShellArguments {
     command: String,
     timeout: Option<u64>,
+    cwd: Option<String>,
 }
 
 #[async_trait]
@@ -40,7 +43,7 @@ impl Tool for ShellTool {
     }
 
     fn description(&self) -> &'static str {
-        "Run a single non-interactive command from the workspace root. Use for build/test commands, Git commands, search utilities, scripts, and other CLI work."
+        "Run a single non-interactive command from the workspace root or a workspace-relative cwd. Use for build/test commands, Git commands, search utilities, scripts, and other CLI work."
     }
 
     fn default_permission(&self) -> ToolPermissionMode {
@@ -54,6 +57,10 @@ impl Tool for ShellTool {
                 "command": {
                     "type": "string",
                     "description": "Command line to execute. It starts in the workspace root."
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory relative to the workspace root."
                 },
                 "timeout": {
                     "type": "integer",
@@ -89,11 +96,14 @@ impl Tool for ShellTool {
             )));
         }
 
+        let cwd = resolve_workspace_cwd(&self.workspace_root, args.cwd.as_deref())?;
+
         let output = self
             .process_runner
             .run_shell(ProcessRequest {
                 command: command.to_string(),
                 timeout: Duration::from_secs(timeout_seconds),
+                cwd,
             })
             .await
             .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
@@ -162,4 +172,47 @@ fn contains_shell_word(command: &str, word: &str) -> bool {
     command
         .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-')
         .any(|part| part == word)
+}
+
+fn resolve_workspace_cwd(
+    workspace_root: &Path,
+    cwd: Option<&str>,
+) -> Result<Option<PathBuf>, ToolExecutorError> {
+    let Some(cwd) = cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) else {
+        return Ok(None);
+    };
+
+    let path = Path::new(cwd);
+
+    if path.is_absolute() {
+        return Err(ToolExecutorError::InvalidArguments(
+            "cwd must be relative to the workspace root".to_string(),
+        ));
+    }
+
+    let candidate = workspace_root.join(path);
+
+    let workspace_root = workspace_root
+        .canonicalize()
+        .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+
+    let candidate = candidate.canonicalize().map_err(|err| {
+        ToolExecutorError::InvalidArguments(format!(
+            "cwd must be an existing directory inside the workspace: {err}"
+        ))
+    })?;
+
+    if !candidate.starts_with(&workspace_root) {
+        return Err(ToolExecutorError::InvalidArguments(
+            "cwd must stay inside the workspace root".to_string(),
+        ));
+    }
+
+    if !candidate.is_dir() {
+        return Err(ToolExecutorError::InvalidArguments(
+            "cwd must be a directory".to_string(),
+        ));
+    }
+
+    Ok(Some(candidate))
 }

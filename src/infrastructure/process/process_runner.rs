@@ -10,6 +10,21 @@ use crate::infrastructure::error::process_runner_error::ProcessRunnerError;
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 32_000;
 
 #[derive(Debug, Clone)]
+pub struct ProcessRequest {
+    pub command: String,
+    pub timeout: Duration,
+    pub cwd: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessOutput {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct ProcessRunner {
     workspace_root: PathBuf,
     max_output_bytes: usize,
@@ -36,12 +51,14 @@ impl ProcessRunner {
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
 
+        let cwd = request.cwd.as_ref().unwrap_or(&self.workspace_root);
+
         let output = timeout(
             request.timeout,
             Command::new(shell)
                 .arg("-lc")
                 .arg(&request.command)
-                .current_dir(&self.workspace_root)
+                .current_dir(cwd)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -67,20 +84,6 @@ impl ProcessRunner {
             truncated: stdout_truncated || stderr_truncated,
         })
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ProcessRequest {
-    pub command: String,
-    pub timeout: Duration,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProcessOutput {
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-    pub truncated: bool,
 }
 
 fn truncate_text(text: &str, max_bytes: usize) -> (String, bool) {
