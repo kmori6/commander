@@ -829,6 +829,11 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                             Ok(attachment) => {
                                 println!("attached: {}", attachment.path.display());
                                 pending_attachments.push(attachment);
+                                prompt = build_prompt(
+                                    &current_model,
+                                    session.id,
+                                    pending_attachments.len(),
+                                );
                             }
                             Err(err) => {
                                 println!("failed to attach file: {err}");
@@ -840,6 +845,8 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
 
                         if value == "all" {
                             pending_attachments.clear();
+                            prompt =
+                                build_prompt(&current_model, session.id, pending_attachments.len());
                             println!("detached all files");
                             continue;
                         }
@@ -855,6 +862,8 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         }
 
                         let removed = pending_attachments.remove(index - 1);
+                        prompt =
+                            build_prompt(&current_model, session.id, pending_attachments.len());
                         println!("detached: {}", removed.path.display());
                     }
 
@@ -870,6 +879,8 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                             .await?;
 
                         pending_attachments.clear();
+                        prompt =
+                            build_prompt(&current_model, session.id, pending_attachments.len());
 
                         let outcome = wait_events(&client, task_id).await?;
 

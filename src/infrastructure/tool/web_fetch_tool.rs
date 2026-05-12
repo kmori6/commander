@@ -9,8 +9,8 @@ use crate::domain::error::tool_executor_error::ToolExecutorError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
-const DEFAULT_MAX_CHARS: usize = 12_000;
-const MAX_CHARS: usize = 50_000;
+const DEFAULT_MAX_CHARS: usize = 100_000;
+const MAX_CHARS: usize = 500_000;
 const MAX_RESPONSE_BYTES: usize = 1_000_000;
 const DEFAULT_TIMEOUT_SECONDS: u64 = 20;
 const MAX_REDIRECTS: usize = 5;
@@ -64,7 +64,9 @@ impl Tool for WebFetchTool {
                 },
                 "max_chars": {
                     "type": "integer",
-                    "description": "Text limit for the returned content. Default: 12000. Maximum: 50000.",
+                    "description": format!(
+                        "Text limit for the returned content. Default: {DEFAULT_MAX_CHARS}. Maximum: {MAX_CHARS}."
+                    ),
                     "minimum": 1,
                     "maximum": MAX_CHARS
                 }

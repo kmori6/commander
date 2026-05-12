@@ -23,7 +23,7 @@ use crate::domain::port::llm_provider::{
 };
 use crate::domain::util::data_uri::decode_data_uri;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BedrockLlmProvider {
     client: Client,
 }

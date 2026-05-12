@@ -10,6 +10,7 @@ use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::memory_index_service::MemoryIndexService;
 use crate::domain::service::tool_executor::ToolExecutor;
 use crate::infrastructure::embedding::bedrock_embedding_provider::BedrockEmbeddingProvider;
+use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_memory_index_repository::PostgresMemoryIndexRepository;
@@ -28,8 +29,10 @@ use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
 use crate::infrastructure::tool::memory_search_tool::MemorySearchTool;
 use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
+use crate::infrastructure::tool::pptx_read_tool::PptxReadTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
 use crate::infrastructure::tool::text_search_tool::TextSearchTool;
+use crate::infrastructure::tool::visual_inspect_tool::VisualInspectTool;
 use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use crate::infrastructure::tool::web_search_tool::WebSearchTool;
 use crate::presentation::handler::cancel_task_handler::cancel_task_handler;
@@ -93,6 +96,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
     let memory_index_repository = Arc::new(PostgresMemoryIndexRepository::new(pool.clone()));
 
+    let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
+
     // services
     let llm_gateway = LlmGateway::from_default_config()
         .await
@@ -106,6 +111,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let instruction_service = Arc::new(InstructionService::new(workspace_root.clone()));
     let tool_executor = Arc::new(ToolExecutor::new(vec![
         Arc::new(FileReadTool::new(workspace_root.clone())),
+        Arc::new(PptxReadTool::new(workspace_root.clone())),
         Arc::new(FileWriteTool::new(workspace_root.clone())),
         Arc::new(FileEditTool::new(workspace_root.clone())),
         Arc::new(FileListTool::new(workspace_root.clone())),
@@ -114,6 +120,10 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(ShellTool::new(workspace_root.clone())),
         Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
         Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
+        Arc::new(VisualInspectTool::new(
+            workspace_root.clone(),
+            visual_inspect_provider,
+        )),
         Arc::new(MemorySearchTool::new(memory_index_service.clone())),
         Arc::new(
             MemoryWriteTool::new(workspace_root.clone(), memory_index_service.clone())

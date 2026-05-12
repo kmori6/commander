@@ -10,6 +10,60 @@ use crate::domain::port::llm_provider::{LlmProvider, LlmRequest, LlmResponse};
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
 
+const EXAMPLE_MODEL_CONFIG_PATH: &str = "config/models.json";
+const USER_MODEL_CONFIG_PATH: &str = ".commander/config/models.json";
+
+#[derive(Debug, Clone)]
+struct ModelConfigPaths {
+    example_path: PathBuf,
+    user_path: PathBuf,
+}
+
+impl ModelConfigPaths {
+    fn resolve() -> Self {
+        Self {
+            example_path: PathBuf::from(EXAMPLE_MODEL_CONFIG_PATH),
+            user_path: PathBuf::from(USER_MODEL_CONFIG_PATH),
+        }
+    }
+
+    fn path(&self) -> PathBuf {
+        self.user_path.clone()
+    }
+
+    async fn ensure_user_config(&self) -> Result<(), LlmProviderError> {
+        if fs::try_exists(&self.user_path).await.map_err(|err| {
+            LlmProviderError::Unexpected(format!(
+                "failed to check model config {}: {err}",
+                self.user_path.display()
+            ))
+        })? {
+            return Ok(());
+        }
+
+        if let Some(parent) = self.user_path.parent() {
+            fs::create_dir_all(parent).await.map_err(|err| {
+                LlmProviderError::Unexpected(format!(
+                    "failed to create model config directory {}: {err}",
+                    parent.display()
+                ))
+            })?;
+        }
+
+        fs::copy(&self.example_path, &self.user_path)
+            .await
+            .map_err(|err| {
+                LlmProviderError::Unexpected(format!(
+                    "failed to initialize model config from {} to {}: {err}",
+                    self.example_path.display(),
+                    self.user_path.display()
+                ))
+            })?;
+
+        Ok(())
+    }
+}
+
 pub struct LlmGateway {
     catalog: RwLock<Catalog>,
     paths: ModelConfigPaths,
@@ -20,6 +74,8 @@ pub struct LlmGateway {
 impl LlmGateway {
     pub async fn from_default_config() -> Result<Self, LlmProviderError> {
         let paths = ModelConfigPaths::resolve();
+        paths.ensure_user_config().await?;
+
         let catalog = load_catalog(&paths).await?;
         validate_catalog(&catalog)?;
 
@@ -105,23 +161,6 @@ impl LlmProvider for LlmGateway {
                     .await
             }
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ModelConfigPaths {
-    path: PathBuf,
-}
-
-impl ModelConfigPaths {
-    fn resolve() -> Self {
-        Self {
-            path: PathBuf::from("config/models.json"),
-        }
-    }
-
-    fn path(&self) -> PathBuf {
-        self.path.clone()
     }
 }
 
