@@ -10,6 +10,7 @@ pub struct CreateSchedule {
     pub title: String,
     pub request: String,
     pub cron: String,
+    pub timezone: String,
     pub enabled: bool,
 }
 
@@ -18,6 +19,7 @@ pub struct UpdateSchedule {
     pub title: Option<String>,
     pub request: Option<String>,
     pub cron: Option<String>,
+    pub timezone: Option<String>,
     pub enabled: Option<bool>,
 }
 
@@ -46,4 +48,12 @@ pub trait ScheduleRepository: Send + Sync {
         &self,
         schedule_id: Uuid,
     ) -> Result<Vec<ScheduleRun>, ScheduleRepositoryError>;
+
+    async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleRepositoryError>;
+
+    async fn find_run_by_schedule_and_scheduled_at(
+        &self,
+        schedule_id: Uuid,
+        scheduled_at: DateTime<Utc>,
+    ) -> Result<Option<ScheduleRun>, ScheduleRepositoryError>;
 }

@@ -19,6 +19,7 @@ pub struct UpdateScheduleRequest {
     pub title: Option<String>,
     pub request: Option<String>,
     pub cron: Option<String>,
+    pub timezone: Option<String>,
     pub enabled: Option<bool>,
 }
 
@@ -28,6 +29,7 @@ fn schedule_json(schedule: Schedule) -> serde_json::Value {
         "title": schedule.title,
         "request": schedule.request,
         "cron": schedule.cron,
+        "timezone": schedule.timezone,
         "enabled": schedule.enabled,
         "created_at": schedule.created_at.to_rfc3339(),
         "updated_at": schedule.updated_at.to_rfc3339(),
@@ -47,6 +49,7 @@ pub async fn update_schedule_handler(
                 title: request.title,
                 request: request.request,
                 cron: request.cron,
+                timezone: request.timezone,
                 enabled: request.enabled,
             },
         )
@@ -63,6 +66,19 @@ pub async fn update_schedule_handler(
             })),
         )
             .into_response(),
+        Err(ScheduleUsecaseError::ScheduleRepository(
+            ScheduleRepositoryError::InvalidSchedule(message),
+        )) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": {
+                    "code": "invalid_schedule",
+                    "message": message,
+                }
+            })),
+        )
+            .into_response(),
+
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({

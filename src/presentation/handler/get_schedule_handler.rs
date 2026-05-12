@@ -16,6 +16,7 @@ fn schedule_json(schedule: Schedule) -> serde_json::Value {
         "title": schedule.title,
         "request": schedule.request,
         "cron": schedule.cron,
+        "timezone": schedule.timezone,
         "enabled": schedule.enabled,
         "created_at": schedule.created_at.to_rfc3339(),
         "updated_at": schedule.updated_at.to_rfc3339(),

@@ -12,6 +12,7 @@ pub struct CreateScheduleRequest {
     pub title: String,
     pub request: String,
     pub cron: String,
+    pub timezone: Option<String>,
     pub enabled: Option<bool>,
 }
 
@@ -21,6 +22,7 @@ fn schedule_json(schedule: Schedule) -> serde_json::Value {
         "title": schedule.title,
         "request": schedule.request,
         "cron": schedule.cron,
+        "timezone": schedule.timezone,
         "enabled": schedule.enabled,
         "created_at": schedule.created_at.to_rfc3339(),
         "updated_at": schedule.updated_at.to_rfc3339(),
@@ -37,6 +39,7 @@ pub async fn create_schedule_handler(
             request.title,
             request.request,
             request.cron,
+            request.timezone.unwrap_or_else(|| "UTC".to_string()),
             request.enabled.unwrap_or(true),
         )
         .await

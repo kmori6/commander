@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
@@ -15,6 +15,11 @@ use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 pub struct ScheduleRunTask {
     pub schedule_run: ScheduleRun,
     pub task: Task,
+}
+
+pub enum ScheduleRunOutcome {
+    Started(ScheduleRunTask),
+    AlreadyRan(ScheduleRun),
 }
 
 pub struct ScheduleUsecase<S, SessionRepo, TaskRepo> {
@@ -46,6 +51,7 @@ where
         title: String,
         request: String,
         cron: String,
+        timezone: String,
         enabled: bool,
     ) -> Result<Schedule, ScheduleUsecaseError> {
         self.schedule_repository
@@ -53,6 +59,7 @@ where
                 title,
                 request,
                 cron,
+                timezone,
                 enabled,
             })
             .await
@@ -61,6 +68,13 @@ where
 
     pub async fn list(&self) -> Result<Vec<Schedule>, ScheduleUsecaseError> {
         self.schedule_repository.list().await.map_err(Into::into)
+    }
+
+    pub async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleUsecaseError> {
+        self.schedule_repository
+            .list_enabled()
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn find(&self, id: Uuid) -> Result<Option<Schedule>, ScheduleUsecaseError> {
@@ -85,6 +99,14 @@ where
         &self,
         schedule_id: Uuid,
     ) -> Result<ScheduleRunTask, ScheduleUsecaseError> {
+        self.run_at(schedule_id, Utc::now()).await
+    }
+
+    pub async fn run_at(
+        &self,
+        schedule_id: Uuid,
+        scheduled_at: DateTime<Utc>,
+    ) -> Result<ScheduleRunTask, ScheduleUsecaseError> {
         let schedule = self
             .schedule_repository
             .find_by_id(schedule_id)
@@ -108,7 +130,7 @@ where
 
         let schedule_run = self
             .schedule_repository
-            .create_run(schedule_id, task.id, Utc::now())
+            .create_run(schedule_id, task.id, scheduled_at)
             .await?;
 
         Ok(ScheduleRunTask { schedule_run, task })
@@ -131,5 +153,23 @@ where
             .list_runs(schedule_id)
             .await
             .map_err(Into::into)
+    }
+
+    pub async fn run_once_at(
+        &self,
+        schedule_id: Uuid,
+        scheduled_at: DateTime<Utc>,
+    ) -> Result<ScheduleRunOutcome, ScheduleUsecaseError> {
+        if let Some(schedule_run) = self
+            .schedule_repository
+            .find_run_by_schedule_and_scheduled_at(schedule_id, scheduled_at)
+            .await?
+        {
+            return Ok(ScheduleRunOutcome::AlreadyRan(schedule_run));
+        }
+
+        self.run_at(schedule_id, scheduled_at)
+            .await
+            .map(ScheduleRunOutcome::Started)
     }
 }

@@ -1,4 +1,5 @@
 use crate::application::runtime::agent_runtime::AgentRuntime;
+use crate::application::runtime::schedule_daemon::ScheduleDaemon;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
@@ -186,6 +187,15 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         schedule_usecase,
         tool_approval_usecase,
     };
+
+    let schedule_daemon = ScheduleDaemon::new(
+        app_state.schedule_usecase.clone(),
+        app_state.agent_runtime.clone(),
+    );
+
+    tokio::spawn(async move {
+        schedule_daemon.run().await;
+    });
 
     let api_routes = Router::new()
         .route("/health", get(health_handler))
