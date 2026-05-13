@@ -65,3 +65,39 @@ target
 # CSV / TSV (may contain personal or business data)
 **/*.csv
 **/*.tsv
+# Images
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.avif
+**/*.heic
+**/*.heif
+**/*.tif
+**/*.tiff
+**/*.bmp
+**/*.svg
+**/*.ico
+# Audio
+**/*.mp3
+**/*.wav
+**/*.m4a
+**/*.aac
+**/*.flac
+**/*.ogg
+**/*.opus
+**/*.wma
+# Video
+**/*.mp4
+**/*.mov
+**/*.m4v
+**/*.avi
+**/*.mkv
+**/*.webm
+**/*.wmv
+**/*.mpg
+**/*.mpeg
+# Markdown
+**/*.md
+!README.md
