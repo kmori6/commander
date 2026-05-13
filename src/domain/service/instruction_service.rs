@@ -20,12 +20,16 @@ impl InstructionService {
         }
     }
 
+    fn agents_path(&self) -> PathBuf {
+        self.workspace_root.join("AGENTS.md")
+    }
+
     fn memory_root(&self) -> PathBuf {
-        self.workspace_root.join(".commander").join("memory")
+        self.workspace_root.join("memory")
     }
 
     fn skills_root(&self) -> PathBuf {
-        self.workspace_root.join(".commander").join("skills")
+        self.workspace_root.join("skills")
     }
 
     pub fn build_agent_instruction(&self) -> String {
@@ -33,6 +37,10 @@ impl InstructionService {
             BASE_INSTRUCTION.trim().to_string(),
             self.build_time_context(),
         ];
+
+        if let Some(workspace_context) = self.build_workspace_context() {
+            sections.push(workspace_context);
+        }
 
         if let Some(skill_context) = self.build_skill_context() {
             sections.push(skill_context);
@@ -58,6 +66,18 @@ Use exact dates when interpreting relative dates such as today, tomorrow, yester
             now.format("%H:%M:%S"),
             now.offset(),
         )
+    }
+
+    fn build_workspace_context(&self) -> Option<String> {
+        let agents_path = self.agents_path();
+
+        read_optional_markdown(&agents_path).map(|content| {
+            format!(
+                "# Workspace Instructions\n\nSource: `{}`\n\n{}",
+                self.display_source(&agents_path),
+                content
+            )
+        })
     }
 
     fn build_memory_context(&self) -> Option<String> {

@@ -9,16 +9,16 @@ use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::ScheduleRun;
+use crate::domain::model::schedule_execution::ScheduleExecution;
 use crate::presentation::state::app_state::AppState;
 
-fn schedule_run_json(run: ScheduleRun) -> serde_json::Value {
+fn schedule_execution_json(execution: ScheduleExecution) -> serde_json::Value {
     json!({
-        "id": run.id.to_string(),
-        "schedule_id": run.schedule_id.to_string(),
-        "task_id": run.task_id.to_string(),
-        "scheduled_at": run.scheduled_at.to_rfc3339(),
-        "created_at": run.created_at.to_rfc3339(),
+        "id": execution.id.to_string(),
+        "schedule_id": execution.schedule_id.to_string(),
+        "task_id": execution.task_id.to_string(),
+        "scheduled_at": execution.scheduled_at.to_rfc3339(),
+        "created_at": execution.created_at.to_rfc3339(),
     })
 }
 
@@ -26,11 +26,11 @@ pub async fn list_schedule_run_handler(
     State(state): State<AppState>,
     Path(schedule_id): Path<Uuid>,
 ) -> Response {
-    match state.schedule_usecase.list_runs(schedule_id).await {
+    match state.schedule_usecase.list_executions(schedule_id).await {
         Ok(runs) => (
             StatusCode::OK,
             Json(json!({
-                "runs": runs.into_iter().map(schedule_run_json).collect::<Vec<_>>(),
+                "runs": runs.into_iter().map(schedule_execution_json).collect::<Vec<_>>(),
             })),
         )
             .into_response(),

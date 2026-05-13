@@ -3,7 +3,8 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::{Schedule, ScheduleRun};
+use crate::domain::model::schedule::Schedule;
+use crate::domain::model::schedule_execution::ScheduleExecution;
 
 #[derive(Debug, Clone)]
 pub struct CreateSchedule {
@@ -37,23 +38,23 @@ pub trait ScheduleRepository: Send + Sync {
         input: UpdateSchedule,
     ) -> Result<Schedule, ScheduleRepositoryError>;
 
-    async fn create_run(
+    async fn record_execution(
         &self,
         schedule_id: Uuid,
         task_id: Uuid,
         scheduled_at: DateTime<Utc>,
-    ) -> Result<ScheduleRun, ScheduleRepositoryError>;
+    ) -> Result<ScheduleExecution, ScheduleRepositoryError>;
 
-    async fn list_runs(
+    async fn list_executions(
         &self,
         schedule_id: Uuid,
-    ) -> Result<Vec<ScheduleRun>, ScheduleRepositoryError>;
+    ) -> Result<Vec<ScheduleExecution>, ScheduleRepositoryError>;
 
     async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleRepositoryError>;
 
-    async fn find_run_by_schedule_and_scheduled_at(
+    async fn find_execution_by_schedule_and_scheduled_at(
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
-    ) -> Result<Option<ScheduleRun>, ScheduleRepositoryError>;
+    ) -> Result<Option<ScheduleExecution>, ScheduleRepositoryError>;
 }

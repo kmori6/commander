@@ -32,7 +32,7 @@ impl MemoryWriteTool {
     }
 
     fn memory_root(&self) -> PathBuf {
-        self.workspace_root.join(".commander").join("memory")
+        self.workspace_root.join("memory")
     }
 
     fn resolve_path(

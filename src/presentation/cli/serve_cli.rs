@@ -1,3 +1,4 @@
+use crate::application::config::CommanderPaths;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::runtime::schedule_daemon::ScheduleDaemon;
 use crate::application::usecase::message_usecase::MessageUsecase;
@@ -79,7 +80,9 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // env
     let database_url = env::var("DATABASE_URL")
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::NotFound, err))?;
-    let workspace_root = env::current_dir().map_err(std::io::Error::other)?;
+    let paths = CommanderPaths::resolve().map_err(std::io::Error::other)?;
+    paths.ensure_dirs().await.map_err(std::io::Error::other)?;
+    let workspace_root = paths.workspace_path().to_path_buf();
 
     let pool = PgPool::connect(&database_url)
         .await
@@ -100,7 +103,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
 
     // services
-    let llm_gateway = LlmGateway::from_default_config()
+    let llm_gateway = LlmGateway::from_config_path(paths.model_config_path())
         .await
         .map_err(std::io::Error::other)?;
     let embedding_provider = Arc::new(BedrockEmbeddingProvider::from_default_config().await);

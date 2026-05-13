@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::{Schedule, ScheduleRun};
+use crate::domain::model::schedule::Schedule;
+use crate::domain::model::schedule_execution::ScheduleExecution;
 use crate::domain::model::session::SessionKind;
 use crate::domain::model::task::Task;
 use crate::domain::repository::schedule_repository::{
@@ -12,14 +13,14 @@ use crate::domain::repository::schedule_repository::{
 use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 
-pub struct ScheduleRunTask {
-    pub schedule_run: ScheduleRun,
+pub struct ScheduledTaskStart {
+    pub execution: ScheduleExecution,
     pub task: Task,
 }
 
-pub enum ScheduleRunOutcome {
-    Started(ScheduleRunTask),
-    AlreadyRan(ScheduleRun),
+pub enum ScheduleExecutionOutcome {
+    Started(ScheduledTaskStart),
+    AlreadyRecorded(ScheduleExecution),
 }
 
 pub struct ScheduleUsecase<S, SessionRepo, TaskRepo> {
@@ -98,7 +99,7 @@ where
     pub async fn run_now(
         &self,
         schedule_id: Uuid,
-    ) -> Result<ScheduleRunTask, ScheduleUsecaseError> {
+    ) -> Result<ScheduledTaskStart, ScheduleUsecaseError> {
         self.run_at(schedule_id, Utc::now()).await
     }
 
@@ -106,7 +107,7 @@ where
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
-    ) -> Result<ScheduleRunTask, ScheduleUsecaseError> {
+    ) -> Result<ScheduledTaskStart, ScheduleUsecaseError> {
         let schedule = self
             .schedule_repository
             .find_by_id(schedule_id)
@@ -128,18 +129,18 @@ where
             })
             .await?;
 
-        let schedule_run = self
+        let execution = self
             .schedule_repository
-            .create_run(schedule_id, task.id, scheduled_at)
+            .record_execution(schedule_id, task.id, scheduled_at)
             .await?;
 
-        Ok(ScheduleRunTask { schedule_run, task })
+        Ok(ScheduledTaskStart { execution, task })
     }
 
-    pub async fn list_runs(
+    pub async fn list_executions(
         &self,
         schedule_id: Uuid,
-    ) -> Result<Vec<ScheduleRun>, ScheduleUsecaseError> {
+    ) -> Result<Vec<ScheduleExecution>, ScheduleUsecaseError> {
         if self
             .schedule_repository
             .find_by_id(schedule_id)
@@ -150,7 +151,7 @@ where
         }
 
         self.schedule_repository
-            .list_runs(schedule_id)
+            .list_executions(schedule_id)
             .await
             .map_err(Into::into)
     }
@@ -159,17 +160,17 @@ where
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
-    ) -> Result<ScheduleRunOutcome, ScheduleUsecaseError> {
-        if let Some(schedule_run) = self
+    ) -> Result<ScheduleExecutionOutcome, ScheduleUsecaseError> {
+        if let Some(execution) = self
             .schedule_repository
-            .find_run_by_schedule_and_scheduled_at(schedule_id, scheduled_at)
+            .find_execution_by_schedule_and_scheduled_at(schedule_id, scheduled_at)
             .await?
         {
-            return Ok(ScheduleRunOutcome::AlreadyRan(schedule_run));
+            return Ok(ScheduleExecutionOutcome::AlreadyRecorded(execution));
         }
 
         self.run_at(schedule_id, scheduled_at)
             .await
-            .map(ScheduleRunOutcome::Started)
+            .map(ScheduleExecutionOutcome::Started)
     }
 }

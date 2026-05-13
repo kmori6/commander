@@ -11,7 +11,6 @@ use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
 
 const EXAMPLE_MODEL_CONFIG_PATH: &str = "config/models.json";
-const USER_MODEL_CONFIG_PATH: &str = ".commander/config/models.json";
 
 #[derive(Debug, Clone)]
 struct ModelConfigPaths {
@@ -20,10 +19,10 @@ struct ModelConfigPaths {
 }
 
 impl ModelConfigPaths {
-    fn resolve() -> Self {
+    fn new(user_path: PathBuf) -> Self {
         Self {
             example_path: PathBuf::from(EXAMPLE_MODEL_CONFIG_PATH),
-            user_path: PathBuf::from(USER_MODEL_CONFIG_PATH),
+            user_path,
         }
     }
 
@@ -72,8 +71,8 @@ pub struct LlmGateway {
 }
 
 impl LlmGateway {
-    pub async fn from_default_config() -> Result<Self, LlmProviderError> {
-        let paths = ModelConfigPaths::resolve();
+    pub async fn from_config_path(user_path: impl Into<PathBuf>) -> Result<Self, LlmProviderError> {
+        let paths = ModelConfigPaths::new(user_path.into());
         paths.ensure_user_config().await?;
 
         let catalog = load_catalog(&paths).await?;

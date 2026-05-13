@@ -4,7 +4,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::{CronExpression, Schedule, ScheduleRun, ScheduleTimezone};
+use crate::domain::model::schedule::{CronExpression, Schedule, ScheduleTimezone};
+use crate::domain::model::schedule_execution::ScheduleExecution;
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
@@ -32,8 +33,30 @@ struct ScheduleRow {
     updated_at: DateTime<Utc>,
 }
 
+impl TryFrom<ScheduleRow> for Schedule {
+    type Error = ScheduleRepositoryError;
+
+    fn try_from(row: ScheduleRow) -> Result<Self, Self::Error> {
+        let id = row.id;
+
+        Schedule::restore(
+            row.id,
+            row.title,
+            row.request,
+            row.cron,
+            row.timezone,
+            row.enabled,
+            row.created_at,
+            row.updated_at,
+        )
+        .map_err(|message| {
+            ScheduleRepositoryError::Unexpected(format!("invalid stored schedule {id}: {message}"))
+        })
+    }
+}
+
 #[derive(sqlx::FromRow)]
-struct ScheduleRunRow {
+struct ScheduleExecutionRow {
     id: Uuid,
     schedule_id: Uuid,
     task_id: Uuid,
@@ -41,23 +64,8 @@ struct ScheduleRunRow {
     created_at: DateTime<Utc>,
 }
 
-impl From<ScheduleRow> for Schedule {
-    fn from(row: ScheduleRow) -> Self {
-        Self {
-            id: row.id,
-            title: row.title,
-            request: row.request,
-            cron: row.cron,
-            timezone: row.timezone,
-            enabled: row.enabled,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }
-    }
-}
-
-impl From<ScheduleRunRow> for ScheduleRun {
-    fn from(row: ScheduleRunRow) -> Self {
+impl From<ScheduleExecutionRow> for ScheduleExecution {
+    fn from(row: ScheduleExecutionRow) -> Self {
         Self {
             id: row.id,
             schedule_id: row.schedule_id,
@@ -157,7 +165,7 @@ impl ScheduleRepository for PostgresScheduleRepository {
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok(row.into())
+        Ok(row.try_into()?)
     }
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Schedule>, ScheduleRepositoryError> {
@@ -173,7 +181,7 @@ impl ScheduleRepository for PostgresScheduleRepository {
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok(row.map(Into::into))
+        row.map(TryInto::try_into).transpose()
     }
 
     async fn list(&self) -> Result<Vec<Schedule>, ScheduleRepositoryError> {
@@ -188,7 +196,7 @@ impl ScheduleRepository for PostgresScheduleRepository {
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok(rows.into_iter().map(Into::into).collect())
+        rows.into_iter().map(TryInto::try_into).collect()
     }
 
     async fn update(
@@ -221,17 +229,18 @@ impl ScheduleRepository for PostgresScheduleRepository {
         .await
         .map_err(map_sqlx_error)?;
 
-        row.map(Into::into)
+        row.map(TryInto::try_into)
+            .transpose()?
             .ok_or(ScheduleRepositoryError::NotFound(id))
     }
 
-    async fn create_run(
+    async fn record_execution(
         &self,
         schedule_id: Uuid,
         task_id: Uuid,
         scheduled_at: DateTime<Utc>,
-    ) -> Result<ScheduleRun, ScheduleRepositoryError> {
-        let row = sqlx::query_as::<_, ScheduleRunRow>(
+    ) -> Result<ScheduleExecution, ScheduleRepositoryError> {
+        let row = sqlx::query_as::<_, ScheduleExecutionRow>(
             r#"
             INSERT INTO schedule_runs (schedule_id, task_id, scheduled_at)
             VALUES ($1, $2, $3)
@@ -248,11 +257,11 @@ impl ScheduleRepository for PostgresScheduleRepository {
         Ok(row.into())
     }
 
-    async fn list_runs(
+    async fn list_executions(
         &self,
         schedule_id: Uuid,
-    ) -> Result<Vec<ScheduleRun>, ScheduleRepositoryError> {
-        let rows = sqlx::query_as::<_, ScheduleRunRow>(
+    ) -> Result<Vec<ScheduleExecution>, ScheduleRepositoryError> {
+        let rows = sqlx::query_as::<_, ScheduleExecutionRow>(
             r#"
             SELECT id, schedule_id, task_id, scheduled_at, created_at
             FROM schedule_runs
@@ -271,31 +280,31 @@ impl ScheduleRepository for PostgresScheduleRepository {
     async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleRepositoryError> {
         let rows = sqlx::query_as::<_, ScheduleRow>(
             r#"
-        SELECT id, title, request, cron, timezone, enabled, created_at, updated_at
-        FROM schedules
-        WHERE enabled = TRUE
-        ORDER BY id ASC
-        "#,
+            SELECT id, title, request, cron, timezone, enabled, created_at, updated_at
+            FROM schedules
+            WHERE enabled = TRUE
+            ORDER BY id ASC
+            "#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok(rows.into_iter().map(Into::into).collect())
+        rows.into_iter().map(TryInto::try_into).collect()
     }
 
-    async fn find_run_by_schedule_and_scheduled_at(
+    async fn find_execution_by_schedule_and_scheduled_at(
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
-    ) -> Result<Option<ScheduleRun>, ScheduleRepositoryError> {
-        let row = sqlx::query_as::<_, ScheduleRunRow>(
+    ) -> Result<Option<ScheduleExecution>, ScheduleRepositoryError> {
+        let row = sqlx::query_as::<_, ScheduleExecutionRow>(
             r#"
-        SELECT id, schedule_id, task_id, scheduled_at, created_at
-        FROM schedule_runs
-        WHERE schedule_id = $1
-          AND scheduled_at = $2
-        "#,
+            SELECT id, schedule_id, task_id, scheduled_at, created_at
+            FROM schedule_runs
+            WHERE schedule_id = $1
+            AND scheduled_at = $2
+            "#,
         )
         .bind(schedule_id)
         .bind(scheduled_at)

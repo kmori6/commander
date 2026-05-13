@@ -3,6 +3,7 @@ pub mod llm;
 pub mod memory_index;
 pub mod message;
 pub mod schedule;
+pub mod schedule_execution;
 pub mod session;
 pub mod task;
 pub mod task_result;
