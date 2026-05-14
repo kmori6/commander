@@ -21,8 +21,7 @@ impl PostgresTokenUsageRepository {
 #[derive(sqlx::FromRow)]
 struct TokenUsageRow {
     id: Uuid,
-    task_id: Uuid,
-    message_id: Option<Uuid>,
+    message_id: Uuid,
     model: String,
     input_tokens: i64,
     output_tokens: i64,
@@ -43,7 +42,6 @@ impl From<TokenUsageRow> for TokenUsage {
     fn from(row: TokenUsageRow) -> Self {
         Self {
             id: row.id,
-            task_id: row.task_id,
             message_id: row.message_id,
             model: row.model,
             input_tokens: row.input_tokens,
@@ -80,9 +78,7 @@ fn map_sqlx_error(err: sqlx::Error) -> TokenUsageRepositoryError {
         sqlx::Error::Database(db_err) => {
             let message = db_err.message().to_string();
 
-            if message.contains("token_usages_task_id_fkey") {
-                TokenUsageRepositoryError::TaskNotFound(Uuid::nil())
-            } else if message.contains("token_usages_message_id_fkey") {
+            if message.contains("token_usages_message_id_fkey") {
                 TokenUsageRepositoryError::MessageNotFound(Uuid::nil())
             } else {
                 TokenUsageRepositoryError::Unexpected(message)
@@ -100,7 +96,6 @@ impl TokenUsageRepository for PostgresTokenUsageRepository {
         let row = sqlx::query_as::<_, TokenUsageRow>(
             r#"
             INSERT INTO token_usages (
-              task_id,
               message_id,
               model,
               input_tokens,
@@ -108,10 +103,9 @@ impl TokenUsageRepository for PostgresTokenUsageRepository {
               cache_read_tokens,
               cache_write_tokens
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING
               id,
-              task_id,
               message_id,
               model,
               input_tokens,
@@ -121,7 +115,6 @@ impl TokenUsageRepository for PostgresTokenUsageRepository {
               created_at
             "#,
         )
-        .bind(input.task_id)
         .bind(input.message_id)
         .bind(input.model)
         .bind(input.input_tokens)
@@ -142,12 +135,14 @@ impl TokenUsageRepository for PostgresTokenUsageRepository {
         let row = sqlx::query_as::<_, TaskTokenUsageRow>(
             r#"
             SELECT
-              COALESCE(SUM(input_tokens), 0)::BIGINT AS input_tokens,
-              COALESCE(SUM(output_tokens), 0)::BIGINT AS output_tokens,
-              COALESCE(SUM(cache_read_tokens), 0)::BIGINT AS cache_read_tokens,
-              COALESCE(SUM(cache_write_tokens), 0)::BIGINT AS cache_write_tokens
+              COALESCE(SUM(token_usages.input_tokens), 0)::BIGINT AS input_tokens,
+              COALESCE(SUM(token_usages.output_tokens), 0)::BIGINT AS output_tokens,
+              COALESCE(SUM(token_usages.cache_read_tokens), 0)::BIGINT AS cache_read_tokens,
+              COALESCE(SUM(token_usages.cache_write_tokens), 0)::BIGINT AS cache_write_tokens
             FROM token_usages
-            WHERE task_id = $1
+            INNER JOIN messages
+              ON messages.id = token_usages.message_id
+            WHERE messages.task_id = $1
             "#,
         )
         .bind(task_id)

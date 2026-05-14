@@ -13,9 +13,7 @@ use crate::presentation::state::app_state::AppState;
 fn session_json(session: Session) -> Value {
     json!({
         "id": session.id.to_string(),
-        "kind": session.kind.as_str(),
         "title": session.title,
-        "status": session.status.as_str(),
         "created_at": session.created_at.to_rfc3339(),
         "updated_at": session.updated_at.to_rfc3339(),
     })

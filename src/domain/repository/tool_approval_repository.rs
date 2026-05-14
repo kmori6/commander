@@ -8,8 +8,8 @@ use crate::domain::model::tool_call::{ToolApproval, ToolApprovalStatus};
 pub trait ToolApprovalRepository: Send + Sync {
     async fn create_pending(
         &self,
-        message_id: Uuid,
-        call_id: &str,
+        task_id: Uuid,
+        message_content_id: Uuid,
     ) -> Result<ToolApproval, ToolApprovalRepositoryError>;
 
     async fn list(

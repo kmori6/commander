@@ -9,15 +9,14 @@ use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
+use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
+use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
-use crate::infrastructure::persistence::postgres_schedule_repository::PostgresScheduleRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_task_result_repository::PostgresTaskResultRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
-use crate::infrastructure::persistence::postgres_tool_permission_repository::PostgresToolPermissionRepository;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -33,22 +32,10 @@ pub struct AppState {
         >,
     >,
     pub task_usecase: Arc<
-        TaskUsecase<
-            PostgresTaskRepository,
-            PostgresSessionRepository,
-            PostgresTaskResultRepository,
-            PostgresEventRepository,
-            PostgresTokenUsageRepository,
-        >,
+        TaskUsecase<PostgresTaskRepository, PostgresEventRepository, PostgresTokenUsageRepository>,
     >,
-    pub schedule_usecase: Arc<
-        ScheduleUsecase<
-            PostgresScheduleRepository,
-            PostgresSessionRepository,
-            PostgresTaskRepository,
-        >,
-    >,
-    pub tool_usecase: Arc<ToolUsecase<PostgresToolPermissionRepository>>,
+    pub schedule_usecase: Arc<ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>>,
+    pub tool_usecase: Arc<ToolUsecase<FileToolPermissionRepository>>,
     pub tool_approval_usecase: Arc<ToolApprovalUsecase<PostgresToolApprovalRepository>>,
     // runtimes
     pub agent_runtime: Arc<
@@ -56,12 +43,10 @@ pub struct AppState {
             LlmGateway,
             PostgresTaskRepository,
             PostgresMessageRepository,
-            PostgresTaskResultRepository,
             PostgresEventRepository,
             PostgresTokenUsageRepository,
-            PostgresToolPermissionRepository,
+            FileToolPermissionRepository,
             PostgresToolApprovalRepository,
-            PostgresSessionRepository,
         >,
     >,
 }

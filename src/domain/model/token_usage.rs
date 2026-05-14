@@ -5,8 +5,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub id: Uuid,
-    pub task_id: Uuid,
-    pub message_id: Option<Uuid>,
+    pub message_id: Uuid,
     pub model: String,
     pub input_tokens: i64,
     pub output_tokens: i64,

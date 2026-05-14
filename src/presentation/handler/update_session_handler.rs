@@ -10,21 +10,18 @@ use uuid::Uuid;
 
 use crate::application::error::session_usecase_error::SessionUsecaseError;
 use crate::domain::error::session_repository_error::SessionRepositoryError;
-use crate::domain::model::session::{Session, SessionStatus};
+use crate::domain::model::session::Session;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateSessionRequest {
     pub title: Option<String>,
-    pub status: Option<SessionStatus>,
 }
 
 fn session_json(session: Session) -> Value {
     json!({
         "id": session.id.to_string(),
-        "kind": session.kind.as_str(),
         "title": session.title,
-        "status": session.status.as_str(),
         "created_at": session.created_at.to_rfc3339(),
         "updated_at": session.updated_at.to_rfc3339(),
     })
@@ -35,14 +32,10 @@ pub async fn update_session_handler(
     Path(session_id): Path<Uuid>,
     Json(request): Json<UpdateSessionRequest>,
 ) -> Response {
-    let result = if let Some(SessionStatus::Closed) = request.status {
-        state.session_usecase.close(session_id).await
-    } else {
-        state
-            .session_usecase
-            .update_title(session_id, request.title)
-            .await
-    };
+    let result = state
+        .session_usecase
+        .update_title(session_id, request.title)
+        .await;
 
     match result {
         Ok(session) => (StatusCode::OK, Json(session_json(session))).into_response(),

@@ -9,7 +9,6 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
-use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::model::message::{Message, MessageContent};
 use crate::presentation::state::app_state::AppState;
 
@@ -103,7 +102,7 @@ fn content_json(content: MessageContent) -> serde_json::Value {
 fn message_json(message: Message) -> serde_json::Value {
     json!({
         "id": message.id.to_string(),
-        "session_id": message.session_id.to_string(),
+        "task_id": message.task_id.to_string(),
         "role": message.role.as_str(),
         "content": message.contents.into_iter().map(content_json).collect::<Vec<_>>(),
         "created_at": message.created_at.to_rfc3339(),
@@ -138,24 +137,12 @@ pub async fn create_message_handler(
             )
                 .into_response()
         }
-        Err(MessageUsecaseError::MessageRepository(MessageRepositoryError::SessionNotFound(_))) => {
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({
-                    "error": {
-                        "code": "session_not_found",
-                        "message": format!("session not found: {session_id}"),
-                    }
-                })),
-            )
-                .into_response()
-        }
-        Err(MessageUsecaseError::MessageRepository(MessageRepositoryError::InvalidMessage(_))) => (
-            StatusCode::BAD_REQUEST,
+        Err(MessageUsecaseError::MessageRepository(_)) => (
+            StatusCode::NOT_FOUND,
             Json(json!({
                 "error": {
-                    "code": "invalid_message",
-                    "message": "invalid message",
+                    "code": "session_not_found",
+                    "message": format!("session not found: {session_id}"),
                 }
             })),
         )

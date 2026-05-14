@@ -3,32 +3,23 @@ use chrono::{Local, NaiveDate};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
 use crate::domain::error::tool_executor_error::ToolExecutorError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
-use crate::domain::service::memory_index_service::MemoryIndexService;
 
 #[derive(Clone)]
 pub struct MemoryWriteTool {
     workspace_root: PathBuf,
-    memory_index_service: Arc<MemoryIndexService>,
 }
 
 impl MemoryWriteTool {
-    pub fn new(
-        workspace_root: impl Into<PathBuf>,
-        memory_index_service: Arc<MemoryIndexService>,
-    ) -> Result<Self, ToolExecutorError> {
+    pub fn new(workspace_root: impl Into<PathBuf>) -> Result<Self, ToolExecutorError> {
         let workspace_root = std::fs::canonicalize(workspace_root.into())
             .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
 
-        Ok(Self {
-            workspace_root,
-            memory_index_service,
-        })
+        Ok(Self { workspace_root })
     }
 
     fn memory_root(&self) -> PathBuf {
@@ -171,28 +162,8 @@ impl Tool for MemoryWriteTool {
             .to_string_lossy()
             .replace('\\', "/");
 
-        if args.target == MemoryTarget::Memory {
-            return Ok(json!({
-                "path": relative_path,
-                "indexed": false
-            }));
-        }
-
-        let full_content = format!("{existing}{entry}");
-        match self
-            .memory_index_service
-            .rebuild_path_index(&relative_path, &full_content)
-            .await
-        {
-            Ok(_) => Ok(json!({
-                "path": relative_path,
-                "indexed": true
-            })),
-            Err(err) => Ok(json!({
-                "path": relative_path,
-                "indexed": false,
-                "warning": format!("Memory was written, but the search index was not updated: {err}")
-            })),
-        }
+        Ok(json!({
+            "path": relative_path
+        }))
     }
 }

@@ -21,6 +21,8 @@ impl PostgresToolApprovalRepository {
 #[derive(sqlx::FromRow)]
 struct ToolApprovalRow {
     id: Uuid,
+    task_id: Uuid,
+    message_content_id: Uuid,
     message_id: Uuid,
     call_id: String,
     status: String,
@@ -41,6 +43,8 @@ impl TryFrom<ToolApprovalRow> for ToolApproval {
 
         Ok(Self {
             id: row.id,
+            task_id: row.task_id,
+            message_content_id: row.message_content_id,
             message_id: row.message_id,
             call_id: row.call_id,
             status,
@@ -52,10 +56,16 @@ impl TryFrom<ToolApprovalRow> for ToolApproval {
 
 fn map_sqlx_error(err: sqlx::Error) -> ToolApprovalRepositoryError {
     match err {
-        sqlx::Error::Database(db_err)
-            if db_err.message().contains("tool_approvals_message_id_fkey") =>
-        {
-            ToolApprovalRepositoryError::MessageNotFound(Uuid::nil())
+        sqlx::Error::Database(db_err) => {
+            let message = db_err.message().to_string();
+
+            if message.contains("tool_approvals_task_id_fkey") {
+                ToolApprovalRepositoryError::TaskNotFound(Uuid::nil())
+            } else if message.contains("tool_approvals_message_content_id_fkey") {
+                ToolApprovalRepositoryError::MessageContentNotFound(Uuid::nil())
+            } else {
+                ToolApprovalRepositoryError::Unexpected(message)
+            }
         }
         other => ToolApprovalRepositoryError::Unexpected(other.to_string()),
     }
@@ -65,36 +75,53 @@ fn map_sqlx_error(err: sqlx::Error) -> ToolApprovalRepositoryError {
 impl ToolApprovalRepository for PostgresToolApprovalRepository {
     async fn create_pending(
         &self,
-        message_id: Uuid,
-        call_id: &str,
+        task_id: Uuid,
+        message_content_id: Uuid,
     ) -> Result<ToolApproval, ToolApprovalRepositoryError> {
-        let call_id = call_id.trim();
-
-        if call_id.is_empty() {
-            return Err(ToolApprovalRepositoryError::InvalidApproval(
-                "call_id must not be empty".to_string(),
-            ));
-        }
-
         let row = sqlx::query_as::<_, ToolApprovalRow>(
             r#"
-            INSERT INTO tool_approvals (message_id, call_id, status)
-            VALUES ($1, $2, 'pending')
-            ON CONFLICT (message_id, call_id)
-            DO UPDATE SET
-              status = 'pending',
-              requested_at = NOW(),
-              resolved_at = NULL
-            RETURNING id, message_id, call_id, status, requested_at, resolved_at
+            WITH tool_call_content AS (
+              SELECT id, message_id, call_id
+              FROM message_contents
+              WHERE id = $2
+                AND type = 'tool_call'
+            ),
+            upsert AS (
+              INSERT INTO tool_approvals (task_id, message_content_id, status)
+              SELECT $1, id, 'pending'
+              FROM tool_call_content
+              ON CONFLICT (message_content_id)
+              DO UPDATE SET
+                task_id = EXCLUDED.task_id,
+                status = 'pending',
+                requested_at = NOW(),
+                resolved_at = NULL
+              RETURNING id, task_id, message_content_id, status, requested_at, resolved_at
+            )
+            SELECT
+              upsert.id,
+              upsert.task_id,
+              upsert.message_content_id,
+              tool_call_content.message_id,
+              COALESCE(tool_call_content.call_id, '') AS call_id,
+              upsert.status,
+              upsert.requested_at,
+              upsert.resolved_at
+            FROM upsert
+            INNER JOIN tool_call_content
+              ON tool_call_content.id = upsert.message_content_id
             "#,
         )
-        .bind(message_id)
-        .bind(call_id)
-        .fetch_one(&self.pool)
+        .bind(task_id)
+        .bind(message_content_id)
+        .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
 
-        row.try_into()
+        row.ok_or(ToolApprovalRepositoryError::MessageContentNotFound(
+            message_content_id,
+        ))?
+        .try_into()
     }
 
     async fn list(
@@ -103,10 +130,20 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
     ) -> Result<Vec<ToolApproval>, ToolApprovalRepositoryError> {
         let rows = sqlx::query_as::<_, ToolApprovalRow>(
             r#"
-            SELECT id, message_id, call_id, status, requested_at, resolved_at
+            SELECT
+              tool_approvals.id,
+              tool_approvals.task_id,
+              tool_approvals.message_content_id,
+              message_contents.message_id,
+              COALESCE(message_contents.call_id, '') AS call_id,
+              tool_approvals.status,
+              tool_approvals.requested_at,
+              tool_approvals.resolved_at
             FROM tool_approvals
-            WHERE ($1::TEXT IS NULL OR status = $1)
-            ORDER BY requested_at DESC, id DESC
+            INNER JOIN message_contents
+              ON message_contents.id = tool_approvals.message_content_id
+            WHERE ($1::TEXT IS NULL OR tool_approvals.status = $1)
+            ORDER BY tool_approvals.requested_at DESC, tool_approvals.id DESC
             "#,
         )
         .bind(status.map(ToolApprovalStatus::as_str))
@@ -123,9 +160,19 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
     ) -> Result<Option<ToolApproval>, ToolApprovalRepositoryError> {
         let row = sqlx::query_as::<_, ToolApprovalRow>(
             r#"
-            SELECT id, message_id, call_id, status, requested_at, resolved_at
+            SELECT
+              tool_approvals.id,
+              tool_approvals.task_id,
+              tool_approvals.message_content_id,
+              message_contents.message_id,
+              COALESCE(message_contents.call_id, '') AS call_id,
+              tool_approvals.status,
+              tool_approvals.requested_at,
+              tool_approvals.resolved_at
             FROM tool_approvals
-            WHERE id = $1
+            INNER JOIN message_contents
+              ON message_contents.id = tool_approvals.message_content_id
+            WHERE tool_approvals.id = $1
             "#,
         )
         .bind(id)
@@ -149,11 +196,25 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
 
         let row = sqlx::query_as::<_, ToolApprovalRow>(
             r#"
-            UPDATE tool_approvals
-            SET status = $2,
-                resolved_at = NOW()
-            WHERE id = $1
-            RETURNING id, message_id, call_id, status, requested_at, resolved_at
+            WITH updated AS (
+              UPDATE tool_approvals
+              SET status = $2,
+                  resolved_at = NOW()
+              WHERE id = $1
+              RETURNING id, task_id, message_content_id, status, requested_at, resolved_at
+            )
+            SELECT
+              updated.id,
+              updated.task_id,
+              updated.message_content_id,
+              message_contents.message_id,
+              COALESCE(message_contents.call_id, '') AS call_id,
+              updated.status,
+              updated.requested_at,
+              updated.resolved_at
+            FROM updated
+            INNER JOIN message_contents
+              ON message_contents.id = updated.message_content_id
             "#,
         )
         .bind(id)

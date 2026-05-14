@@ -28,7 +28,6 @@ html2text = "0.17.1"
 ignore = "0.4.25"
 indicatif = "0.18.4"
 log = "0.4.29"
-pgvector = { version = "0.4.1", features = ["sqlx"] }
 reedline = "0.47.0"
 regex = "1.12.3"
 reqwest = { version = "0.13.3", features = ["http2", "json", "multipart", "rustls"], default-features = false }

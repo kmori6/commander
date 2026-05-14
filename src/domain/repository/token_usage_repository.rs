@@ -5,8 +5,7 @@ use crate::domain::error::token_usage_repository_error::TokenUsageRepositoryErro
 use crate::domain::model::token_usage::{TaskTokenUsage, TokenUsage};
 
 pub struct CreateTokenUsage {
-    pub task_id: Uuid,
-    pub message_id: Option<Uuid>,
+    pub message_id: Uuid,
     pub model: String,
     pub input_tokens: i64,
     pub output_tokens: i64,

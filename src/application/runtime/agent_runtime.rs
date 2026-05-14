@@ -3,9 +3,7 @@ use crate::application::runtime::subagent;
 use crate::application::runtime::subagent::AgentProfile;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
-use crate::domain::model::session::SessionKind;
-use crate::domain::model::task::{Task, TaskStatus};
-use crate::domain::model::task_result::TaskResultStatus;
+use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
 use crate::domain::model::tool_call::ToolSpec;
 use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode,
@@ -13,9 +11,7 @@ use crate::domain::model::tool_call::{
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
-use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
-use crate::domain::repository::task_result_repository::TaskResultRepository;
 use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenUsageRepository};
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
@@ -25,7 +21,6 @@ use crate::domain::service::tool_executor::ToolExecutor;
 use async_recursion::async_recursion;
 use futures::future::join_all;
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -59,46 +54,40 @@ impl RuntimeOptions {
     }
 }
 
-pub struct AgentRuntime<L, T, M, R, E, U, P, A, S> {
+pub struct AgentRuntime<L, T, M, E, U, P, A> {
     llm_provider: L,
     tool_executor: Arc<ToolExecutor>,
     task_repository: T,
     message_repository: M,
-    task_result_repository: R,
     event_repository: E,
     token_usage_repository: U,
     tool_permission_repository: P,
     tool_approval_repository: A,
-    session_repository: S,
     event_service: Arc<EventService>,
     instruction_service: Arc<InstructionService>,
     model: RwLock<String>,
 }
 
-impl<L, T, M, R, E, U, P, A, S> AgentRuntime<L, T, M, R, E, U, P, A, S>
+impl<L, T, M, E, U, P, A> AgentRuntime<L, T, M, E, U, P, A>
 where
     L: LlmProvider,
     T: TaskRepository,
     M: MessageRepository,
-    R: TaskResultRepository,
     E: EventRepository,
     U: TokenUsageRepository,
     P: ToolPermissionRepository,
     A: ToolApprovalRepository,
-    S: SessionRepository,
 {
     pub fn new(
         llm_provider: L,
         tool_executor: Arc<ToolExecutor>,
         task_repository: T,
         message_repository: M,
-        task_result_repository: R,
         event_repository: E,
         token_usage_repository: U,
         event_service: Arc<EventService>,
         tool_permission_repository: P,
         tool_approval_repository: A,
-        session_repository: S,
         instruction_service: Arc<InstructionService>,
         model: String,
     ) -> Self {
@@ -107,14 +96,12 @@ where
             tool_executor,
             task_repository,
             message_repository,
-            task_result_repository,
             event_repository,
             token_usage_repository,
             event_service,
             tool_permission_repository,
             tool_approval_repository,
             instruction_service,
-            session_repository,
             model: RwLock::new(model),
         }
     }
@@ -245,17 +232,12 @@ where
 
             let assistant_message = self
                 .message_repository
-                .save(
-                    task.session_id,
-                    Role::Assistant,
-                    response.message.contents.clone(),
-                )
+                .save(task_id, Role::Assistant, response.message.contents.clone())
                 .await?;
 
             self.token_usage_repository
                 .save(CreateTokenUsage {
-                    task_id,
-                    message_id: Some(assistant_message.id),
+                    message_id: assistant_message.id,
                     model: model.clone(),
                     input_tokens: response.usage.input_tokens,
                     output_tokens: response.usage.output_tokens,
@@ -278,13 +260,7 @@ where
             }
 
             match self
-                .run_tool_calls(
-                    task_id,
-                    task.session_id,
-                    assistant_message.id,
-                    tool_calls,
-                    options,
-                )
+                .run_tool_calls(task_id, assistant_message.id, tool_calls, options)
                 .await?
             {
                 ToolCallRunOutcome::Continue => {}
@@ -333,7 +309,7 @@ where
 
         let task = self
             .task_repository
-            .find_by_session_id(message.session_id)
+            .find_by_id(message.task_id)
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
 
@@ -380,11 +356,7 @@ where
         .await?;
 
         self.message_repository
-            .save(
-                message.session_id,
-                Role::User,
-                vec![output.into_message_content()],
-            )
+            .save(task.id, Role::User, vec![output.into_message_content()])
             .await?;
 
         Ok(task.id)
@@ -398,7 +370,6 @@ where
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut messages = Vec::new();
 
-        // agent instruction
         let mut instruction = self.instruction_service.build_agent_instruction();
 
         if let Some(profile) = options.profile {
@@ -408,102 +379,42 @@ where
 
         messages.push(LlmMessage::system_text(instruction));
 
-        let Some(source_message_id) = task.source_message_id else {
-            // task case: session messages + user message (with optional contents)
-            match user_contents {
-                Some(contents) => messages.push(LlmMessage::new(Role::User, contents.clone())),
-                None => messages.push(LlmMessage::user_text(task.request.clone())),
-            }
+        if let Some(session_id) = task.session_id {
+            let session_tasks = self.task_repository.list_by_session_id(session_id).await?;
+            let mut included_current_task = false;
 
-            // load previous messages from the task session (does not include the user message)
-            let session_messages = self
-                .message_repository
-                .list_for_session(task.session_id)
-                .await?;
-            messages.extend(session_messages.into_iter().map(to_llm_message));
-
-            return Ok(messages);
-        };
-
-        // chat case
-        let source_message = self
-            .message_repository
-            .find_by_id(source_message_id)
-            .await?
-            .ok_or(AgentRuntimeError::MessageNotFound(source_message_id))?;
-
-        let mut chat_messages = Vec::new();
-
-        for message in self
-            .message_repository
-            .list_for_session(source_message.session_id)
-            .await?
-        {
-            let is_current = message.id == source_message_id;
-            chat_messages.push(message);
-
-            if is_current {
-                break;
-            }
-        }
-
-        let source_message_ids = chat_messages
-            .iter()
-            .filter(|message| message.role == Role::User)
-            .map(|message| message.id)
-            .collect::<Vec<_>>();
-
-        let tasks = self
-            .task_repository
-            .list_by_source_message_ids(&source_message_ids)
-            .await?;
-
-        let mut tasks_by_source_message_id = HashMap::new();
-
-        for task in tasks {
-            if let Some(source_message_id) = task.source_message_id {
-                tasks_by_source_message_id.insert(source_message_id, task);
-            }
-        }
-
-        for message in chat_messages {
-            let message_id = message.id;
-            let role = message.role;
-
-            if message_id == source_message_id {
-                match user_contents {
-                    Some(contents) => messages.push(LlmMessage::new(Role::User, contents.clone())),
-                    None => messages.push(to_llm_message(message)),
-                }
-            } else {
-                messages.push(to_llm_message(message));
-            }
-
-            // insert tool calls and tool call outputs between the user message and the assistant message
-            if role == Role::User
-                && let Some(task) = tasks_by_source_message_id.get(&message_id)
-            {
-                let scratch_messages = self
+            for session_task in session_tasks {
+                let is_current_task = session_task.id == task.id;
+                let task_messages = self
                     .message_repository
-                    .list_for_session(task.session_id)
+                    .list_for_task(session_task.id)
                     .await?;
 
-                messages.extend(
-                    scratch_messages
-                        .into_iter()
-                        .filter(|message| {
-                            message.contents.iter().any(|content| {
-                                matches!(
-                                    content,
-                                    MessageContent::ToolCall { .. }
-                                        | MessageContent::ToolCallOutput { .. }
-                                )
-                            })
-                        })
-                        .map(to_llm_message),
+                push_task_messages(
+                    &mut messages,
+                    &session_task,
+                    is_current_task,
+                    task_messages,
+                    user_contents,
                 );
+
+                if is_current_task {
+                    included_current_task = true;
+                    break;
+                }
             }
+
+            if !included_current_task {
+                let task_messages = self.message_repository.list_for_task(task.id).await?;
+
+                push_task_messages(&mut messages, task, true, task_messages, user_contents);
+            }
+
+            return Ok(messages);
         }
+
+        let task_messages = self.message_repository.list_for_task(task.id).await?;
+        push_task_messages(&mut messages, task, true, task_messages, user_contents);
 
         Ok(messages)
     }
@@ -511,7 +422,6 @@ where
     async fn run_tool_calls(
         &self,
         task_id: Uuid,
-        session_id: Uuid,
         assistant_message_id: Uuid,
         tool_calls: Vec<ToolCall>,
         options: RuntimeOptions,
@@ -561,13 +471,19 @@ where
                 ToolPermissionMode::Ask => {
                     if !outputs.is_empty() {
                         self.message_repository
-                            .save(session_id, Role::User, outputs)
+                            .save(task_id, Role::User, outputs)
                             .await?;
                     }
 
+                    let message_content_id = self
+                        .message_repository
+                        .find_tool_call_content_id(assistant_message_id, &call.call_id)
+                        .await?
+                        .ok_or_else(|| AgentRuntimeError::ToolCallNotFound(call.call_id.clone()))?;
+
                     let approval = self
                         .tool_approval_repository
-                        .create_pending(assistant_message_id, &call.call_id)
+                        .create_pending(task_id, message_content_id)
                         .await?;
 
                     self.task_repository
@@ -622,7 +538,7 @@ where
         }
 
         self.message_repository
-            .save(session_id, Role::User, outputs)
+            .save(task_id, Role::User, outputs)
             .await?;
 
         Ok(ToolCallRunOutcome::Continue)
@@ -645,18 +561,16 @@ where
                 ))
             })?;
 
-            let task_session = self
-                .session_repository
-                .create(SessionKind::Task, Some(task_input.request.clone()))
-                .await?;
-
             let child_task = self
                 .task_repository
                 .create(CreateTask {
                     request: task_input.request,
-                    session_id: task_session.id,
+                    session_id: None,
+                    source_kind: TaskSourceKind::Task,
                     source_message_id: None,
+                    source_schedule_id: None,
                     parent_task_id: Some(parent_task_id),
+                    scheduled_at: None,
                 })
                 .await?;
 
@@ -684,14 +598,36 @@ where
                     };
                 }
 
-                match self.task_result_repository.find_by_task_id(task_id).await {
-                    Ok(Some(result)) => subagent::SubagentTaskOutput {
+                match self.task_repository.find_by_id(task_id).await {
+                    Ok(Some(task)) if task.status == TaskStatus::Completed => {
+                        subagent::SubagentTaskOutput {
+                            index,
+                            task_id: task_id.to_string(),
+                            profile: profile.name.to_string(),
+                            status: subagent::SubagentTaskStatus::Completed,
+                            output: Some(task.output),
+                            error: None,
+                        }
+                    }
+                    Ok(Some(task)) if task.status == TaskStatus::Cancelled => {
+                        subagent::SubagentTaskOutput {
+                            index,
+                            task_id: task_id.to_string(),
+                            profile: profile.name.to_string(),
+                            status: subagent::SubagentTaskStatus::Cancelled,
+                            output: None,
+                            error: task.error,
+                        }
+                    }
+                    Ok(Some(task)) => subagent::SubagentTaskOutput {
                         index,
                         task_id: task_id.to_string(),
                         profile: profile.name.to_string(),
-                        status: subagent::SubagentTaskStatus::Completed,
-                        output: Some(result.output),
-                        error: None,
+                        status: subagent::SubagentTaskStatus::Failed,
+                        output: None,
+                        error: task
+                            .error
+                            .or_else(|| Some("child task did not complete".to_string())),
                     },
                     Ok(None) => subagent::SubagentTaskOutput {
                         index,
@@ -699,7 +635,7 @@ where
                         profile: profile.name.to_string(),
                         status: subagent::SubagentTaskStatus::Failed,
                         output: None,
-                        error: Some("child task finished without a result".to_string()),
+                        error: Some("child task disappeared".to_string()),
                     },
                     Err(err) => subagent::SubagentTaskOutput {
                         index,
@@ -719,35 +655,8 @@ where
     }
 
     async fn complete_task(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
-        let task = self
-            .task_repository
-            .find_by_id(task_id)
-            .await?
-            .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-        let result = self
-            .task_result_repository
-            .save(task_id, TaskResultStatus::Success, output.clone())
-            .await?;
-
-        self.save_chat_assistant_message(&task, &output).await?;
-
-        self.emit(
-            task_id,
-            "task_result_created",
-            json!({
-                "result_id": result.id.to_string(),
-                "status": result.status.as_str(),
-            }),
-        )
-        .await?;
-
-        self.task_repository
-            .update_status(task_id, TaskStatus::Completed)
-            .await?;
-
+        self.task_repository.complete(task_id, output).await?;
         self.emit(task_id, "task_completed", json!({})).await?;
-
         Ok(())
     }
 
@@ -758,33 +667,10 @@ where
     ) -> Result<(), AgentRuntimeError> {
         let output = err.to_string();
 
-        let result = self
-            .task_result_repository
-            .save(task_id, TaskResultStatus::Failure, output.clone())
+        self.task_repository.fail(task_id, output.clone()).await?;
+
+        self.emit(task_id, "task_failed", json!({ "error": output }))
             .await?;
-
-        self.emit(
-            task_id,
-            "task_result_created",
-            json!({
-                "result_id": result.id.to_string(),
-                "status": result.status.as_str(),
-            }),
-        )
-        .await?;
-
-        self.task_repository
-            .update_status(task_id, TaskStatus::Failed)
-            .await?;
-
-        self.emit(
-            task_id,
-            "task_failed",
-            json!({
-                "error": output,
-            }),
-        )
-        .await?;
 
         Ok(())
     }
@@ -827,34 +713,6 @@ where
             .unwrap_or(ToolPermissionMode::Deny))
     }
 
-    async fn save_chat_assistant_message(
-        &self,
-        task: &Task,
-        output: &str,
-    ) -> Result<(), AgentRuntimeError> {
-        let Some(source_message_id) = task.source_message_id else {
-            return Ok(());
-        };
-
-        let Some(source_message) = self
-            .message_repository
-            .find_by_id(source_message_id)
-            .await?
-        else {
-            return Ok(());
-        };
-
-        self.message_repository
-            .save(
-                source_message.session_id,
-                Role::Assistant,
-                vec![MessageContent::output_text(output.to_string())],
-            )
-            .await?;
-
-        Ok(())
-    }
-
     fn tool_specs(&self, options: RuntimeOptions) -> Vec<ToolSpec> {
         let mut specs = self.tool_executor.specs();
 
@@ -873,4 +731,50 @@ where
 
 fn to_llm_message(message: Message) -> LlmMessage {
     LlmMessage::new(message.role, message.contents)
+}
+
+fn push_task_messages(
+    messages: &mut Vec<LlmMessage>,
+    task: &Task,
+    is_current_task: bool,
+    task_messages: Vec<Message>,
+    user_contents: Option<&Vec<MessageContent>>,
+) {
+    let has_user_message = task_messages
+        .iter()
+        .any(|message| message.role == Role::User);
+
+    if !has_user_message {
+        push_task_request_message(messages, task, is_current_task, user_contents);
+    }
+
+    let mut replaced_user_message = false;
+
+    for message in task_messages {
+        if is_current_task
+            && !replaced_user_message
+            && message.role == Role::User
+            && let Some(contents) = user_contents
+        {
+            messages.push(LlmMessage::new(Role::User, contents.clone()));
+            replaced_user_message = true;
+            continue;
+        }
+
+        messages.push(to_llm_message(message));
+    }
+}
+
+fn push_task_request_message(
+    messages: &mut Vec<LlmMessage>,
+    task: &Task,
+    is_current_task: bool,
+    user_contents: Option<&Vec<MessageContent>>,
+) {
+    if is_current_task && let Some(contents) = user_contents {
+        messages.push(LlmMessage::new(Role::User, contents.clone()));
+        return;
+    }
+
+    messages.push(LlmMessage::user_text(task.request.clone()));
 }

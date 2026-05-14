@@ -5,12 +5,10 @@ use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
 use crate::domain::model::schedule::Schedule;
 use crate::domain::model::schedule_execution::ScheduleExecution;
-use crate::domain::model::session::SessionKind;
-use crate::domain::model::task::Task;
+use crate::domain::model::task::{Task, TaskSourceKind};
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
-use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 
 pub struct ScheduledTaskStart {
@@ -23,26 +21,19 @@ pub enum ScheduleExecutionOutcome {
     AlreadyRecorded(ScheduleExecution),
 }
 
-pub struct ScheduleUsecase<S, SessionRepo, TaskRepo> {
+pub struct ScheduleUsecase<S, TaskRepo> {
     schedule_repository: S,
-    session_repository: SessionRepo,
     task_repository: TaskRepo,
 }
 
-impl<S, SessionRepo, TaskRepo> ScheduleUsecase<S, SessionRepo, TaskRepo>
+impl<S, TaskRepo> ScheduleUsecase<S, TaskRepo>
 where
     S: ScheduleRepository,
-    SessionRepo: SessionRepository,
     TaskRepo: TaskRepository,
 {
-    pub fn new(
-        schedule_repository: S,
-        session_repository: SessionRepo,
-        task_repository: TaskRepo,
-    ) -> Self {
+    pub fn new(schedule_repository: S, task_repository: TaskRepo) -> Self {
         Self {
             schedule_repository,
-            session_repository,
             task_repository,
         }
     }
@@ -114,25 +105,20 @@ where
             .await?
             .ok_or(ScheduleRepositoryError::NotFound(schedule_id))?;
 
-        let task_session = self
-            .session_repository
-            .create(SessionKind::Task, Some(schedule.title.clone()))
-            .await?;
-
         let task = self
             .task_repository
             .create(CreateTask {
                 request: schedule.request,
-                session_id: task_session.id,
+                session_id: None,
+                source_kind: TaskSourceKind::Schedule,
                 source_message_id: None,
+                source_schedule_id: Some(schedule_id),
                 parent_task_id: None,
+                scheduled_at: Some(scheduled_at),
             })
             .await?;
 
-        let execution = self
-            .schedule_repository
-            .record_execution(schedule_id, task.id, scheduled_at)
-            .await?;
+        let execution = execution_from_task(schedule_id, &task);
 
         Ok(ScheduledTaskStart { execution, task })
     }
@@ -150,10 +136,15 @@ where
             return Err(ScheduleRepositoryError::NotFound(schedule_id).into());
         }
 
-        self.schedule_repository
-            .list_executions(schedule_id)
-            .await
-            .map_err(Into::into)
+        let tasks = self
+            .task_repository
+            .list_by_source_schedule_id(schedule_id)
+            .await?;
+
+        Ok(tasks
+            .into_iter()
+            .map(|task| execution_from_task(schedule_id, &task))
+            .collect())
     }
 
     pub async fn run_once_at(
@@ -161,16 +152,28 @@ where
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
     ) -> Result<ScheduleExecutionOutcome, ScheduleUsecaseError> {
-        if let Some(execution) = self
-            .schedule_repository
-            .find_execution_by_schedule_and_scheduled_at(schedule_id, scheduled_at)
+        if let Some(task) = self
+            .task_repository
+            .find_by_source_schedule_id_and_scheduled_at(schedule_id, scheduled_at)
             .await?
         {
-            return Ok(ScheduleExecutionOutcome::AlreadyRecorded(execution));
+            return Ok(ScheduleExecutionOutcome::AlreadyRecorded(
+                execution_from_task(schedule_id, &task),
+            ));
         }
 
         self.run_at(schedule_id, scheduled_at)
             .await
             .map(ScheduleExecutionOutcome::Started)
+    }
+}
+
+fn execution_from_task(schedule_id: Uuid, task: &Task) -> ScheduleExecution {
+    ScheduleExecution {
+        id: task.id,
+        schedule_id,
+        task_id: task.id,
+        scheduled_at: task.scheduled_at.unwrap_or(task.created_at),
+        created_at: task.created_at,
     }
 }

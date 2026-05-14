@@ -8,7 +8,6 @@ pub mod get_model_handler;
 pub mod get_schedule_handler;
 pub mod get_session_handler;
 pub mod get_task_handler;
-pub mod get_task_result_handler;
 pub mod get_task_usage_handler;
 pub mod health_handler;
 pub mod list_message_handler;

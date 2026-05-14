@@ -58,7 +58,7 @@ fn content_json(content: MessageContent) -> serde_json::Value {
 fn message_json(message: Message) -> serde_json::Value {
     json!({
         "id": message.id.to_string(),
-        "session_id": message.session_id.to_string(),
+        "task_id": message.task_id.to_string(),
         "role": message.role.as_str(),
         "content": message.contents.into_iter().map(content_json).collect::<Vec<_>>(),
         "created_at": message.created_at.to_rfc3339(),

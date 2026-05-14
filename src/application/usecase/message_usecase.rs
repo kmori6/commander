@@ -1,14 +1,11 @@
 use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
-use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::model::message::{Message, MessageContent, Role};
-use crate::domain::model::session::{SessionKind, SessionStatus};
-use crate::domain::model::task::Task;
+use crate::domain::model::task::{Task, TaskSourceKind};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
-
 pub struct MessageTask {
     pub message: Message,
     pub task: Task,
@@ -39,45 +36,37 @@ where
         session_id: Uuid,
         text: String,
     ) -> Result<MessageTask, MessageUsecaseError> {
-        self.ensure_active_session(session_id).await?;
-
-        let message = self
-            .message_repository
-            .save(
-                session_id,
-                Role::User,
-                vec![MessageContent::input_text(text.clone())],
-            )
-            .await?;
-
-        let task_session = self
-            .session_repository
-            .create(SessionKind::Task, Some(text.clone()))
-            .await?;
+        self.ensure_existing_session(session_id).await?;
 
         let task = self
             .task_repository
             .create(CreateTask {
-                request: text,
-                session_id: task_session.id,
-                source_message_id: Some(message.id),
+                request: text.clone(),
+                session_id: Some(session_id),
+                source_kind: TaskSourceKind::Chat,
+                source_message_id: None,
+                source_schedule_id: None,
                 parent_task_id: None,
+                scheduled_at: None,
             })
+            .await?;
+
+        let message = self
+            .message_repository
+            .save(task.id, Role::User, vec![MessageContent::input_text(text)])
             .await?;
 
         Ok(MessageTask { message, task })
     }
 
-    pub async fn save(
+    pub async fn save_for_task(
         &self,
-        session_id: Uuid,
+        task_id: Uuid,
         role: Role,
         contents: Vec<MessageContent>,
     ) -> Result<Message, MessageUsecaseError> {
-        self.ensure_active_session(session_id).await?;
-
         self.message_repository
-            .save(session_id, role, contents)
+            .save(task_id, role, contents)
             .await
             .map_err(Into::into)
     }
@@ -88,32 +77,24 @@ where
     ) -> Result<Vec<Message>, MessageUsecaseError> {
         self.ensure_existing_session(session_id).await?;
 
-        self.message_repository
-            .list_for_session(session_id)
-            .await
-            .map_err(Into::into)
+        let tasks = self.task_repository.list_by_session_id(session_id).await?;
+
+        let mut messages = Vec::new();
+        for task in tasks {
+            messages.extend(self.message_repository.list_for_task(task.id).await?);
+        }
+
+        messages.sort_by_key(|message| (message.created_at, message.id));
+        Ok(messages)
     }
 
     async fn ensure_existing_session(&self, session_id: Uuid) -> Result<(), MessageUsecaseError> {
         let session = self.session_repository.find_by_id(session_id).await?;
 
         if session.is_none() {
-            return Err(MessageRepositoryError::SessionNotFound(session_id).into());
+            return Err(MessageUsecaseError::SessionNotFound(session_id));
         }
 
         Ok(())
-    }
-
-    async fn ensure_active_session(&self, session_id: Uuid) -> Result<(), MessageUsecaseError> {
-        let session = self.session_repository.find_by_id(session_id).await?;
-
-        match session {
-            Some(session) if session.status == SessionStatus::Active => Ok(()),
-            Some(_) => Err(MessageRepositoryError::InvalidMessage(format!(
-                "session is closed: {session_id}"
-            ))
-            .into()),
-            None => Err(MessageRepositoryError::SessionNotFound(session_id).into()),
-        }
     }
 }

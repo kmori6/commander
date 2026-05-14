@@ -17,12 +17,10 @@ const PROMPT: &str = "\x1b[38;2;0;71;171m❯\x1b[0m ";
 struct SessionResponse {
     id: Uuid,
     title: Option<String>,
-    status: String,
 }
 
 #[derive(Debug, Serialize)]
 struct CreateSessionRequest {
-    kind: &'static str,
     title: String,
 }
 
@@ -56,11 +54,6 @@ struct CreateInputFile {
 #[derive(Debug, serde::Deserialize)]
 struct CreateMessageResponse {
     task_id: Uuid,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct TaskResultResponse {
-    output: String,
 }
 
 enum AgentTurnOutcome {
@@ -123,7 +116,9 @@ struct TaskResponse {
     id: Uuid,
     request: String,
     status: String,
-    session_id: Uuid,
+    session_id: Option<Uuid>,
+    output: String,
+    error: Option<String>,
     started_at: Option<String>,
     finished_at: Option<String>,
 }
@@ -165,6 +160,28 @@ struct ModelResponse {
     provider: String,
     model: String,
     context_window: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListSchedulesResponse {
+    schedules: Vec<ScheduleResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunScheduleResponse {
+    task: TaskResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScheduleResponse {
+    id: Uuid,
+    title: String,
+    request: String,
+    cron: String,
+    timezone: String,
+    enabled: bool,
+    created_at: String,
+    updated_at: String,
 }
 
 struct ChatApiClient {
@@ -209,7 +226,6 @@ impl ChatApiClient {
         self.http
             .post(format!("{}/v1/sessions", self.base_url))
             .json(&CreateSessionRequest {
-                kind: "chat",
                 title: "Commander Chat".to_string(),
             })
             .send()
@@ -291,19 +307,6 @@ impl ChatApiClient {
             .await
             .map_err(io::Error::other)?
             .error_for_status()
-            .map_err(io::Error::other)
-    }
-
-    async fn get_task_result(&self, task_id: Uuid) -> io::Result<TaskResultResponse> {
-        self.http
-            .get(format!("{}/v1/tasks/{}/result", self.base_url, task_id))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<TaskResultResponse>()
-            .await
             .map_err(io::Error::other)
     }
 
@@ -503,6 +506,54 @@ impl ChatApiClient {
             .await
             .map_err(io::Error::other)
     }
+
+    async fn list_schedules(&self) -> io::Result<Vec<ScheduleResponse>> {
+        let response = self
+            .http
+            .get(format!("{}/v1/schedules", self.base_url))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<ListSchedulesResponse>()
+            .await
+            .map_err(io::Error::other)?;
+
+        Ok(response.schedules)
+    }
+
+    async fn get_schedule(&self, schedule_id: Uuid) -> io::Result<ScheduleResponse> {
+        self.http
+            .get(format!("{}/v1/schedules/{}", self.base_url, schedule_id))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<ScheduleResponse>()
+            .await
+            .map_err(io::Error::other)
+    }
+
+    async fn run_schedule(&self, schedule_id: Uuid) -> io::Result<TaskResponse> {
+        let response = self
+            .http
+            .post(format!(
+                "{}/v1/schedules/{}/run",
+                self.base_url, schedule_id
+            ))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<RunScheduleResponse>()
+            .await
+            .map_err(io::Error::other)?;
+
+        Ok(response.task)
+    }
 }
 
 pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::Error> {
@@ -552,13 +603,12 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                             println!("no sessions");
                         } else {
                             println!("sessions");
-                            println!("  {:<36}  {:<10}  title", "session", "status");
+                            println!("  {:<36}  title", "session");
 
                             for session in sessions {
                                 println!(
-                                    "  {:<36}  {:<10}  {}",
+                                    "  {:<36}  {}",
                                     session.id,
-                                    session.status,
                                     session.title.as_deref().unwrap_or("-"),
                                 );
                             }
@@ -567,7 +617,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                     "/session" => {
                         println!("current session");
                         println!("  id      {}", session.id);
-                        println!("  status  {}", session.status);
                         println!("  title   {}", session.title.as_deref().unwrap_or("-"));
                     }
                     _ if line.starts_with("/session ") => {
@@ -757,7 +806,10 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         println!("  id       {}", task.id);
                         println!("  status   {}", task.status);
                         println!("  request  {}", task.request);
-                        println!("  session  {}", task.session_id);
+
+                        if let Some(session_id) = task.session_id {
+                            println!("  session  {session_id}");
+                        }
 
                         if let Some(started_at) = task.started_at.as_deref() {
                             println!("  started  {started_at}");
@@ -778,10 +830,10 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         }
 
                         if matches!(task.status.as_str(), "completed" | "failed" | "cancelled")
-                            && let Ok(result) = client.get_task_result(task_id).await
+                            && let Some(result) = terminal_task_text(&task)
                         {
                             println!("\nresult");
-                            termimad::print_text(&result.output);
+                            termimad::print_text(result);
                         }
                     }
                     _ if line.starts_with("/cancel ") => {
@@ -797,6 +849,82 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         println!("cancel requested");
                         println!("  id      {}", task.id);
                         println!("  status  {}", task.status);
+                    }
+                    // schedule
+                    "/schedules" => {
+                        let schedules = client.list_schedules().await?;
+
+                        if schedules.is_empty() {
+                            println!("no schedules");
+                        } else {
+                            println!("schedules");
+                            println!(
+                                "  {:<36}  {:<7}  {:<18}  {:<16}  title",
+                                "schedule", "enabled", "cron", "timezone"
+                            );
+
+                            for schedule in schedules {
+                                println!(
+                                    "  {:<36}  {:<7}  {:<18}  {:<16}  {}",
+                                    schedule.id,
+                                    schedule.enabled,
+                                    schedule.cron,
+                                    schedule.timezone,
+                                    schedule.title,
+                                );
+                            }
+                        }
+                    }
+                    _ if line.starts_with("/schedule ") => {
+                        let id = line.trim_start_matches("/schedule ").trim();
+
+                        let Ok(schedule_id) = Uuid::parse_str(id) else {
+                            println!("invalid schedule id: {id}");
+                            continue;
+                        };
+
+                        let schedule = client.get_schedule(schedule_id).await?;
+
+                        println!("schedule");
+                        println!("  id        {}", schedule.id);
+                        println!("  title     {}", schedule.title);
+                        println!("  enabled   {}", schedule.enabled);
+                        println!("  cron      {}", schedule.cron);
+                        println!("  timezone  {}", schedule.timezone);
+                        println!("  created   {}", schedule.created_at);
+                        println!("  updated   {}", schedule.updated_at);
+                        println!("\nrequest");
+                        termimad::print_text(&schedule.request);
+                    }
+                    "/schedule" => {
+                        println!("usage: /schedule <schedule_id>");
+                    }
+                    _ if line.starts_with("/schedule-run ") => {
+                        let id = line.trim_start_matches("/schedule-run ").trim();
+
+                        let Ok(schedule_id) = Uuid::parse_str(id) else {
+                            println!("invalid schedule id: {id}");
+                            continue;
+                        };
+
+                        let task = client.run_schedule(schedule_id).await?;
+
+                        println!("schedule run started");
+                        println!("  task     {}", task.id);
+                        println!("  status   {}", task.status);
+                        if let Some(session_id) = task.session_id {
+                            println!("  session  {session_id}");
+                        }
+                        println!("  request  {}", truncate(&task.request, 120));
+
+                        let outcome = wait_events(&client, task.id).await?;
+
+                        if matches!(outcome, AgentTurnOutcome::AwaitingApproval) {
+                            awaiting_task_id = Some(task.id);
+                        }
+                    }
+                    "/schedule-run" => {
+                        println!("usage: /schedule-run <schedule_id>");
                     }
                     // attachment
                     "/files" => {
@@ -1051,15 +1179,20 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
                 "task_completed" => {
                     stop_spinner(&mut spinner);
 
-                    let result = client.get_task_result(task_id).await?;
-                    termimad::print_text(&result.output);
+                    let task = client.get_task(task_id).await?;
+                    if let Some(result) = terminal_task_text(&task) {
+                        termimad::print_text(result);
+                    }
                     return Ok(AgentTurnOutcome::Completed);
                 }
                 "task_failed" => {
                     stop_spinner(&mut spinner);
 
-                    match client.get_task_result(task_id).await {
-                        Ok(result) => termimad::print_text(&result.output),
+                    match client.get_task(task_id).await {
+                        Ok(task) => match terminal_task_text(&task) {
+                            Some(result) => termimad::print_text(result),
+                            None => println!("[task failed]"),
+                        },
                         Err(_) => println!("[task failed]"),
                     }
                     return Ok(AgentTurnOutcome::Failed);
@@ -1081,6 +1214,26 @@ fn truncate(value: &str, max_chars: usize) -> String {
     let mut truncated = value.chars().take(max_chars).collect::<String>();
     truncated.push_str("...");
     truncated
+}
+
+fn terminal_task_text(task: &TaskResponse) -> Option<&str> {
+    if task.status == "failed" {
+        return task
+            .error
+            .as_deref()
+            .and_then(non_empty)
+            .or_else(|| non_empty(&task.output));
+    }
+
+    non_empty(&task.output).or_else(|| task.error.as_deref().and_then(non_empty))
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 fn build_attachment(path: &str) -> io::Result<PendingAttachment> {

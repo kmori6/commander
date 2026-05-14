@@ -123,7 +123,7 @@ impl MessageContent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub id: Uuid,
-    pub session_id: Uuid,
+    pub task_id: Uuid,
     pub role: Role,
     pub contents: Vec<MessageContent>,
     pub created_at: DateTime<Utc>,
@@ -132,14 +132,14 @@ pub struct Message {
 impl Message {
     pub fn new(
         id: Uuid,
-        session_id: Uuid,
+        task_id: Uuid,
         role: Role,
         contents: Vec<MessageContent>,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
             id,
-            session_id,
+            task_id,
             role,
             contents,
             created_at,

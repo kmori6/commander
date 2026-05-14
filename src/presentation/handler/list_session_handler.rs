@@ -7,7 +7,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::domain::model::session::{Session, SessionKind};
+use crate::domain::model::session::Session;
 use crate::presentation::state::app_state::AppState;
 
 const DEFAULT_LIMIT: usize = 20;
@@ -15,16 +15,13 @@ const MAX_LIMIT: usize = 100;
 
 #[derive(Debug, Deserialize)]
 pub struct ListSessionQuery {
-    pub kind: Option<SessionKind>,
     pub limit: Option<usize>,
 }
 
 fn session_json(session: Session) -> Value {
     json!({
         "id": session.id.to_string(),
-        "kind": session.kind.as_str(),
         "title": session.title,
-        "status": session.status.as_str(),
         "created_at": session.created_at.to_rfc3339(),
         "updated_at": session.updated_at.to_rfc3339(),
     })
@@ -36,7 +33,7 @@ pub async fn list_session_handler(
 ) -> impl IntoResponse {
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
 
-    match state.session_usecase.list(query.kind, limit).await {
+    match state.session_usecase.list(limit).await {
         Ok(sessions) => (
             StatusCode::OK,
             Json(json!({

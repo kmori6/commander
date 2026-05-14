@@ -37,15 +37,16 @@ services:
               capabilities: [gpu]
 
   asr:
-    image: fedirz/faster-whisper-server:latest-cuda
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
     ports:
       - "8000:8000"
     environment:
-      - WHISPER__MODEL=mobiuslabsgmbh/faster-whisper-large-v3-turbo
       - WHISPER__INFERENCE_DEVICE=cuda
       - WHISPER__BEAM_SIZE=5
       - WHISPER__VAD_FILTER=true
       - WHISPER__COMPUTE_TYPE=int8_float16
+    volumes:
+      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
     deploy:
       resources:
         reservations:
@@ -55,7 +56,7 @@ services:
               capabilities: [gpu]
 
   postgres:
-    image: pgvector/pgvector:pg18-trixie
+    image: postgres:18.3
     restart: always
     ports:
       - "5432:5432"
@@ -96,3 +97,4 @@ services:
 volumes:
   postgres_data:
   model_cache:
+  hf-hub-cache:

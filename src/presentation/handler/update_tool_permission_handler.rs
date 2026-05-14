@@ -19,11 +19,8 @@ pub struct UpdateToolPermissionRequest {
 
 fn permission_json(permission: ToolPermission) -> serde_json::Value {
     json!({
-        "id": permission.id.to_string(),
         "tool_name": permission.tool_name,
         "mode": permission.mode.as_str(),
-        "created_at": permission.created_at.to_rfc3339(),
-        "updated_at": permission.updated_at.to_rfc3339(),
     })
 }
 

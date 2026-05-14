@@ -9,31 +9,27 @@ use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
-use crate::domain::service::memory_index_service::MemoryIndexService;
 use crate::domain::service::tool_executor::ToolExecutor;
-use crate::infrastructure::embedding::bedrock_embedding_provider::BedrockEmbeddingProvider;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
+use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
+use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
-use crate::infrastructure::persistence::postgres_memory_index_repository::PostgresMemoryIndexRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
-use crate::infrastructure::persistence::postgres_schedule_repository::PostgresScheduleRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_task_result_repository::PostgresTaskResultRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
-use crate::infrastructure::persistence::postgres_tool_permission_repository::PostgresToolPermissionRepository;
 use crate::infrastructure::tool::file_edit_tool::FileEditTool;
 use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
 use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
-use crate::infrastructure::tool::memory_search_tool::MemorySearchTool;
 use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
 use crate::infrastructure::tool::pptx_read_tool::PptxReadTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
 use crate::infrastructure::tool::text_search_tool::TextSearchTool;
+use crate::infrastructure::tool::transcribe_tool::TranscribeTool;
 use crate::infrastructure::tool::visual_inspect_tool::VisualInspectTool;
 use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use crate::infrastructure::tool::web_search_tool::WebSearchTool;
@@ -47,7 +43,6 @@ use crate::presentation::handler::get_model_handler::get_model_handler;
 use crate::presentation::handler::get_schedule_handler::get_schedule_handler;
 use crate::presentation::handler::get_session_handler::get_session_handler;
 use crate::presentation::handler::get_task_handler::get_task_handler;
-use crate::presentation::handler::get_task_result_handler::get_task_result_handler;
 use crate::presentation::handler::get_task_usage_handler::get_task_usage_handler;
 use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
@@ -91,14 +86,13 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // repositories
     let session_repository = PostgresSessionRepository::new(pool.clone());
     let task_repository = PostgresTaskRepository::new(pool.clone());
-    let task_result_repository = PostgresTaskResultRepository::new(pool.clone());
     let event_repository = PostgresEventRepository::new(pool.clone());
-    let tool_permission_repository = PostgresToolPermissionRepository::new(pool.clone());
-    let schedule_repository = PostgresScheduleRepository::new(pool.clone());
+    let tool_permission_repository =
+        FileToolPermissionRepository::new(paths.tool_permissions_path());
+    let schedule_repository = FileScheduleRepository::new(paths.schedules_path());
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
-    let memory_index_repository = Arc::new(PostgresMemoryIndexRepository::new(pool.clone()));
 
     let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
 
@@ -106,11 +100,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let llm_gateway = LlmGateway::from_config_path(paths.model_config_path())
         .await
         .map_err(std::io::Error::other)?;
-    let embedding_provider = Arc::new(BedrockEmbeddingProvider::from_default_config().await);
-    let memory_index_service = Arc::new(MemoryIndexService::new(
-        embedding_provider,
-        memory_index_repository,
-    ));
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(workspace_root.clone()));
     let tool_executor = Arc::new(ToolExecutor::new(vec![
@@ -121,6 +110,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(FileListTool::new(workspace_root.clone())),
         Arc::new(FileSearchTool::new(workspace_root.clone())),
         Arc::new(TextSearchTool::new(workspace_root.clone())),
+        Arc::new(TranscribeTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
         Arc::new(ShellTool::new(workspace_root.clone())),
         Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
         Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
@@ -128,11 +118,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             workspace_root.clone(),
             visual_inspect_provider,
         )),
-        Arc::new(MemorySearchTool::new(memory_index_service.clone())),
-        Arc::new(
-            MemoryWriteTool::new(workspace_root.clone(), memory_index_service.clone())
-                .map_err(std::io::Error::other)?,
-        ),
+        Arc::new(MemoryWriteTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
     ]));
 
     // usecases
@@ -144,8 +130,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ));
     let task_usecase = Arc::new(TaskUsecase::new(
         task_repository.clone(),
-        session_repository.clone(),
-        task_result_repository.clone(),
         event_repository.clone(),
         token_usage_repository.clone(),
     ));
@@ -155,7 +139,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
-        session_repository.clone(),
         task_repository.clone(),
     ));
     let tool_approval_usecase =
@@ -168,13 +151,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         tool_executor.clone(),
         task_repository.clone(),
         message_repository.clone(),
-        task_result_repository.clone(),
         event_repository.clone(),
         token_usage_repository.clone(),
         event_service.clone(),
         tool_permission_repository.clone(),
         tool_approval_repository.clone(),
-        session_repository.clone(),
         instruction_service.clone(),
         model,
     ));
@@ -217,7 +198,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         )
         .route("/tasks", get(list_task_handler).post(create_task_handler))
         .route("/tasks/{id}", get(get_task_handler))
-        .route("/tasks/{id}/result", get(get_task_result_handler))
         .route("/tasks/{id}/events", get(list_task_event_handler))
         .route("/tasks/{id}/cancel", post(cancel_task_handler))
         .route("/tasks/{id}/usage", get(get_task_usage_handler))

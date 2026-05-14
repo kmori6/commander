@@ -8,32 +8,27 @@ use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::schedule_usecase::ScheduleExecutionOutcome;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
+use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
+use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
-use crate::infrastructure::persistence::postgres_schedule_repository::PostgresScheduleRepository;
-use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_task_result_repository::PostgresTaskResultRepository;
 use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
-use crate::infrastructure::persistence::postgres_tool_permission_repository::PostgresToolPermissionRepository;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 const DUE_WINDOW: chrono::Duration = chrono::Duration::seconds(60);
 
-type AppScheduleUsecase =
-    ScheduleUsecase<PostgresScheduleRepository, PostgresSessionRepository, PostgresTaskRepository>;
+type AppScheduleUsecase = ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>;
 
 type AppAgentRuntime = AgentRuntime<
     LlmGateway,
     PostgresTaskRepository,
     PostgresMessageRepository,
-    PostgresTaskResultRepository,
     PostgresEventRepository,
     PostgresTokenUsageRepository,
-    PostgresToolPermissionRepository,
+    FileToolPermissionRepository,
     PostgresToolApprovalRepository,
-    PostgresSessionRepository,
 >;
 
 pub struct ScheduleDaemon {

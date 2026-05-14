@@ -1,13 +1,9 @@
-pub mod embedding_provider_error;
 pub mod event_repository_error;
 pub mod llm_provider_error;
-pub mod memory_index_repository_error;
-pub mod memory_index_service_error;
 pub mod message_repository_error;
 pub mod schedule_repository_error;
 pub mod session_repository_error;
 pub mod task_repository_error;
-pub mod task_result_repository_error;
 pub mod token_usage_repository_error;
 pub mod tool_approval_repository_error;
 pub mod tool_executor_error;

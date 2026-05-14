@@ -1,10 +1,3 @@
-CREATE TABLE messages (
-  id UUID PRIMARY KEY DEFAULT uuidv7(),
-  session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE message_contents (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
   message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -24,9 +17,6 @@ CREATE TABLE message_contents (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (message_id, content_index)
 );
-
-CREATE INDEX idx_messages_session_created
-  ON messages(session_id, created_at, id);
 
 CREATE INDEX idx_message_contents_message_index
   ON message_contents(message_id, content_index);

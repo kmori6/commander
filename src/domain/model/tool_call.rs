@@ -33,11 +33,8 @@ impl ToolPermissionMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolPermission {
-    pub id: Uuid,
     pub tool_name: String,
     pub mode: ToolPermissionMode,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +67,8 @@ impl ToolApprovalStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolApproval {
     pub id: Uuid,
+    pub task_id: Uuid,
+    pub message_content_id: Uuid,
     pub message_id: Uuid,
     pub call_id: String,
     pub status: ToolApprovalStatus,

@@ -23,7 +23,7 @@ impl PostgresMessageRepository {
 #[derive(sqlx::FromRow)]
 struct MessageRow {
     id: Uuid,
-    session_id: Uuid,
+    task_id: Uuid,
     role: String,
     created_at: DateTime<Utc>,
 }
@@ -90,7 +90,7 @@ fn build_message(
 
     Ok(Message::new(
         row.id,
-        row.session_id,
+        row.task_id,
         role,
         contents,
         row.created_at,
@@ -169,7 +169,7 @@ fn content_to_db(
 impl MessageRepository for PostgresMessageRepository {
     async fn save(
         &self,
-        session_id: Uuid,
+        task_id: Uuid,
         role: Role,
         contents: Vec<MessageContent>,
     ) -> Result<Message, MessageRepositoryError> {
@@ -182,31 +182,45 @@ impl MessageRepository for PostgresMessageRepository {
 
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
 
-        let touched = sqlx::query_scalar::<_, Uuid>(
+        let session_id = sqlx::query_scalar::<_, Option<Uuid>>(
             r#"
-            UPDATE sessions
+            UPDATE tasks
             SET updated_at = NOW()
             WHERE id = $1
-            RETURNING id
+            RETURNING session_id
             "#,
         )
-        .bind(session_id)
+        .bind(task_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
 
-        if touched.is_none() {
-            return Err(MessageRepositoryError::SessionNotFound(session_id));
+        let Some(session_id) = session_id else {
+            return Err(MessageRepositoryError::TaskNotFound(task_id));
+        };
+
+        if let Some(session_id) = session_id {
+            sqlx::query(
+                r#"
+                UPDATE sessions
+                SET updated_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
         }
 
         let row = sqlx::query_as::<_, MessageRow>(
             r#"
-            INSERT INTO messages (session_id, role)
+            INSERT INTO messages (task_id, role)
             VALUES ($1, $2)
-            RETURNING id, session_id, role, created_at
+            RETURNING id, task_id, role, created_at
             "#,
         )
-        .bind(session_id)
+        .bind(task_id)
         .bind(role.as_str())
         .fetch_one(&mut *tx)
         .await
@@ -243,7 +257,7 @@ impl MessageRepository for PostgresMessageRepository {
 
         Ok(Message::new(
             row.id,
-            row.session_id,
+            row.task_id,
             role,
             contents,
             row.created_at,
@@ -253,7 +267,7 @@ impl MessageRepository for PostgresMessageRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>, MessageRepositoryError> {
         let row = sqlx::query_as::<_, MessageRow>(
             r#"
-            SELECT id, session_id, role, created_at
+            SELECT id, task_id, role, created_at
             FROM messages
             WHERE id = $1
             "#,
@@ -291,19 +305,16 @@ impl MessageRepository for PostgresMessageRepository {
         build_message(row, content_rows).map(Some)
     }
 
-    async fn list_for_session(
-        &self,
-        session_id: Uuid,
-    ) -> Result<Vec<Message>, MessageRepositoryError> {
+    async fn list_for_task(&self, task_id: Uuid) -> Result<Vec<Message>, MessageRepositoryError> {
         let message_rows = sqlx::query_as::<_, MessageRow>(
             r#"
-            SELECT id, session_id, role, created_at
+            SELECT id, task_id, role, created_at
             FROM messages
-            WHERE session_id = $1
+            WHERE task_id = $1
             ORDER BY created_at ASC, id ASC
             "#,
         )
-        .bind(session_id)
+        .bind(task_id)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -350,5 +361,28 @@ impl MessageRepository for PostgresMessageRepository {
                 build_message(row, content_rows)
             })
             .collect()
+    }
+
+    async fn find_tool_call_content_id(
+        &self,
+        message_id: Uuid,
+        call_id: &str,
+    ) -> Result<Option<Uuid>, MessageRepositoryError> {
+        sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT id
+            FROM message_contents
+            WHERE message_id = $1
+            AND type = 'tool_call'
+            AND call_id = $2
+            ORDER BY content_index ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(message_id)
+        .bind(call_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)
     }
 }

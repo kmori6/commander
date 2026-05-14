@@ -4,6 +4,36 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum TaskSourceKind {
+    Chat,
+    Schedule,
+    Task,
+    Manual,
+}
+
+impl TaskSourceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Schedule => "schedule",
+            Self::Task => "task",
+            Self::Manual => "manual",
+        }
+    }
+
+    pub fn from_db(value: &str) -> Option<Self> {
+        match value {
+            "chat" => Some(Self::Chat),
+            "schedule" => Some(Self::Schedule),
+            "task" => Some(Self::Task),
+            "manual" => Some(Self::Manual),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Queued,
     Running,
@@ -50,9 +80,14 @@ pub struct Task {
     pub id: Uuid,
     pub request: String,
     pub status: TaskStatus,
-    pub session_id: Uuid,
+    pub session_id: Option<Uuid>,
+    pub source_kind: TaskSourceKind,
     pub source_message_id: Option<Uuid>,
+    pub source_schedule_id: Option<Uuid>,
     pub parent_task_id: Option<Uuid>,
+    pub scheduled_at: Option<DateTime<Utc>>,
+    pub output: String,
+    pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
@@ -65,9 +100,14 @@ impl Task {
         id: Uuid,
         request: String,
         status: TaskStatus,
-        session_id: Uuid,
+        session_id: Option<Uuid>,
+        source_kind: TaskSourceKind,
         source_message_id: Option<Uuid>,
+        source_schedule_id: Option<Uuid>,
         parent_task_id: Option<Uuid>,
+        scheduled_at: Option<DateTime<Utc>>,
+        output: String,
+        error: Option<String>,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
         started_at: Option<DateTime<Utc>>,
@@ -78,8 +118,13 @@ impl Task {
             request,
             status,
             session_id,
+            source_kind,
             source_message_id,
+            source_schedule_id,
             parent_task_id,
+            scheduled_at,
+            output,
+            error,
             created_at,
             updated_at,
             started_at,

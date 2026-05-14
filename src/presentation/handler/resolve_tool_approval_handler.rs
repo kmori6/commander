@@ -21,6 +21,8 @@ pub enum ToolApprovalResolution {
 fn approval_json(approval: ToolApproval) -> serde_json::Value {
     json!({
         "id": approval.id.to_string(),
+        "task_id": approval.task_id.to_string(),
+        "message_content_id": approval.message_content_id.to_string(),
         "message_id": approval.message_id.to_string(),
         "call_id": approval.call_id,
         "status": approval.status.as_str(),

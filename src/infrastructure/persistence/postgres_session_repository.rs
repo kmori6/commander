@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::error::session_repository_error::SessionRepositoryError;
-use crate::domain::model::session::{Session, SessionKind, SessionStatus};
+use crate::domain::model::session::Session;
 use crate::domain::repository::session_repository::SessionRepository;
 
 #[derive(Clone)]
@@ -21,9 +21,7 @@ impl PostgresSessionRepository {
 #[derive(sqlx::FromRow)]
 struct SessionRow {
     id: Uuid,
-    kind: String,
     title: Option<String>,
-    status: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -32,19 +30,9 @@ impl TryFrom<SessionRow> for Session {
     type Error = SessionRepositoryError;
 
     fn try_from(row: SessionRow) -> Result<Self, Self::Error> {
-        let kind = SessionKind::from_db(&row.kind).ok_or_else(|| {
-            SessionRepositoryError::Unexpected(format!("unknown session kind: {}", row.kind))
-        })?;
-
-        let status = SessionStatus::from_db(&row.status).ok_or_else(|| {
-            SessionRepositoryError::Unexpected(format!("unknown session status: {}", row.status))
-        })?;
-
         Ok(Self {
             id: row.id,
-            kind,
             title: row.title,
-            status,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -57,19 +45,14 @@ fn map_sqlx_error(err: sqlx::Error) -> SessionRepositoryError {
 
 #[async_trait]
 impl SessionRepository for PostgresSessionRepository {
-    async fn create(
-        &self,
-        kind: SessionKind,
-        title: Option<String>,
-    ) -> Result<Session, SessionRepositoryError> {
+    async fn create(&self, title: Option<String>) -> Result<Session, SessionRepositoryError> {
         let row = sqlx::query_as::<_, SessionRow>(
             r#"
-            INSERT INTO sessions (kind, title)
-            VALUES ($1, $2)
-            RETURNING id, kind, title, status, created_at, updated_at
+            INSERT INTO sessions (title)
+            VALUES ($1)
+            RETURNING id, title, created_at, updated_at
             "#,
         )
-        .bind(kind.as_str())
         .bind(title.and_then(Session::normalize_title))
         .fetch_one(&self.pool)
         .await
@@ -81,7 +64,7 @@ impl SessionRepository for PostgresSessionRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Session>, SessionRepositoryError> {
         let row = sqlx::query_as::<_, SessionRow>(
             r#"
-            SELECT id, kind, title, status, created_at, updated_at
+            SELECT id, title, created_at, updated_at
             FROM sessions
             WHERE id = $1
             "#,
@@ -94,24 +77,18 @@ impl SessionRepository for PostgresSessionRepository {
         row.map(TryInto::try_into).transpose()
     }
 
-    async fn list_recent(
-        &self,
-        kind: Option<SessionKind>,
-        limit: usize,
-    ) -> Result<Vec<Session>, SessionRepositoryError> {
+    async fn list_recent(&self, limit: usize) -> Result<Vec<Session>, SessionRepositoryError> {
         let limit = i64::try_from(limit)
             .map_err(|_| SessionRepositoryError::Unexpected(format!("invalid limit: {limit}")))?;
 
         let rows = sqlx::query_as::<_, SessionRow>(
             r#"
-            SELECT id, kind, title, status, created_at, updated_at
+            SELECT id, title, created_at, updated_at
             FROM sessions
-            WHERE ($1::TEXT IS NULL OR kind = $1)
             ORDER BY updated_at DESC, id DESC
-            LIMIT $2
+            LIMIT $1
             "#,
         )
-        .bind(kind.map(SessionKind::as_str))
         .bind(limit)
         .fetch_all(&self.pool)
         .await
@@ -131,34 +108,11 @@ impl SessionRepository for PostgresSessionRepository {
             SET title = $2,
                 updated_at = NOW()
             WHERE id = $1
-            RETURNING id, kind, title, status, created_at, updated_at
+            RETURNING id, title, created_at, updated_at
             "#,
         )
         .bind(id)
         .bind(title.and_then(Session::normalize_title))
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-
-        row.ok_or(SessionRepositoryError::NotFound(id))?.try_into()
-    }
-
-    async fn update_status(
-        &self,
-        id: Uuid,
-        status: SessionStatus,
-    ) -> Result<Session, SessionRepositoryError> {
-        let row = sqlx::query_as::<_, SessionRow>(
-            r#"
-            UPDATE sessions
-            SET status = $2,
-                updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, kind, title, status, created_at, updated_at
-            "#,
-        )
-        .bind(id)
-        .bind(status.as_str())
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;

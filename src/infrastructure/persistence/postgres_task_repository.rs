@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::model::task::{Task, TaskStatus};
+use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 
 #[derive(Clone)]
@@ -23,9 +23,14 @@ struct TaskRow {
     id: Uuid,
     request: String,
     status: String,
-    session_id: Uuid,
+    session_id: Option<Uuid>,
+    source_kind: String,
     source_message_id: Option<Uuid>,
+    source_schedule_id: Option<Uuid>,
     parent_task_id: Option<Uuid>,
+    scheduled_at: Option<DateTime<Utc>>,
+    output: String,
+    error: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     started_at: Option<DateTime<Utc>>,
@@ -40,13 +45,25 @@ impl TryFrom<TaskRow> for Task {
             TaskRepositoryError::Unexpected(format!("unknown task status: {}", row.status))
         })?;
 
+        let source_kind = TaskSourceKind::from_db(&row.source_kind).ok_or_else(|| {
+            TaskRepositoryError::Unexpected(format!(
+                "unknown task source kind: {}",
+                row.source_kind
+            ))
+        })?;
+
         Ok(Self::new(
             row.id,
             row.request,
             status,
             row.session_id,
+            source_kind,
             row.source_message_id,
+            row.source_schedule_id,
             row.parent_task_id,
+            row.scheduled_at,
+            row.output,
+            row.error,
             row.created_at,
             row.updated_at,
             row.started_at,
@@ -74,6 +91,24 @@ fn map_sqlx_error(err: sqlx::Error) -> TaskRepositoryError {
     }
 }
 
+const TASK_COLUMNS: &str = r#"
+id,
+request,
+status,
+session_id,
+source_kind,
+source_message_id,
+source_schedule_id,
+parent_task_id,
+scheduled_at,
+output,
+error,
+created_at,
+updated_at,
+started_at,
+finished_at
+"#;
+
 #[async_trait]
 impl TaskRepository for PostgresTaskRepository {
     async fn create(&self, input: CreateTask) -> Result<Task, TaskRepositoryError> {
@@ -83,32 +118,28 @@ impl TaskRepository for PostgresTaskRepository {
             ));
         }
 
-        let row = sqlx::query_as::<_, TaskRow>(
+        let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             INSERT INTO tasks (
               request,
               session_id,
+              source_kind,
               source_message_id,
-              parent_task_id
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING
-              id,
-              request,
-              status,
-              session_id,
-              source_message_id,
+              source_schedule_id,
               parent_task_id,
-              created_at,
-              updated_at,
-              started_at,
-              finished_at
-            "#,
-        )
+              scheduled_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING {TASK_COLUMNS}
+            "#
+        ))
         .bind(input.request)
         .bind(input.session_id)
+        .bind(input.source_kind.as_str())
         .bind(input.source_message_id)
+        .bind(input.source_schedule_id)
         .bind(input.parent_task_id)
+        .bind(input.scheduled_at)
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -116,30 +147,82 @@ impl TaskRepository for PostgresTaskRepository {
         row.try_into()
     }
 
-    async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError> {
-        let row = sqlx::query_as::<_, TaskRow>(
+    async fn complete(&self, id: Uuid, output: String) -> Result<Task, TaskRepositoryError> {
+        let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
-            SELECT
-              id,
-              request,
-              status,
-              session_id,
-              source_message_id,
-              parent_task_id,
-              created_at,
-              updated_at,
-              started_at,
-              finished_at
+            UPDATE tasks
+            SET status = 'completed',
+                output = $2,
+                error = NULL,
+                updated_at = NOW(),
+                started_at = COALESCE(started_at, NOW()),
+                finished_at = NOW()
+            WHERE id = $1
+            RETURNING {TASK_COLUMNS}
+            "#
+        ))
+        .bind(id)
+        .bind(output)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        row.ok_or(TaskRepositoryError::NotFound(id))?.try_into()
+    }
+
+    async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError> {
+        let row = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            UPDATE tasks
+            SET status = 'failed',
+                error = $2,
+                updated_at = NOW(),
+                started_at = COALESCE(started_at, NOW()),
+                finished_at = NOW()
+            WHERE id = $1
+            RETURNING {TASK_COLUMNS}
+            "#
+        ))
+        .bind(id)
+        .bind(error)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        row.ok_or(TaskRepositoryError::NotFound(id))?.try_into()
+    }
+
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError> {
+        let row = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            SELECT {TASK_COLUMNS}
             FROM tasks
             WHERE id = $1
-            "#,
-        )
+            "#
+        ))
         .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
 
         row.map(TryInto::try_into).transpose()
+    }
+
+    async fn list_by_session_id(&self, session_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError> {
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+        SELECT {TASK_COLUMNS}
+        FROM tasks
+        WHERE session_id = $1
+        ORDER BY created_at ASC, id ASC
+        "#
+        ))
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
     }
 
     async fn list_recent(
@@ -150,25 +233,15 @@ impl TaskRepository for PostgresTaskRepository {
         let limit = i64::try_from(limit)
             .map_err(|_| TaskRepositoryError::Unexpected(format!("invalid limit: {limit}")))?;
 
-        let rows = sqlx::query_as::<_, TaskRow>(
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
-            SELECT
-              id,
-              request,
-              status,
-              session_id,
-              source_message_id,
-              parent_task_id,
-              created_at,
-              updated_at,
-              started_at,
-              finished_at
+            SELECT {TASK_COLUMNS}
             FROM tasks
             WHERE ($1::TEXT IS NULL OR status = $1)
             ORDER BY created_at DESC, id DESC
             LIMIT $2
-            "#,
-        )
+            "#
+        ))
         .bind(status.map(TaskStatus::as_str))
         .bind(limit)
         .fetch_all(&self.pool)
@@ -183,7 +256,7 @@ impl TaskRepository for PostgresTaskRepository {
         id: Uuid,
         status: TaskStatus,
     ) -> Result<Task, TaskRepositoryError> {
-        let row = sqlx::query_as::<_, TaskRow>(
+        let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             UPDATE tasks
             SET status = $2,
@@ -197,19 +270,9 @@ impl TaskRepository for PostgresTaskRepository {
                   ELSE finished_at
                 END
             WHERE id = $1
-            RETURNING
-              id,
-              request,
-              status,
-              session_id,
-              source_message_id,
-              parent_task_id,
-              created_at,
-              updated_at,
-              started_at,
-              finished_at
-            "#,
-        )
+            RETURNING {TASK_COLUMNS}
+            "#
+        ))
         .bind(id)
         .bind(status.as_str())
         .fetch_optional(&self.pool)
@@ -223,59 +286,47 @@ impl TaskRepository for PostgresTaskRepository {
         self.update_status(id, TaskStatus::CancelRequested).await
     }
 
-    async fn find_by_session_id(
+    async fn list_by_source_schedule_id(
         &self,
-        session_id: Uuid,
-    ) -> Result<Option<Task>, TaskRepositoryError> {
-        let row = sqlx::query_as::<_, TaskRow>(
-            r#"
-            SELECT id, request, status, session_id, source_message_id, parent_task_id,
-                created_at, updated_at, started_at, finished_at
-            FROM tasks
-            WHERE session_id = $1
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-
-        row.map(TryInto::try_into).transpose()
-    }
-
-    async fn list_by_source_message_ids(
-        &self,
-        source_message_ids: &[Uuid],
+        schedule_id: Uuid,
     ) -> Result<Vec<Task>, TaskRepositoryError> {
-        if source_message_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let rows = sqlx::query_as::<_, TaskRow>(
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
-            SELECT
-                id,
-                request,
-                status,
-                session_id,
-                source_message_id,
-                parent_task_id,
-                created_at,
-                updated_at,
-                started_at,
-                finished_at
+            SELECT {TASK_COLUMNS}
             FROM tasks
-            WHERE source_message_id = ANY($1)
-            ORDER BY created_at ASC, id ASC
-            "#,
-        )
-        .bind(source_message_ids)
+            WHERE source_kind = 'schedule'
+            AND source_schedule_id = $1
+            ORDER BY scheduled_at DESC NULLS LAST, created_at DESC, id DESC
+            "#
+        ))
+        .bind(schedule_id)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
 
         rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn find_by_source_schedule_id_and_scheduled_at(
+        &self,
+        schedule_id: Uuid,
+        scheduled_at: DateTime<Utc>,
+    ) -> Result<Option<Task>, TaskRepositoryError> {
+        let row = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            SELECT {TASK_COLUMNS}
+            FROM tasks
+            WHERE source_kind = 'schedule'
+            AND source_schedule_id = $1
+            AND scheduled_at = $2
+            "#
+        ))
+        .bind(schedule_id)
+        .bind(scheduled_at)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        row.map(TryInto::try_into).transpose()
     }
 }

@@ -59,7 +59,6 @@ pub const DEFAULT_PROFILE: AgentProfile = AgentProfile {
         "text_search",
         "web_search",
         "web_fetch",
-        "memory_search",
     ],
 };
 
