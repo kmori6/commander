@@ -41,7 +41,18 @@ pub async fn create_task_handler(
         .create(request.request, request.parent_task_id)
         .await
     {
-        Ok(task) => (StatusCode::CREATED, Json(task_json(task))),
+        Ok(task) => {
+            let task_id = task.id;
+            let agent_runtime = state.agent_runtime.clone();
+
+            tokio::spawn(async move {
+                if let Err(err) = agent_runtime.run(task_id, None).await {
+                    log::warn!("failed to run manual task {task_id}: {err}");
+                }
+            });
+
+            (StatusCode::ACCEPTED, Json(task_json(task)))
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
