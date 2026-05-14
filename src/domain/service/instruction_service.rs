@@ -20,6 +20,10 @@ impl InstructionService {
         }
     }
 
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
+
     fn agents_path(&self) -> PathBuf {
         self.workspace_root.join("AGENTS.md")
     }

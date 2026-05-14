@@ -1,6 +1,6 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::application::runtime::subagent;
-use crate::application::runtime::subagent::AgentProfile;
+use crate::application::runtime::subagent::{SubagentProfile, Subagents};
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
@@ -32,9 +32,9 @@ enum ToolCallRunOutcome {
     AwaitingApproval,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct RuntimeOptions {
-    profile: Option<&'static AgentProfile>,
+    profile: Option<Arc<SubagentProfile>>,
     expose_subagent: bool,
 }
 
@@ -46,7 +46,7 @@ impl RuntimeOptions {
         }
     }
 
-    fn child(profile: &'static AgentProfile) -> Self {
+    fn child(profile: Arc<SubagentProfile>) -> Self {
         Self {
             profile: Some(profile),
             expose_subagent: false,
@@ -178,7 +178,7 @@ where
 
         for step in 0..MAX_LLM_STEPS {
             let messages = self
-                .build_llm_messages(&task, user_contents.as_ref(), options)
+                .build_llm_messages(&task, user_contents.as_ref(), &options)
                 .await?;
             let model = self.model().await;
 
@@ -195,7 +195,7 @@ where
             let response = match self
                 .llm_provider
                 .respond(
-                    LlmRequest::new(model.clone(), messages).with_tools(self.tool_specs(options)),
+                    LlmRequest::new(model.clone(), messages).with_tools(self.tool_specs(&options)),
                 )
                 .await
             {
@@ -260,7 +260,7 @@ where
             }
 
             match self
-                .run_tool_calls(task_id, assistant_message.id, tool_calls, options)
+                .run_tool_calls(task_id, assistant_message.id, tool_calls, &options)
                 .await?
             {
                 ToolCallRunOutcome::Continue => {}
@@ -366,15 +366,15 @@ where
         &self,
         task: &Task,
         user_contents: Option<&Vec<MessageContent>>,
-        options: RuntimeOptions,
+        options: &RuntimeOptions,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut messages = Vec::new();
 
         let mut instruction = self.instruction_service.build_agent_instruction();
 
-        if let Some(profile) = options.profile {
+        if let Some(profile) = options.profile.as_ref() {
             instruction.push_str("\n\n# Child Agent Profile\n");
-            instruction.push_str(profile.instruction);
+            instruction.push_str(&profile.instruction);
         }
 
         messages.push(LlmMessage::system_text(instruction));
@@ -424,7 +424,7 @@ where
         task_id: Uuid,
         assistant_message_id: Uuid,
         tool_calls: Vec<ToolCall>,
-        options: RuntimeOptions,
+        options: &RuntimeOptions,
     ) -> Result<ToolCallRunOutcome, AgentRuntimeError> {
         let mut outputs = Vec::new();
 
@@ -549,17 +549,24 @@ where
         parent_task_id: Uuid,
         arguments: Value,
     ) -> Result<Value, AgentRuntimeError> {
-        let input = subagent::parse_input(arguments).map_err(AgentRuntimeError::Unsupported)?;
+        let subagents = Subagents::load(self.instruction_service.workspace_root());
+        let input = subagents
+            .parse_input(arguments)
+            .map_err(AgentRuntimeError::Unsupported)?;
 
         let mut child_jobs = Vec::new();
 
         for (index, task_input) in input.tasks.into_iter().enumerate() {
-            let profile = subagent::find_profile(&task_input.profile).ok_or_else(|| {
-                AgentRuntimeError::Unsupported(format!(
-                    "unsupported profile: {}",
-                    task_input.profile
-                ))
-            })?;
+            let profile = subagents
+                .find(&task_input.profile)
+                .cloned()
+                .map(Arc::new)
+                .ok_or_else(|| {
+                    AgentRuntimeError::Unsupported(format!(
+                        "unsupported profile: {}",
+                        task_input.profile
+                    ))
+                })?;
 
             let child_task = self
                 .task_repository
@@ -580,7 +587,7 @@ where
         let results = join_all(child_jobs.into_iter().map(
             |(index, task_id, profile)| async move {
                 let run_result = self
-                    .execute(task_id, true, None, RuntimeOptions::child(profile))
+                    .execute(task_id, true, None, RuntimeOptions::child(profile.clone()))
                     .await;
 
                 if let Err(err) = run_result {
@@ -678,24 +685,30 @@ where
     async fn resolve_tool_permission(
         &self,
         tool_name: &str,
-        options: RuntimeOptions,
+        options: &RuntimeOptions,
     ) -> Result<ToolPermissionMode, AgentRuntimeError> {
         // check for subagent allowed tools
-        if let Some(profile) = options.profile {
-            if !profile.allowed_tools.contains(&tool_name) {
+        if let Some(profile) = options.profile.as_ref() {
+            if !profile.allows_tool(tool_name) {
                 return Ok(ToolPermissionMode::Deny);
             }
 
-            if let Some(permission) = self
+            let mode = if let Some(permission) = self
                 .tool_permission_repository
                 .find_by_tool_name(tool_name)
                 .await?
-                && permission.mode == ToolPermissionMode::Deny
             {
-                return Ok(ToolPermissionMode::Deny);
-            }
+                permission.mode
+            } else {
+                self.tool_executor
+                    .default_permission(tool_name)
+                    .unwrap_or(ToolPermissionMode::Deny)
+            };
 
-            return Ok(ToolPermissionMode::Allow);
+            return Ok(match mode {
+                ToolPermissionMode::Allow => ToolPermissionMode::Allow,
+                ToolPermissionMode::Ask | ToolPermissionMode::Deny => ToolPermissionMode::Deny,
+            });
         }
 
         // check for root agent tools
@@ -713,16 +726,20 @@ where
             .unwrap_or(ToolPermissionMode::Deny))
     }
 
-    fn tool_specs(&self, options: RuntimeOptions) -> Vec<ToolSpec> {
+    fn tool_specs(&self, options: &RuntimeOptions) -> Vec<ToolSpec> {
         let mut specs = self.tool_executor.specs();
 
-        if let Some(profile) = options.profile {
-            specs.retain(|spec| profile.allowed_tools.contains(&spec.name.as_str()));
+        if let Some(profile) = options.profile.as_ref() {
+            specs.retain(|spec| profile.allows_tool(&spec.name));
             return specs;
         }
 
         if options.expose_subagent {
-            specs.push(subagent::tool_spec());
+            let subagents = Subagents::load(self.instruction_service.workspace_root());
+
+            if let Some(spec) = subagents.tool_spec() {
+                specs.push(spec);
+            }
         }
 
         specs

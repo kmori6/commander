@@ -1,11 +1,9 @@
+use crate::domain::model::tool_call::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-
-use crate::domain::model::tool_call::ToolSpec;
+use std::path::Path;
 
 pub const SUBAGENT_TOOL_NAME: &str = "subagent";
-pub const DEFAULT_PROFILE_NAME: &str = "default";
-pub const MAX_SUBAGENT_TASKS: usize = 3;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SubagentInput {
@@ -43,114 +41,193 @@ pub enum SubagentTaskStatus {
     Cancelled,
 }
 
-pub struct AgentProfile {
-    pub name: &'static str,
-    pub instruction: &'static str,
-    pub allowed_tools: &'static [&'static str],
+#[derive(Debug, Deserialize)]
+struct SubagentProfileFile {
+    #[serde(default)]
+    description: String,
+    instruction: String,
+    #[serde(default)]
+    allowed_tools: Vec<String>,
 }
 
-pub const DEFAULT_PROFILE: AgentProfile = AgentProfile {
-    name: DEFAULT_PROFILE_NAME,
-    instruction: "You are a focused child agent. Handle the given child task independently, gather evidence, analyze, compare, and summarize the result. Do not modify files or perform write actions.",
-    allowed_tools: &[
-        "file_list",
-        "file_read",
-        "file_search",
-        "text_search",
-        "web_search",
-        "web_fetch",
-    ],
-};
+impl SubagentProfile {
+    fn from_file(name: &str, file: SubagentProfileFile) -> Option<Self> {
+        let instruction = file.instruction.trim().to_string();
+        let allowed_tools = file
+            .allowed_tools
+            .into_iter()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .collect::<Vec<_>>();
 
-pub fn find_profile(name: &str) -> Option<&'static AgentProfile> {
-    match name {
-        DEFAULT_PROFILE_NAME => Some(&DEFAULT_PROFILE),
-        _ => None,
-    }
-}
-
-pub fn supported_profile_names() -> &'static [&'static str] {
-    &[DEFAULT_PROFILE_NAME]
-}
-
-pub fn parse_input(arguments: Value) -> Result<SubagentInput, String> {
-    let mut input = serde_json::from_value::<SubagentInput>(arguments)
-        .map_err(|err| format!("invalid subagent arguments: {err}"))?;
-
-    for task in &mut input.tasks {
-        task.profile = task.profile.trim().to_string();
-        task.request = task.request.trim().to_string();
-    }
-
-    validate_input(&input)?;
-
-    Ok(input)
-}
-
-fn validate_input(input: &SubagentInput) -> Result<(), String> {
-    if input.tasks.is_empty() {
-        return Err("subagent requires at least one task".to_string());
-    }
-
-    if input.tasks.len() > MAX_SUBAGENT_TASKS {
-        return Err(format!(
-            "subagent accepts at most {MAX_SUBAGENT_TASKS} tasks"
-        ));
-    }
-
-    for (index, task) in input.tasks.iter().enumerate() {
-        if task.profile.is_empty() {
-            return Err(format!("tasks[{index}].profile must not be empty"));
+        if name.trim().is_empty() || instruction.is_empty() || allowed_tools.is_empty() {
+            return None;
         }
 
-        if task.request.is_empty() {
-            return Err(format!("tasks[{index}].request must not be empty"));
-        }
-
-        if find_profile(&task.profile).is_none() {
-            return Err(format!(
-                "unsupported profile: {}. Supported profiles: {}",
-                task.profile,
-                supported_profile_names().join(", ")
-            ));
-        }
+        Some(Self {
+            name: name.trim().to_string(),
+            description: file.description.trim().to_string(),
+            instruction,
+            allowed_tools,
+        })
     }
 
-    Ok(())
+    pub fn allows_tool(&self, tool_name: &str) -> bool {
+        self.allowed_tools.iter().any(|tool| tool == tool_name)
+    }
+
+    fn summary(&self) -> String {
+        if self.description.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}: {}", self.name, self.description)
+        }
+    }
 }
 
-pub fn tool_spec() -> ToolSpec {
-    ToolSpec {
-        name: SUBAGENT_TOOL_NAME.to_string(),
-        description: "Run focused child tasks in parallel and return their final results. Available profiles: default.".to_string(),
-        parameters: json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "tasks": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": MAX_SUBAGENT_TASKS,
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                            "profile": {
-                                "type": "string",
-                                "minLength": 1,
-                                "description": "Registered child-agent profile name. Currently supported: default."
-                            },
-                            "request": {
-                                "type": "string",
-                                "minLength": 1,
-                                "description": "Concrete request for the child task."
-                            }
-                        },
-                        "required": ["profile", "request"]
+#[derive(Debug, Clone)]
+pub struct SubagentProfile {
+    pub name: String,
+    pub description: String,
+    pub instruction: String,
+    pub allowed_tools: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Subagents {
+    profiles: Vec<SubagentProfile>,
+}
+
+impl Subagents {
+    pub fn load(workspace_root: &Path) -> Self {
+        let root = workspace_root.join("subagents");
+        let mut profiles = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                if path.extension().and_then(|v| v.to_str()) != Some("json") {
+                    continue;
+                }
+
+                let Some(name) = path.file_stem().and_then(|v| v.to_str()) else {
+                    continue;
+                };
+
+                let Ok(content) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+
+                match serde_json::from_str::<SubagentProfileFile>(&content) {
+                    Ok(file) => {
+                        if let Some(profile) = SubagentProfile::from_file(name, file) {
+                            profiles.push(profile);
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("invalid subagent profile {}: {err}", path.display());
                     }
                 }
-            },
-            "required": ["tasks"]
-        }),
+            }
+        }
+
+        profiles.sort_by(|a, b| a.name.cmp(&b.name));
+        Self { profiles }
+    }
+
+    pub fn find(&self, name: &str) -> Option<&SubagentProfile> {
+        self.profiles.iter().find(|profile| profile.name == name)
+    }
+
+    fn validate_input(&self, input: &SubagentInput) -> Result<(), String> {
+        if input.tasks.is_empty() {
+            return Err("subagent requires at least one task".to_string());
+        }
+
+        let supported = self
+            .profiles
+            .iter()
+            .map(|profile| profile.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        for (index, task) in input.tasks.iter().enumerate() {
+            if task.profile.is_empty() {
+                return Err(format!("tasks[{index}].profile must not be empty"));
+            }
+
+            if task.request.is_empty() {
+                return Err(format!("tasks[{index}].request must not be empty"));
+            }
+
+            if self.find(&task.profile).is_none() {
+                return Err(format!(
+                    "unsupported profile: {}. Supported profiles: {}",
+                    task.profile, supported
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn parse_input(&self, arguments: Value) -> Result<SubagentInput, String> {
+        let mut input = serde_json::from_value::<SubagentInput>(arguments)
+            .map_err(|err| format!("invalid subagent arguments: {err}"))?;
+
+        for task in &mut input.tasks {
+            task.profile = task.profile.trim().to_string();
+            task.request = task.request.trim().to_string();
+        }
+
+        self.validate_input(&input)?;
+        Ok(input)
+    }
+
+    pub fn tool_spec(&self) -> Option<ToolSpec> {
+        if self.profiles.is_empty() {
+            return None;
+        }
+
+        let names = self
+            .profiles
+            .iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>();
+
+        let descriptions = self
+            .profiles
+            .iter()
+            .map(|p| p.summary())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        Some(ToolSpec {
+            name: SUBAGENT_TOOL_NAME.to_string(),
+            description: format!(
+                "Run focused child tasks in parallel and return their final results. Available profiles: {descriptions}."
+            ),
+            parameters: json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "profile": { "type": "string", "enum": names },
+                                "request": { "type": "string", "minLength": 1 }
+                            },
+                            "required": ["profile", "request"]
+                        }
+                    }
+                },
+                "required": ["tasks"]
+            }),
+        })
     }
 }
