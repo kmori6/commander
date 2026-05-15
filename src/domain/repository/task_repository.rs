@@ -52,4 +52,11 @@ pub trait TaskRepository: Send + Sync {
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
     ) -> Result<Option<Task>, TaskRepositoryError>;
+
+    async fn list_by_parent_task_id(
+        &self,
+        parent_task_id: Uuid,
+        status: Option<TaskStatus>,
+        limit: usize,
+    ) -> Result<Vec<Task>, TaskRepositoryError>;
 }

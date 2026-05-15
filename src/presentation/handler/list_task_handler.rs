@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::domain::model::task::{Task, TaskStatus};
 use crate::presentation::state::app_state::AppState;
@@ -16,6 +17,7 @@ const MAX_LIMIT: usize = 100;
 #[derive(Debug, Deserialize)]
 pub struct ListTaskQuery {
     pub status: Option<TaskStatus>,
+    pub parent_task_id: Option<Uuid>,
     pub limit: Option<usize>,
 }
 
@@ -45,7 +47,11 @@ pub async fn list_task_handler(
 ) -> impl IntoResponse {
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
 
-    match state.task_usecase.list(query.status, limit).await {
+    match state
+        .task_usecase
+        .list(query.status, query.parent_task_id, limit)
+        .await
+    {
         Ok(tasks) => (
             StatusCode::OK,
             Json(json!({

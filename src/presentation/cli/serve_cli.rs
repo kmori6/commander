@@ -75,6 +75,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // env
     let database_url = env::var("DATABASE_URL")
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::NotFound, err))?;
+    let sandbox_image = env::var("SANDBOX_IMAGE")
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::NotFound, err))?;
     let paths = CommanderPaths::resolve().map_err(std::io::Error::other)?;
     paths.ensure_dirs().await.map_err(std::io::Error::other)?;
     let workspace_root = paths.workspace_path().to_path_buf();
@@ -111,7 +113,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(FileSearchTool::new(workspace_root.clone())),
         Arc::new(TextSearchTool::new(workspace_root.clone())),
         Arc::new(TranscribeTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
-        Arc::new(ShellTool::new(workspace_root.clone())),
+        Arc::new(ShellTool::new(
+            workspace_root.clone(),
+            paths.sandbox_env_path(),
+            sandbox_image,
+        )),
         Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
         Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
         Arc::new(VisualInspectTool::new(

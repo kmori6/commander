@@ -1,167 +1,43 @@
+use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::model::tool_call::ToolPermissionMode;
+use crate::domain::port::tool::Tool;
+use crate::infrastructure::process::docker_sandbox_runner::DockerSandboxRunner;
+use crate::infrastructure::process::process_types::ProcessRequest;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
-use crate::domain::model::tool_call::ToolPermissionMode;
-use crate::domain::port::tool::Tool;
-use crate::infrastructure::process::process_manager::ProcessManager;
-use crate::infrastructure::process::process_runner::{ProcessRequest, ProcessRunner};
-
-const DEFAULT_FOREGROUND_TIMEOUT_SECONDS: u64 = 120;
-const DEFAULT_BACKGROUND_TIMEOUT_SECONDS: u64 = 1800;
-const MAX_FOREGROUND_TIMEOUT_SECONDS: u64 = 600;
-const MAX_BACKGROUND_TIMEOUT_SECONDS: u64 = 3600;
-const MAX_FOREGROUND_OUTPUT_BYTES: usize = 32_000;
-const MAX_BACKGROUND_LOG_BYTES: usize = 64_000;
+const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
+const MAX_TIMEOUT_SECONDS: u64 = 600;
+const MAX_OUTPUT_BYTES: usize = 32_000;
 
 #[derive(Clone)]
 pub struct ShellTool {
     workspace_root: PathBuf,
-    process_runner: ProcessRunner,
-    process_manager: ProcessManager,
+    sandbox_runner: DockerSandboxRunner,
 }
 
 impl ShellTool {
-    pub fn new(workspace_root: PathBuf) -> Self {
+    pub fn new(workspace_root: PathBuf, env_file: PathBuf, image: String) -> Self {
         Self {
             workspace_root: workspace_root.clone(),
-            process_runner: ProcessRunner::new(workspace_root.clone(), MAX_FOREGROUND_OUTPUT_BYTES),
-            process_manager: ProcessManager::new(workspace_root, MAX_BACKGROUND_LOG_BYTES),
+            sandbox_runner: DockerSandboxRunner::new(
+                workspace_root,
+                env_file,
+                image,
+                MAX_OUTPUT_BYTES,
+            ),
         }
     }
-
-    async fn execute_run(&self, args: ShellArguments) -> Result<Value, ToolExecutorError> {
-        let command = required_command(&args)?;
-        validate_hard_block(command)?;
-
-        let background = args.background.unwrap_or(false);
-
-        let default_timeout = if background {
-            DEFAULT_BACKGROUND_TIMEOUT_SECONDS
-        } else {
-            DEFAULT_FOREGROUND_TIMEOUT_SECONDS
-        };
-
-        let max_timeout = if background {
-            MAX_BACKGROUND_TIMEOUT_SECONDS
-        } else {
-            MAX_FOREGROUND_TIMEOUT_SECONDS
-        };
-
-        let timeout_seconds = args.timeout.unwrap_or(default_timeout);
-
-        if timeout_seconds == 0 || timeout_seconds > max_timeout {
-            return Err(ToolExecutorError::InvalidArguments(format!(
-                "timeout must be between 1 and {max_timeout} seconds"
-            )));
-        }
-
-        let cwd = resolve_workspace_cwd(&self.workspace_root, args.cwd.as_deref())?;
-
-        let request = ProcessRequest {
-            command: command.to_string(),
-            timeout: Duration::from_secs(timeout_seconds),
-            cwd,
-        };
-
-        if background {
-            let started = self
-                .process_manager
-                .start_shell(request)
-                .await
-                .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
-
-            return Ok(json!({
-                "mode": "background",
-                "process_id": started.process_id,
-                "status": started.status,
-                "command": started.command,
-                "cwd": started.cwd,
-                "pid": started.pid,
-                "started_at": started.started_at
-            }));
-        }
-
-        let output = self
-            .process_runner
-            .run_shell(request)
-            .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
-
-        Ok(json!({
-            "mode": "foreground",
-            "exit_code": output.exit_code,
-            "stdout": output.stdout,
-            "stderr": output.stderr,
-            "truncated": output.truncated
-        }))
-    }
-
-    async fn execute_status(&self, args: ShellArguments) -> Result<Value, ToolExecutorError> {
-        let process_id = required_process_id(&args)?;
-
-        let snapshot = self
-            .process_manager
-            .status(process_id)
-            .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
-
-        serde_json::to_value(snapshot)
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))
-    }
-
-    async fn execute_logs(&self, args: ShellArguments) -> Result<Value, ToolExecutorError> {
-        let process_id = required_process_id(&args)?;
-
-        let logs = self
-            .process_manager
-            .logs(process_id)
-            .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
-
-        serde_json::to_value(logs)
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))
-    }
-
-    async fn execute_kill(&self, args: ShellArguments) -> Result<Value, ToolExecutorError> {
-        let process_id = required_process_id(&args)?;
-
-        let snapshot = self
-            .process_manager
-            .kill(process_id)
-            .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
-
-        serde_json::to_value(snapshot)
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ShellAction {
-    Run,
-    Status,
-    Logs,
-    Kill,
-}
-
-fn default_shell_action() -> ShellAction {
-    ShellAction::Run
 }
 
 #[derive(Debug, Deserialize)]
 struct ShellArguments {
-    #[serde(default = "default_shell_action")]
-    action: ShellAction,
-    command: Option<String>,
+    command: String,
     timeout: Option<u64>,
     cwd: Option<String>,
-    background: Option<bool>,
-    process_id: Option<String>,
 }
 
 #[async_trait]
@@ -171,7 +47,7 @@ impl Tool for ShellTool {
     }
 
     fn description(&self) -> &'static str {
-        "Run shell commands in the workspace. Use action=run with background=false for quick commands that should return stdout/stderr immediately. Use action=run with background=true for long-running commands, coding CLIs, and dev servers, then use action=status/logs/kill with the returned process_id."
+        "Run a non-interactive shell command in the Docker sandbox and return stdout, stderr, and exit_code."
     }
 
     fn default_permission(&self) -> ToolPermissionMode {
@@ -182,35 +58,22 @@ impl Tool for ShellTool {
         json!({
             "type": "object",
             "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["run", "status", "logs", "kill"],
-                    "description": "Required. run starts a command; status shows background process state; logs returns captured stdout/stderr; kill stops a background process."
-                },
                 "command": {
                     "type": "string",
-                    "description": "Required when action=run. Non-interactive shell command to execute."
-                },
-                "process_id": {
-                    "type": "string",
-                    "description": "Required when action=status, action=logs, or action=kill. Use the process_id returned by action=run with background=true."
-                },
-                "background": {
-                    "type": "boolean",
-                    "description": "Only used when action=run. false waits and returns stdout/stderr/exit_code; true returns immediately with process_id. Use true for long-running commands, coding CLIs, and dev servers."
+                    "description": "Non-interactive shell command to execute."
                 },
                 "cwd": {
                     "type": "string",
-                    "description": "Only used when action=run. Workspace-relative working directory; omit to run from the workspace root."
+                    "description": "Workspace-relative working directory; omit to run from the workspace root."
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Only used when action=run. Maximum runtime in seconds. Foreground default: 120, max: 600. Background default: 1800, max: 3600.",
+                    "description": "Maximum runtime in seconds. Default: 120, max: 600.",
                     "minimum": 1,
-                    "maximum": MAX_BACKGROUND_TIMEOUT_SECONDS
-                },
+                    "maximum": MAX_TIMEOUT_SECONDS
+                }
             },
-            "required": ["action"],
+            "required": ["command"],
             "additionalProperties": false
         })
     }
@@ -219,12 +82,40 @@ impl Tool for ShellTool {
         let args: ShellArguments = serde_json::from_value(arguments)
             .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
 
-        match args.action {
-            ShellAction::Run => self.execute_run(args).await,
-            ShellAction::Status => self.execute_status(args).await,
-            ShellAction::Logs => self.execute_logs(args).await,
-            ShellAction::Kill => self.execute_kill(args).await,
+        let command = args.command.trim();
+        if command.is_empty() {
+            return Err(ToolExecutorError::InvalidArguments(
+                "command must not be empty".to_string(),
+            ));
         }
+
+        validate_hard_block(command)?;
+
+        let timeout_seconds = args.timeout.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
+        if timeout_seconds == 0 || timeout_seconds > MAX_TIMEOUT_SECONDS {
+            return Err(ToolExecutorError::InvalidArguments(format!(
+                "timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds"
+            )));
+        }
+
+        let request = ProcessRequest {
+            command: command.to_string(),
+            timeout: Duration::from_secs(timeout_seconds),
+            cwd: resolve_workspace_cwd(&self.workspace_root, args.cwd.as_deref())?,
+        };
+
+        let output = self
+            .sandbox_runner
+            .run_shell(request)
+            .await
+            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+
+        Ok(json!({
+            "exit_code": output.exit_code,
+            "stdout": output.stdout,
+            "stderr": output.stderr,
+            "truncated": output.truncated
+        }))
     }
 }
 
@@ -326,26 +217,4 @@ fn resolve_workspace_cwd(
     }
 
     Ok(Some(candidate))
-}
-
-fn required_command(args: &ShellArguments) -> Result<&str, ToolExecutorError> {
-    args.command
-        .as_deref()
-        .map(str::trim)
-        .filter(|command| !command.is_empty())
-        .ok_or_else(|| {
-            ToolExecutorError::InvalidArguments("command is required when action=run".to_string())
-        })
-}
-
-fn required_process_id(args: &ShellArguments) -> Result<&str, ToolExecutorError> {
-    args.process_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|process_id| !process_id.is_empty())
-        .ok_or_else(|| {
-            ToolExecutorError::InvalidArguments(
-                "process_id is required for this action".to_string(),
-            )
-        })
 }

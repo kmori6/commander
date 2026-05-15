@@ -77,6 +77,10 @@ impl CommanderPaths {
     pub fn schedules_path(&self) -> PathBuf {
         self.schedules_dir().join("crons.json")
     }
+
+    pub fn sandbox_env_path(&self) -> PathBuf {
+        self.config_dir().join(".env")
+    }
 }
 
 fn user_home_dir() -> io::Result<PathBuf> {

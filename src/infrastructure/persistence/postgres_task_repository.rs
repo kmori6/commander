@@ -329,4 +329,33 @@ impl TaskRepository for PostgresTaskRepository {
 
         row.map(TryInto::try_into).transpose()
     }
+
+    async fn list_by_parent_task_id(
+        &self,
+        parent_task_id: Uuid,
+        status: Option<TaskStatus>,
+        limit: usize,
+    ) -> Result<Vec<Task>, TaskRepositoryError> {
+        let limit = i64::try_from(limit)
+            .map_err(|_| TaskRepositoryError::Unexpected(format!("invalid limit: {limit}")))?;
+
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            SELECT {TASK_COLUMNS}
+            FROM tasks
+            WHERE parent_task_id = $1
+            AND ($2::TEXT IS NULL OR status = $2)
+            ORDER BY created_at ASC, id ASC
+            LIMIT $3
+            "#
+        ))
+        .bind(parent_task_id)
+        .bind(status.map(TaskStatus::as_str))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
 }

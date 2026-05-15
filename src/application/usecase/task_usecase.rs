@@ -72,8 +72,17 @@ where
     pub async fn list(
         &self,
         status: Option<TaskStatus>,
+        parent_task_id: Option<Uuid>,
         limit: usize,
     ) -> Result<Vec<Task>, TaskUsecaseError> {
+        if let Some(parent_task_id) = parent_task_id {
+            return self
+                .task_repository
+                .list_by_parent_task_id(parent_task_id, status, limit)
+                .await
+                .map_err(Into::into);
+        }
+
         self.task_repository
             .list_recent(status, limit)
             .await
