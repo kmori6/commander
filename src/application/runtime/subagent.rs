@@ -1,16 +1,9 @@
-use crate::domain::model::task::Task;
 use crate::domain::model::tool_call::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::Path;
 
 pub const SUBAGENT_TOOL_NAME: &str = "subagent";
-pub const SUBAGENT_STATUS_TOOL_NAME: &str = "subagent_status";
-
-const DEFAULT_SUBAGENT_STATUS_LIMIT: usize = 20;
-const MAX_SUBAGENT_STATUS_LIMIT: usize = 100;
-const SUBAGENT_STATUS_OUTPUT_MAX_CHARS: usize = 4000;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
@@ -58,129 +51,6 @@ pub enum SubagentTaskStatus {
     Completed,
     Failed,
     Cancelled,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SubagentStatusInput {
-    #[serde(default)]
-    pub task_id: Option<String>,
-    #[serde(default = "default_subagent_status_limit")]
-    pub limit: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SubagentStatusOutput {
-    pub count: usize,
-    pub tasks: Vec<SubagentStatusTaskOutput>,
-}
-
-impl SubagentStatusOutput {
-    pub fn new(tasks: Vec<SubagentStatusTaskOutput>) -> Self {
-        Self {
-            count: tasks.len(),
-            tasks,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SubagentStatusTaskOutput {
-    pub task_id: String,
-    pub parent_task_id: Option<String>,
-    pub status: String,
-    pub request: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<String>,
-    pub output_truncated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub finished_at: Option<String>,
-}
-
-impl SubagentStatusTaskOutput {
-    pub fn from_task(task: &Task) -> Self {
-        let (output, output_truncated) = if task.output.is_empty() {
-            (None, false)
-        } else {
-            let (output, truncated) =
-                truncate_chars(&task.output, SUBAGENT_STATUS_OUTPUT_MAX_CHARS);
-            (Some(output), truncated)
-        };
-
-        Self {
-            task_id: task.id.to_string(),
-            parent_task_id: task.parent_task_id.map(|id| id.to_string()),
-            status: task.status.as_str().to_string(),
-            request: task.request.clone(),
-            output,
-            output_truncated,
-            error: task.error.clone(),
-            created_at: task.created_at.to_rfc3339(),
-            updated_at: task.updated_at.to_rfc3339(),
-            started_at: task.started_at.map(|dt| dt.to_rfc3339()),
-            finished_at: task.finished_at.map(|dt| dt.to_rfc3339()),
-        }
-    }
-}
-
-pub fn parse_subagent_status_input(arguments: Value) -> Result<SubagentStatusInput, String> {
-    let mut input = serde_json::from_value::<SubagentStatusInput>(arguments)
-        .map_err(|err| format!("invalid subagent_status arguments: {err}"))?;
-
-    input.task_id = input
-        .task_id
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-
-    if input.limit == 0 {
-        input.limit = DEFAULT_SUBAGENT_STATUS_LIMIT;
-    }
-
-    input.limit = input.limit.min(MAX_SUBAGENT_STATUS_LIMIT);
-
-    Ok(input)
-}
-
-pub fn subagent_status_tool_spec() -> ToolSpec {
-    ToolSpec {
-        name: SUBAGENT_STATUS_TOOL_NAME.to_string(),
-        description: "Get status and results for child tasks spawned by the current task. Without task_id, lists child tasks for the current task. With task_id, returns that child task if it belongs to the current task.".to_string(),
-        parameters: json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "Optional child task ID to inspect."
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": MAX_SUBAGENT_STATUS_LIMIT,
-                    "description": "Maximum number of child tasks to return when task_id is omitted. Defaults to 20."
-                }
-            },
-            "required": []
-        }),
-    }
-}
-
-fn default_subagent_status_limit() -> usize {
-    DEFAULT_SUBAGENT_STATUS_LIMIT
-}
-
-fn truncate_chars(text: &str, max_chars: usize) -> (String, bool) {
-    if text.chars().count() <= max_chars {
-        return (text.to_string(), false);
-    }
-
-    let truncated = text.chars().take(max_chars).collect::<String>();
-    (format!("{truncated}\n... [truncated]"), true)
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,6 +1,7 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::application::runtime::subagent;
 use crate::application::runtime::subagent::{SubagentMode, SubagentProfile, Subagents};
+use crate::application::runtime::task_status;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
@@ -443,7 +444,7 @@ where
             .await?;
 
             // tool executor does not have subagent, so we need to resolve permission for subagent tool call here
-            let mode = if is_subagent_runtime_tool(&call.tool_name) {
+            let mode = if is_runtime_tool(&call.tool_name) {
                 if options.expose_subagent {
                     ToolPermissionMode::Allow
                 } else {
@@ -518,11 +519,8 @@ where
                                 ToolCallOutput::error(call.call_id.clone(), err.to_string())
                             }
                         }
-                    } else if call.tool_name == subagent::SUBAGENT_STATUS_TOOL_NAME {
-                        match self
-                            .execute_subagent_status(task_id, call.arguments.clone())
-                            .await
-                        {
+                    } else if call.tool_name == task_status::TASK_STATUS_TOOL_NAME {
+                        match self.execute_task_status(call.arguments.clone()).await {
                             Ok(output) => ToolCallOutput::success(call.call_id.clone(), output),
                             Err(err) => {
                                 ToolCallOutput::error(call.call_id.clone(), err.to_string())
@@ -718,18 +716,13 @@ where
             .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))
     }
 
-    async fn execute_subagent_status(
-        &self,
-        parent_task_id: Uuid,
-        arguments: Value,
-    ) -> Result<Value, AgentRuntimeError> {
-        let input = subagent::parse_subagent_status_input(arguments)
+    async fn execute_task_status(&self, arguments: Value) -> Result<Value, AgentRuntimeError> {
+        let input = task_status::parse_task_status_input(arguments)
             .map_err(AgentRuntimeError::Unsupported)?;
 
         let tasks = if let Some(task_id) = input.task_id {
-            let task_id = Uuid::parse_str(&task_id).map_err(|err| {
-                AgentRuntimeError::Unsupported(format!("invalid subagent task_id: {err}"))
-            })?;
+            let task_id = Uuid::parse_str(&task_id)
+                .map_err(|err| AgentRuntimeError::Unsupported(format!("invalid task_id: {err}")))?;
 
             let task = self
                 .task_repository
@@ -737,23 +730,28 @@ where
                 .await?
                 .ok_or(AgentRuntimeError::TaskNotFound)?;
 
-            if task.parent_task_id != Some(parent_task_id) {
-                return Err(AgentRuntimeError::Unsupported(format!(
-                    "task is not a child of current task: {task_id}"
-                )));
-            }
+            vec![task_status::TaskStatusTaskOutput::from_task(&task, true)]
+        } else if let Some(parent_task_id) = input.parent_task_id {
+            let parent_task_id = Uuid::parse_str(&parent_task_id).map_err(|err| {
+                AgentRuntimeError::Unsupported(format!("invalid parent_task_id: {err}"))
+            })?;
 
-            vec![subagent::SubagentStatusTaskOutput::from_task(&task)]
-        } else {
             self.task_repository
-                .list_by_parent_task_id(parent_task_id, None, input.limit)
+                .list_by_parent_task_id(parent_task_id, input.status, input.limit)
                 .await?
                 .iter()
-                .map(subagent::SubagentStatusTaskOutput::from_task)
+                .map(|task| task_status::TaskStatusTaskOutput::from_task(task, false))
+                .collect()
+        } else {
+            self.task_repository
+                .list_recent(input.status, input.limit)
+                .await?
+                .iter()
+                .map(|task| task_status::TaskStatusTaskOutput::from_task(task, false))
                 .collect()
         };
 
-        serde_json::to_value(subagent::SubagentStatusOutput::new(tasks))
+        serde_json::to_value(task_status::TaskStatusOutput::new(tasks))
             .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))
     }
 
@@ -837,15 +835,15 @@ where
                 specs.push(spec);
             }
 
-            specs.push(subagent::subagent_status_tool_spec());
+            specs.push(task_status::task_status_tool_spec());
         }
 
         specs
     }
 }
 
-fn is_subagent_runtime_tool(tool_name: &str) -> bool {
-    tool_name == subagent::SUBAGENT_TOOL_NAME || tool_name == subagent::SUBAGENT_STATUS_TOOL_NAME
+fn is_runtime_tool(tool_name: &str) -> bool {
+    tool_name == subagent::SUBAGENT_TOOL_NAME || tool_name == task_status::TASK_STATUS_TOOL_NAME
 }
 
 fn to_llm_message(message: Message) -> LlmMessage {
