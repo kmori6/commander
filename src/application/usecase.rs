@@ -4,3 +4,4 @@ pub mod session_usecase;
 pub mod task_usecase;
 pub mod tool_approval_usecase;
 pub mod tool_usecase;
+pub mod watch_usecase;

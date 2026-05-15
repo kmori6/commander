@@ -78,6 +78,10 @@ impl CommanderPaths {
         self.schedules_dir().join("crons.json")
     }
 
+    pub fn watch_config_path(&self) -> PathBuf {
+        self.config_dir().join("watch.json")
+    }
+
     pub fn sandbox_env_path(&self) -> PathBuf {
         self.config_dir().join(".env")
     }

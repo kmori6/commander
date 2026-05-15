@@ -9,6 +9,7 @@ pub enum TaskSourceKind {
     Schedule,
     Task,
     Manual,
+    Watch,
 }
 
 impl TaskSourceKind {
@@ -18,6 +19,7 @@ impl TaskSourceKind {
             Self::Schedule => "schedule",
             Self::Task => "task",
             Self::Manual => "manual",
+            Self::Watch => "watch",
         }
     }
 
@@ -27,6 +29,7 @@ impl TaskSourceKind {
             "schedule" => Some(Self::Schedule),
             "task" => Some(Self::Task),
             "manual" => Some(Self::Manual),
+            "watch" => Some(Self::Watch),
             _ => None,
         }
     }

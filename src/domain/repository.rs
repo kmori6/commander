@@ -6,3 +6,4 @@ pub mod task_repository;
 pub mod token_usage_repository;
 pub mod tool_approval_repository;
 pub mod tool_permission_repository;
+pub mod watch_repository;

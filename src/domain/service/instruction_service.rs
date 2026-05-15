@@ -36,6 +36,10 @@ impl InstructionService {
         self.workspace_root.join("skills")
     }
 
+    fn watch_path(&self) -> PathBuf {
+        self.workspace_root.join("WATCH.md")
+    }
+
     pub fn build_agent_instruction(&self) -> String {
         let mut sections = vec![
             BASE_INSTRUCTION.trim().to_string(),
@@ -150,6 +154,19 @@ Use them as saved facts and notes.\n\n{}",
 The following skill documents are available in this workspace. Follow them when relevant.\n\n{}",
             sections.join("\n\n")
         ))
+    }
+
+    pub fn build_watch_request(&self) -> Option<String> {
+        read_optional_markdown(&self.watch_path()).map(|content| {
+            format!(
+                "# Watch\n\n\
+Run this scheduled watch using `task_status` when useful. \
+Do not duplicate running work. \
+If nothing needs action, finish quietly.\n\n\
+{}",
+                content
+            )
+        })
     }
 
     fn display_source(&self, path: &Path) -> String {

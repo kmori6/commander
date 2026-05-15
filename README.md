@@ -17,15 +17,15 @@ AI agent for R&D software engineering work
 
 1. Start PostgreSQL and run migrations:
 
-```bash
-docker compose up -d postgres flyway-admin flyway-agent
-```
+   ```bash
+   docker compose up -d postgres flyway-admin flyway-agent
+   ```
 
 2. Copy `.env.sample` to `.env` and fill in your credentials:
 
-```bash
-cp .env.sample .env
-```
+   ```bash
+   cp .env.sample .env
+   ```
 
 3. Fill in your AWS credentials and other API keys in `.env` (see `.env.sample` for the full list of variables).
 
@@ -66,44 +66,60 @@ commander chat --base-url http://localhost:3000
 commander chat --session-id <uuid>
 ```
 
-| Command                         | Description                    |
-| ------------------------------- | ------------------------------ |
-| `/new`                          | Start a new session            |
-| `/approve`                      | Approve pending tool execution |
-| `/deny`                         | Deny pending tool execution    |
-| `/tools`                        | Show tool execution status     |
+| Command                           | Description                    |
+| --------------------------------- | ------------------------------ |
+| `/new`                            | Start a new session            |
+| `/approve`                        | Approve pending tool execution |
+| `/deny`                           | Deny pending tool execution    |
+| `/tools`                          | Show tool execution status     |
 | `/tool <tool> <allow\|ask\|deny>` | Set a tool execution rule      |
-| `/usage`                        | Show session token usage       |
-| `/attach <files...>`            | Stage files to attach          |
-| `/files`                        | Show staged files              |
-| `/detach <index\|all>`          | Remove staged files            |
-| `/exit`                         | Quit                           |
+| `/usage`                          | Show session token usage       |
+| `/attach <files...>`              | Stage files to attach          |
+| `/files`                          | Show staged files              |
+| `/detach <index\|all>`            | Remove staged files            |
+| `/exit`                           | Quit                           |
 
-The chat CLI subscribes to `/v1/events`, posts messages to `/v1/sessions/{id}/messages`, and resolves approvals with `/v1/sessions/{id}/approvals`.
+## Features
 
-### Research
+### Schedule
 
-Deep research on a given query. Saves a report to `outputs/research/`.
-
-```bash
-commander research
-```
-
-### Survey
-
-Read and summarize an academic paper from a PDF file or URL. Saves a report to `outputs/survey/`.
+Schedule creates recurring tasks from saved requests.
+Create one with the HTTP API:
 
 ```bash
-commander survey <path-or-url> [--output <path>]
+curl -X POST http://localhost:3000/v1/schedules \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Morning review",
+    "request": "Review recent tasks and continue useful work.",
+    "cron": "0 9 * * 1-5",
+    "timezone": "Asia/Tokyo",
+    "enabled": true
+  }'
 ```
 
-### Digest
+Schedules are stored in `~/.commander/schedules/crons.json`.
+Use `POST /v1/schedules/{id}/run` to run one manually.
 
-Curate daily papers and tech news into a digest. Saves to `outputs/digest/`.
+### Watch
 
-```bash
-commander digest [--date <YYYY-MM-DD>] [--output <path>]
+Watch runs Commander on a schedule using instructions from `WATCH.md` in the workspace root.
+Create `~/.commander/config/watch.json` to enable it:
+
+```json
+{
+  "enabled": true,
+  "schedules": [
+    {
+      "cron": "*/20 * * * *",
+      "timezone": "Asia/Tokyo"
+    }
+  ]
+}
 ```
+
+If `watch.json` is missing or `enabled` is `false`, Watch does not run.
+The example above runs every 20 minutes.
 
 ## Development
 

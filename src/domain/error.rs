@@ -8,3 +8,4 @@ pub mod token_usage_repository_error;
 pub mod tool_approval_repository_error;
 pub mod tool_executor_error;
 pub mod tool_permission_repository_error;
+pub mod watch_repository_error;
