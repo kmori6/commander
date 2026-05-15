@@ -7,6 +7,7 @@ use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
+use crate::application::usecase::watch_usecase::WatchUsecase;
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::tool_executor::ToolExecutor;
@@ -14,6 +15,7 @@ use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
+use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
 use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
@@ -95,6 +97,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
+    let watch_repository = FileWatchRepository::new(paths.watch_config_path());
 
     let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
 
@@ -147,6 +150,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         schedule_repository,
         task_repository.clone(),
     ));
+    let watch_usecase = Arc::new(WatchUsecase::new(
+        task_repository.clone(),
+        watch_repository.clone(),
+        instruction_service.clone(),
+    ));
     let tool_approval_usecase =
         Arc::new(ToolApprovalUsecase::new(tool_approval_repository.clone()));
 
@@ -180,6 +188,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
 
     let schedule_daemon = ScheduleDaemon::new(
         app_state.schedule_usecase.clone(),
+        watch_usecase,
         app_state.agent_runtime.clone(),
     );
 
