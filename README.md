@@ -99,6 +99,13 @@ description: A description of what this skill does and when to use it.
 
 Reference: [Agent Skills Specification](https://agentskills.io/specification)
 
+### Memory
+
+Memory stores workspace context in two files; edit them directly to add or update memory:
+
+- Long-term: `~/.commander/workspace/memory/MEMORY.md`
+- Short-term: `~/.commander/workspace/memory/journals/YYYY-MM-DD.md`
+
 ### Schedule
 
 Schedule creates recurring tasks from saved requests.
