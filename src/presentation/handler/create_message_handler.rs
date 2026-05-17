@@ -101,13 +101,6 @@ pub async fn create_message_handler(
     match state.message_usecase.save_user_text(session_id, text).await {
         Ok(message_task) => {
             let task_id = message_task.task.id;
-            let agent_runtime = state.agent_runtime.clone();
-
-            tokio::spawn(async move {
-                if let Err(err) = agent_runtime.run(task_id).await {
-                    log::warn!("failed to run task {task_id}: {err}");
-                }
-            });
 
             (
                 StatusCode::ACCEPTED,

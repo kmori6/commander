@@ -1,6 +1,7 @@
 use crate::application::config::CommanderPaths;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::runtime::schedule_daemon::ScheduleDaemon;
+use crate::application::runtime::task_runner::TaskRunner;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
@@ -71,7 +72,7 @@ use axum::{
     routing::{get, post, put},
 };
 use sqlx::PgPool;
-use std::{env, net::SocketAddr, sync::Arc};
+use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // env
@@ -173,6 +174,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         instruction_service.clone(),
         model,
     ));
+    let task_runner = TaskRunner::new(
+        task_repository.clone(),
+        agent_runtime.clone(),
+        Duration::from_secs(1),
+    );
 
     // app state
     let app_state = AppState {
@@ -186,14 +192,14 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         tool_approval_usecase,
     };
 
-    let schedule_daemon = ScheduleDaemon::new(
-        app_state.schedule_usecase.clone(),
-        watch_usecase,
-        app_state.agent_runtime.clone(),
-    );
+    let schedule_daemon = ScheduleDaemon::new(app_state.schedule_usecase.clone(), watch_usecase);
 
     tokio::spawn(async move {
         schedule_daemon.run().await;
+    });
+
+    tokio::spawn(async move {
+        task_runner.run().await;
     });
 
     let api_routes = Router::new()

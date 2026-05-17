@@ -48,25 +48,14 @@ pub async fn run_schedule_handler(
     Path(schedule_id): Path<Uuid>,
 ) -> Response {
     match state.schedule_usecase.run_now(schedule_id).await {
-        Ok(run_task) => {
-            let task_id = run_task.task.id;
-            let agent_runtime = state.agent_runtime.clone();
-
-            tokio::spawn(async move {
-                if let Err(err) = agent_runtime.run(task_id).await {
-                    log::warn!("failed to run schedule task {task_id}: {err}");
-                }
-            });
-
-            (
-                StatusCode::ACCEPTED,
-                Json(json!({
-                    "run": schedule_execution_json(run_task.execution),
-                    "task": task_json(run_task.task),
-                })),
-            )
-                .into_response()
-        }
+        Ok(run_task) => (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "run": schedule_execution_json(run_task.execution),
+                "task": task_json(run_task.task),
+            })),
+        )
+            .into_response(),
         Err(ScheduleUsecaseError::ScheduleRepository(ScheduleRepositoryError::NotFound(_))) => (
             StatusCode::NOT_FOUND,
             Json(json!({
