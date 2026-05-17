@@ -1,7 +1,6 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
-use crate::application::runtime::subagent;
-use crate::application::runtime::subagent::{SubagentMode, SubagentProfile, Subagents};
-use crate::application::runtime::task_status;
+use crate::application::runtime::subagent_tool::{self, SubagentMode, SubagentProfile, Subagents};
+use crate::application::runtime::task_status_tool;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, Role};
 use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
@@ -535,7 +534,7 @@ where
                     return Ok(ToolCallRunOutcome::AwaitingApproval);
                 }
                 ToolPermissionMode::Allow => {
-                    if call.tool_name == subagent::SUBAGENT_TOOL_NAME {
+                    if call.tool_name == subagent_tool::SUBAGENT_TOOL_NAME {
                         match self
                             .clone()
                             .execute_subagent(task_id, call.arguments.clone())
@@ -546,7 +545,7 @@ where
                                 ToolCallOutput::error(call.call_id.clone(), err.to_string())
                             }
                         }
-                    } else if call.tool_name == task_status::TASK_STATUS_TOOL_NAME {
+                    } else if call.tool_name == task_status_tool::TASK_STATUS_TOOL_NAME {
                         match self.execute_task_status(call.arguments.clone()).await {
                             Ok(output) => ToolCallOutput::success(call.call_id.clone(), output),
                             Err(err) => {
@@ -648,18 +647,18 @@ where
                         }
                     });
 
-                    subagent::SubagentTaskOutput {
+                    subagent_tool::SubagentTaskOutput {
                         index,
                         task_id: task_id.to_string(),
                         profile: profile.name.clone(),
-                        status: subagent::SubagentTaskStatus::Spawned,
+                        status: subagent_tool::SubagentTaskStatus::Spawned,
                         output: None,
                         error: None,
                     }
                 })
                 .collect();
 
-            return serde_json::to_value(subagent::SubagentOutput { mode, results })
+            return serde_json::to_value(subagent_tool::SubagentOutput { mode, results })
                 .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()));
         }
 
@@ -677,11 +676,11 @@ where
                         log::warn!("failed to mark child task {task_id} as failed: {fail_err}");
                     }
 
-                    return subagent::SubagentTaskOutput {
+                    return subagent_tool::SubagentTaskOutput {
                         index,
                         task_id: task_id.to_string(),
                         profile: profile.name.clone(),
-                        status: subagent::SubagentTaskStatus::Failed,
+                        status: subagent_tool::SubagentTaskStatus::Failed,
                         output: None,
                         error: Some(err.to_string()),
                     };
@@ -689,48 +688,48 @@ where
 
                 match runtime.task_repository.find_by_id(task_id).await {
                     Ok(Some(task)) if task.status == TaskStatus::Completed => {
-                        subagent::SubagentTaskOutput {
+                        subagent_tool::SubagentTaskOutput {
                             index,
                             task_id: task_id.to_string(),
                             profile: profile.name.clone(),
-                            status: subagent::SubagentTaskStatus::Completed,
+                            status: subagent_tool::SubagentTaskStatus::Completed,
                             output: Some(task.output),
                             error: None,
                         }
                     }
                     Ok(Some(task)) if task.status == TaskStatus::Cancelled => {
-                        subagent::SubagentTaskOutput {
+                        subagent_tool::SubagentTaskOutput {
                             index,
                             task_id: task_id.to_string(),
                             profile: profile.name.clone(),
-                            status: subagent::SubagentTaskStatus::Cancelled,
+                            status: subagent_tool::SubagentTaskStatus::Cancelled,
                             output: None,
                             error: task.error,
                         }
                     }
-                    Ok(Some(task)) => subagent::SubagentTaskOutput {
+                    Ok(Some(task)) => subagent_tool::SubagentTaskOutput {
                         index,
                         task_id: task_id.to_string(),
                         profile: profile.name.clone(),
-                        status: subagent::SubagentTaskStatus::Failed,
+                        status: subagent_tool::SubagentTaskStatus::Failed,
                         output: None,
                         error: task
                             .error
                             .or_else(|| Some("child task did not complete".to_string())),
                     },
-                    Ok(None) => subagent::SubagentTaskOutput {
+                    Ok(None) => subagent_tool::SubagentTaskOutput {
                         index,
                         task_id: task_id.to_string(),
                         profile: profile.name.clone(),
-                        status: subagent::SubagentTaskStatus::Failed,
+                        status: subagent_tool::SubagentTaskStatus::Failed,
                         output: None,
                         error: Some("child task disappeared".to_string()),
                     },
-                    Err(err) => subagent::SubagentTaskOutput {
+                    Err(err) => subagent_tool::SubagentTaskOutput {
                         index,
                         task_id: task_id.to_string(),
                         profile: profile.name.clone(),
-                        status: subagent::SubagentTaskStatus::Failed,
+                        status: subagent_tool::SubagentTaskStatus::Failed,
                         output: None,
                         error: Some(err.to_string()),
                     },
@@ -739,12 +738,12 @@ where
         }))
         .await;
 
-        serde_json::to_value(subagent::SubagentOutput { mode, results })
+        serde_json::to_value(subagent_tool::SubagentOutput { mode, results })
             .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))
     }
 
     async fn execute_task_status(&self, arguments: Value) -> Result<Value, AgentRuntimeError> {
-        let input = task_status::parse_task_status_input(arguments)
+        let input = task_status_tool::parse_task_status_input(arguments)
             .map_err(AgentRuntimeError::Unsupported)?;
 
         let tasks = if let Some(task_id) = input.task_id {
@@ -757,7 +756,9 @@ where
                 .await?
                 .ok_or(AgentRuntimeError::TaskNotFound)?;
 
-            vec![task_status::TaskStatusTaskOutput::from_task(&task, true)]
+            vec![task_status_tool::TaskStatusTaskOutput::from_task(
+                &task, true,
+            )]
         } else if let Some(parent_task_id) = input.parent_task_id {
             let parent_task_id = Uuid::parse_str(&parent_task_id).map_err(|err| {
                 AgentRuntimeError::Unsupported(format!("invalid parent_task_id: {err}"))
@@ -767,18 +768,18 @@ where
                 .list_by_parent_task_id(parent_task_id, input.status, input.limit)
                 .await?
                 .iter()
-                .map(|task| task_status::TaskStatusTaskOutput::from_task(task, false))
+                .map(|task| task_status_tool::TaskStatusTaskOutput::from_task(task, false))
                 .collect()
         } else {
             self.task_repository
                 .list_recent(input.status, input.limit)
                 .await?
                 .iter()
-                .map(|task| task_status::TaskStatusTaskOutput::from_task(task, false))
+                .map(|task| task_status_tool::TaskStatusTaskOutput::from_task(task, false))
                 .collect()
         };
 
-        serde_json::to_value(task_status::TaskStatusOutput::new(tasks))
+        serde_json::to_value(task_status_tool::TaskStatusOutput::new(tasks))
             .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))
     }
 
@@ -862,7 +863,7 @@ where
                 specs.push(spec);
             }
 
-            specs.push(task_status::task_status_tool_spec());
+            specs.push(task_status_tool::task_status_tool_spec());
         }
 
         specs
@@ -904,7 +905,8 @@ where
 }
 
 fn is_runtime_tool(tool_name: &str) -> bool {
-    tool_name == subagent::SUBAGENT_TOOL_NAME || tool_name == task_status::TASK_STATUS_TOOL_NAME
+    tool_name == subagent_tool::SUBAGENT_TOOL_NAME
+        || tool_name == task_status_tool::TASK_STATUS_TOOL_NAME
 }
 
 fn to_llm_message(message: Message) -> LlmMessage {

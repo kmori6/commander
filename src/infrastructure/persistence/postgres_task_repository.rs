@@ -255,6 +255,45 @@ impl TaskRepository for PostgresTaskRepository {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
+    async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let limit = i64::try_from(limit)
+            .map_err(|_| TaskRepositoryError::Unexpected(format!("invalid limit: {limit}")))?;
+
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            WITH claimed AS (
+                SELECT id
+                FROM tasks
+                WHERE status = 'queued'
+                ORDER BY created_at ASC, id ASC
+                LIMIT $1
+                FOR UPDATE SKIP LOCKED
+            ),
+            updated AS (
+                UPDATE tasks
+                SET status = 'running',
+                    updated_at = NOW(),
+                    started_at = COALESCE(started_at, NOW())
+                WHERE id IN (SELECT id FROM claimed)
+                RETURNING {TASK_COLUMNS}
+            )
+            SELECT {TASK_COLUMNS}
+            FROM updated
+            ORDER BY created_at ASC, id ASC
+            "#
+        ))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
     async fn update_status(
         &self,
         id: Uuid,

@@ -36,6 +36,8 @@ pub trait TaskRepository: Send + Sync {
         limit: usize,
     ) -> Result<Vec<Task>, TaskRepositoryError>;
 
+    async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError>;
+
     async fn update_status(
         &self,
         id: Uuid,
