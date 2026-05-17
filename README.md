@@ -79,6 +79,37 @@ commander chat --session-id <uuid>
 | `/detach <index\|all>`            | Remove staged files            |
 | `/exit`                           | Quit                           |
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Task[Task<br/>Chat / Schedule / Watch / API]
+
+    subgraph Agent[Agent]
+        Profiling[Profiling<br/>AGENTS / Skills]
+        Memory[Memory<br/>Long / Short]
+        Planning[Planning<br/>Loop / Delegate / Approve]
+        Action[Action<br/>Tools / Sandbox]
+        Trace[Persistence / Trace]
+    end
+
+    Env[Environment<br/>Code / Web / Files]
+    Result[Result]
+
+    Task --> Profiling
+    Profiling --> Planning
+    Memory --> Planning
+    Planning --> Action
+    Action --> Env
+    Env --> Trace
+    Action --> Trace
+    Trace --> Memory
+    Trace --> Planning
+    Planning --> Result
+```
+
+Reference: [A Survey on Large Language Model based Autonomous Agents](https://arxiv.org/abs/2308.11432)
+
 ## Features
 
 ### Skill
@@ -99,7 +130,7 @@ description: A description of what this skill does and when to use it.
 
 Reference: [Agent Skills Specification](https://agentskills.io/specification)
 
-### Workspace Instructions
+### Instructions
 
 Add workspace-wide agent instructions in `~/.commander/workspace/AGENTS.md`.
 
