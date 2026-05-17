@@ -1,7 +1,7 @@
 CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
   session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('chat', 'schedule', 'task', 'manual')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('chat', 'schedule', 'task', 'manual', 'watch')),
   source_message_id UUID,
   source_schedule_id UUID,
   parent_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
