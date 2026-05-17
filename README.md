@@ -81,6 +81,24 @@ commander chat --session-id <uuid>
 
 ## Features
 
+### Skill
+
+Skills are reusable workspace instructions for specialized workflows.
+Add a skill as `~/.commander/workspace/skills/<name>/SKILL.md`:
+
+```markdown
+---
+name: skill-name
+description: A description of what this skill does and when to use it.
+---
+
+# Instructions
+
+...
+```
+
+Reference: [Agent Skills Specification](https://agentskills.io/specification)
+
 ### Schedule
 
 Schedule creates recurring tasks from saved requests.
