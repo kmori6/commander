@@ -1,13 +1,14 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
+use crate::application::runtime::context_manager::ContextManager;
 use crate::application::runtime::subagent_tool::{self, SubagentMode, SubagentProfile, Subagents};
 use crate::application::runtime::task_status_tool;
 use crate::domain::model::event::Event;
-use crate::domain::model::message::{Message, Role};
-use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
+use crate::domain::model::message::Role;
+use crate::domain::model::task::{TaskSourceKind, TaskStatus};
 use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
 };
-use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
+use crate::domain::port::llm_provider::{LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
@@ -185,7 +186,17 @@ where
             }
 
             // LLM call
-            let messages = self.build_llm_messages(&task, &options).await?;
+            let child_agent_instruction = options
+                .profile
+                .as_ref()
+                .map(|profile| profile.instruction.as_str());
+            let messages = ContextManager::new(
+                &self.task_repository,
+                &self.message_repository,
+                self.instruction_service.as_ref(),
+            )
+            .build_for_task(&task, child_agent_instruction)
+            .await?;
             let model = self.model().await;
 
             self.emit(
@@ -383,56 +394,6 @@ where
             .await?;
 
         Ok(task.id)
-    }
-
-    async fn build_llm_messages(
-        &self,
-        task: &Task,
-        options: &RuntimeOptions,
-    ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
-        let mut messages = Vec::new();
-
-        let mut instruction = self.instruction_service.build_agent_instruction();
-
-        if let Some(profile) = options.profile.as_ref() {
-            instruction.push_str("\n\n# Child Agent Profile\n");
-            instruction.push_str(&profile.instruction);
-        }
-
-        messages.push(LlmMessage::system_text(instruction));
-
-        if let Some(session_id) = task.session_id {
-            let session_tasks = self.task_repository.list_by_session_id(session_id).await?;
-            let mut included_current_task = false;
-
-            for session_task in session_tasks {
-                let is_current_task = session_task.id == task.id;
-                let task_messages = self
-                    .message_repository
-                    .list_for_task(session_task.id)
-                    .await?;
-
-                push_task_messages(&mut messages, &session_task, task_messages);
-
-                if is_current_task {
-                    included_current_task = true;
-                    break;
-                }
-            }
-
-            if !included_current_task {
-                let task_messages = self.message_repository.list_for_task(task.id).await?;
-
-                push_task_messages(&mut messages, task, task_messages);
-            }
-
-            return Ok(messages);
-        }
-
-        let task_messages = self.message_repository.list_for_task(task.id).await?;
-        push_task_messages(&mut messages, task, task_messages);
-
-        Ok(messages)
     }
 
     async fn run_tool_calls(
@@ -907,20 +868,4 @@ where
 fn is_runtime_tool(tool_name: &str) -> bool {
     tool_name == subagent_tool::SUBAGENT_TOOL_NAME
         || tool_name == task_status_tool::TASK_STATUS_TOOL_NAME
-}
-
-fn to_llm_message(message: Message) -> LlmMessage {
-    LlmMessage::new(message.role, message.contents)
-}
-
-fn push_task_messages(messages: &mut Vec<LlmMessage>, task: &Task, task_messages: Vec<Message>) {
-    let has_user_message = task_messages
-        .iter()
-        .any(|message| message.role == Role::User);
-
-    if !has_user_message {
-        messages.push(LlmMessage::user_text(task.request.clone()));
-    }
-
-    messages.extend(task_messages.into_iter().map(to_llm_message));
 }
