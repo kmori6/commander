@@ -3,7 +3,7 @@ use crate::application::runtime::subagent;
 use crate::application::runtime::subagent::{SubagentMode, SubagentProfile, Subagents};
 use crate::application::runtime::task_status;
 use crate::domain::model::event::Event;
-use crate::domain::model::message::{Message, MessageContent, Role};
+use crate::domain::model::message::{Message, Role};
 use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
 use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
@@ -136,14 +136,10 @@ where
         Ok(event)
     }
 
-    pub async fn run(
-        self: Arc<Self>,
-        task_id: Uuid,
-        user_contents: Option<Vec<MessageContent>>,
-    ) -> Result<(), AgentRuntimeError> {
+    pub async fn run(self: Arc<Self>, task_id: Uuid) -> Result<(), AgentRuntimeError> {
         match self
             .clone()
-            .execute(task_id, true, user_contents, RuntimeOptions::root())
+            .execute(task_id, true, RuntimeOptions::root())
             .await
         {
             Ok(()) => Ok(()),
@@ -161,7 +157,6 @@ where
         self: Arc<Self>,
         task_id: Uuid,
         emit_started: bool,
-        user_contents: Option<Vec<MessageContent>>,
         options: RuntimeOptions,
     ) -> Result<(), AgentRuntimeError> {
         let task = self
@@ -191,9 +186,7 @@ where
             }
 
             // LLM call
-            let messages = self
-                .build_llm_messages(&task, user_contents.as_ref(), &options)
-                .await?;
+            let messages = self.build_llm_messages(&task, &options).await?;
             let model = self.model().await;
 
             self.emit(
@@ -301,7 +294,7 @@ where
 
         match self
             .clone()
-            .execute(task_id, false, None, RuntimeOptions::root())
+            .execute(task_id, false, RuntimeOptions::root())
             .await
         {
             Ok(()) => Ok(()),
@@ -396,7 +389,6 @@ where
     async fn build_llm_messages(
         &self,
         task: &Task,
-        user_contents: Option<&Vec<MessageContent>>,
         options: &RuntimeOptions,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut messages = Vec::new();
@@ -421,13 +413,7 @@ where
                     .list_for_task(session_task.id)
                     .await?;
 
-                push_task_messages(
-                    &mut messages,
-                    &session_task,
-                    is_current_task,
-                    task_messages,
-                    user_contents,
-                );
+                push_task_messages(&mut messages, &session_task, task_messages);
 
                 if is_current_task {
                     included_current_task = true;
@@ -438,14 +424,14 @@ where
             if !included_current_task {
                 let task_messages = self.message_repository.list_for_task(task.id).await?;
 
-                push_task_messages(&mut messages, task, true, task_messages, user_contents);
+                push_task_messages(&mut messages, task, task_messages);
             }
 
             return Ok(messages);
         }
 
         let task_messages = self.message_repository.list_for_task(task.id).await?;
-        push_task_messages(&mut messages, task, true, task_messages, user_contents);
+        push_task_messages(&mut messages, task, task_messages);
 
         Ok(messages)
     }
@@ -650,7 +636,7 @@ where
                     tokio::spawn(async move {
                         let result = runtime
                             .clone()
-                            .execute(task_id, true, None, RuntimeOptions::child(run_profile))
+                            .execute(task_id, true, RuntimeOptions::child(run_profile))
                             .await;
 
                         if let Err(err) = result
@@ -683,7 +669,7 @@ where
             async move {
                 let run_result = runtime
                     .clone()
-                    .execute(task_id, true, None, RuntimeOptions::child(profile.clone()))
+                    .execute(task_id, true, RuntimeOptions::child(profile.clone()))
                     .await;
 
                 if let Err(err) = run_result {
@@ -925,48 +911,14 @@ fn to_llm_message(message: Message) -> LlmMessage {
     LlmMessage::new(message.role, message.contents)
 }
 
-fn push_task_messages(
-    messages: &mut Vec<LlmMessage>,
-    task: &Task,
-    is_current_task: bool,
-    task_messages: Vec<Message>,
-    user_contents: Option<&Vec<MessageContent>>,
-) {
+fn push_task_messages(messages: &mut Vec<LlmMessage>, task: &Task, task_messages: Vec<Message>) {
     let has_user_message = task_messages
         .iter()
         .any(|message| message.role == Role::User);
 
     if !has_user_message {
-        push_task_request_message(messages, task, is_current_task, user_contents);
+        messages.push(LlmMessage::user_text(task.request.clone()));
     }
 
-    let mut replaced_user_message = false;
-
-    for message in task_messages {
-        if is_current_task
-            && !replaced_user_message
-            && message.role == Role::User
-            && let Some(contents) = user_contents
-        {
-            messages.push(LlmMessage::new(Role::User, contents.clone()));
-            replaced_user_message = true;
-            continue;
-        }
-
-        messages.push(to_llm_message(message));
-    }
-}
-
-fn push_task_request_message(
-    messages: &mut Vec<LlmMessage>,
-    task: &Task,
-    is_current_task: bool,
-    user_contents: Option<&Vec<MessageContent>>,
-) {
-    if is_current_task && let Some(contents) = user_contents {
-        messages.push(LlmMessage::new(Role::User, contents.clone()));
-        return;
-    }
-
-    messages.push(LlmMessage::user_text(task.request.clone()));
+    messages.extend(task_messages.into_iter().map(to_llm_message));
 }

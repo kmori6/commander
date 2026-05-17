@@ -804,8 +804,6 @@ components:
     MessageContent:
       oneOf:
         - $ref: "#/components/schemas/InputTextContent"
-        - $ref: "#/components/schemas/InputImageContent"
-        - $ref: "#/components/schemas/InputFileContent"
         - $ref: "#/components/schemas/OutputTextContent"
         - $ref: "#/components/schemas/ToolCallContent"
         - $ref: "#/components/schemas/ToolCallOutputContent"
@@ -822,33 +820,6 @@ components:
           type: string
           const: input_text
         text:
-          type: string
-
-    InputImageContent:
-      type: object
-      required:
-        - type
-        - image_url
-      properties:
-        type:
-          type: string
-          const: input_image
-        image_url:
-          type: string
-
-    InputFileContent:
-      type: object
-      required:
-        - type
-        - filename
-        - file_data
-      properties:
-        type:
-          type: string
-          const: input_file
-        filename:
-          type: string
-        file_data:
           type: string
 
     OutputTextContent:
@@ -907,29 +878,6 @@ components:
       properties:
         text:
           type: string
-        input_images:
-          type: array
-          items:
-            type: object
-            required:
-              - image_url
-            properties:
-              image_url:
-                type: string
-          default: []
-        input_files:
-          type: array
-          items:
-            type: object
-            required:
-              - filename
-              - file_data
-            properties:
-              filename:
-                type: string
-              file_data:
-                type: string
-          default: []
 
     CreateMessageResponse:
       type: object

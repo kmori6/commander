@@ -46,7 +46,7 @@ pub async fn create_task_handler(
             let agent_runtime = state.agent_runtime.clone();
 
             tokio::spawn(async move {
-                if let Err(err) = agent_runtime.run(task_id, None).await {
+                if let Err(err) = agent_runtime.run(task_id).await {
                     log::warn!("failed to run manual task {task_id}: {err}");
                 }
             });

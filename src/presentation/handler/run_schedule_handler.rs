@@ -53,7 +53,7 @@ pub async fn run_schedule_handler(
             let agent_runtime = state.agent_runtime.clone();
 
             tokio::spawn(async move {
-                if let Err(err) = agent_runtime.run(task_id, None).await {
+                if let Err(err) = agent_runtime.run(task_id).await {
                     log::warn!("failed to run schedule task {task_id}: {err}");
                 }
             });

@@ -74,9 +74,6 @@ commander chat --session-id <uuid>
 | `/tools`                          | Show tool execution status     |
 | `/tool <tool> <allow\|ask\|deny>` | Set a tool execution rule      |
 | `/usage`                          | Show session token usage       |
-| `/attach <files...>`              | Stage files to attach          |
-| `/files`                          | Show staged files              |
-| `/detach <index\|all>`            | Remove staged files            |
 | `/exit`                           | Quit                           |
 
 ## Architecture

@@ -88,7 +88,7 @@ impl ScheduleDaemon {
             let agent_runtime = self.agent_runtime.clone();
 
             tokio::spawn(async move {
-                if let Err(err) = agent_runtime.run(task_id, None).await {
+                if let Err(err) = agent_runtime.run(task_id).await {
                     log::warn!("failed to run scheduled task {task_id}: {err}");
                 }
             });
@@ -104,7 +104,7 @@ impl ScheduleDaemon {
                 let agent_runtime = self.agent_runtime.clone();
 
                 tokio::spawn(async move {
-                    if let Err(err) = agent_runtime.run(task_id, None).await {
+                    if let Err(err) = agent_runtime.run(task_id).await {
                         log::warn!("failed to run watch task {task_id}: {err}");
                     }
                 });

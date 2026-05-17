@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
@@ -17,41 +17,10 @@ pub struct CreateMessageRequest {
     pub text: String,
 
     #[serde(default)]
-    pub input_images: Vec<CreateInputImage>,
+    pub input_images: Vec<Value>,
 
     #[serde(default)]
-    pub input_files: Vec<CreateInputFile>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CreateInputImage {
-    pub image_url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CreateInputFile {
-    pub filename: String,
-    pub file_data: String,
-}
-
-fn runtime_contents(request: &CreateMessageRequest) -> Vec<MessageContent> {
-    let mut contents = vec![MessageContent::input_text(request.text.clone())];
-
-    contents.extend(
-        request
-            .input_images
-            .iter()
-            .map(|image| MessageContent::input_image(image.image_url.clone())),
-    );
-
-    contents.extend(
-        request
-            .input_files
-            .iter()
-            .map(|file| MessageContent::input_file(file.filename.clone(), file.file_data.clone())),
-    );
-
-    contents
+    pub input_files: Vec<Value>,
 }
 
 fn content_json(content: MessageContent) -> serde_json::Value {
@@ -114,7 +83,19 @@ pub async fn create_message_handler(
     Path(session_id): Path<Uuid>,
     Json(request): Json<CreateMessageRequest>,
 ) -> Response {
-    let user_contents = runtime_contents(&request);
+    if !request.input_images.is_empty() || !request.input_files.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": {
+                    "code": "attachments_not_supported",
+                    "message": "chat image/file attachments are not supported; place files in the workspace and reference their paths",
+                }
+            })),
+        )
+            .into_response();
+    }
+
     let text = request.text;
 
     match state.message_usecase.save_user_text(session_id, text).await {
@@ -123,7 +104,7 @@ pub async fn create_message_handler(
             let agent_runtime = state.agent_runtime.clone();
 
             tokio::spawn(async move {
-                if let Err(err) = agent_runtime.run(task_id, Some(user_contents)).await {
+                if let Err(err) = agent_runtime.run(task_id).await {
                     log::warn!("failed to run task {task_id}: {err}");
                 }
             });
