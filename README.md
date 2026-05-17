@@ -99,6 +99,12 @@ description: A description of what this skill does and when to use it.
 
 Reference: [Agent Skills Specification](https://agentskills.io/specification)
 
+### Workspace Instructions
+
+Add workspace-wide agent instructions in `~/.commander/workspace/AGENTS.md`.
+
+Reference: [AGENTS.md](https://github.com/agentsmd/agents.md)
+
 ### Memory
 
 Memory stores workspace context in two files; edit them directly to add or update memory:
