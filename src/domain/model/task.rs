@@ -76,6 +76,10 @@ impl TaskStatus {
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
     }
+
+    pub fn can_request_cancel(self) -> bool {
+        !self.is_terminal() && !matches!(self, Self::CancelRequested)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

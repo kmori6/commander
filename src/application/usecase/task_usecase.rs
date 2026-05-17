@@ -90,6 +90,16 @@ where
     }
 
     pub async fn request_cancel(&self, id: Uuid) -> Result<Task, TaskUsecaseError> {
+        let task = self
+            .task_repository
+            .find_by_id(id)
+            .await?
+            .ok_or(TaskRepositoryError::NotFound(id))?;
+
+        if !task.status.can_request_cancel() {
+            return Ok(task);
+        }
+
         self.task_repository
             .request_cancel(id)
             .await

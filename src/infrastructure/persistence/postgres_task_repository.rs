@@ -192,6 +192,10 @@ impl TaskRepository for PostgresTaskRepository {
         row.ok_or(TaskRepositoryError::NotFound(id))?.try_into()
     }
 
+    async fn cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
+        self.update_status(id, TaskStatus::Cancelled).await
+    }
+
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError> {
         let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"

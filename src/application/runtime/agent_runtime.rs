@@ -30,6 +30,7 @@ const MAX_LLM_STEPS: usize = 30;
 enum ToolCallRunOutcome {
     Continue,
     AwaitingApproval,
+    Stopped,
 }
 
 #[derive(Clone)]
@@ -173,11 +174,23 @@ where
             self.emit(task_id, "task_started", json!({})).await?;
         }
 
+        if self
+            .stop_if_cancel_requested(task_id, "before_start")
+            .await?
+        {
+            return Ok(());
+        }
+
         self.task_repository
             .update_status(task_id, TaskStatus::Running)
             .await?;
 
         for step in 0..MAX_LLM_STEPS {
+            if self.stop_if_cancel_requested(task_id, "before_llm").await? {
+                return Ok(());
+            }
+
+            // LLM call
             let messages = self
                 .build_llm_messages(&task, user_contents.as_ref(), &options)
                 .await?;
@@ -255,6 +268,13 @@ where
                 .collect::<Vec<_>>();
 
             if tool_calls.is_empty() {
+                if self
+                    .stop_if_cancel_requested(task_id, "before_complete")
+                    .await?
+                {
+                    return Ok(());
+                }
+
                 self.complete_task(task_id, response.output_text("\n"))
                     .await?;
                 return Ok(());
@@ -267,6 +287,7 @@ where
             {
                 ToolCallRunOutcome::Continue => {}
                 ToolCallRunOutcome::AwaitingApproval => return Ok(()),
+                ToolCallRunOutcome::Stopped => return Ok(()),
             }
         }
 
@@ -315,6 +336,13 @@ where
             .find_by_id(message.task_id)
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
+
+        if self
+            .stop_if_cancel_requested(task.id, "before_approval_resume")
+            .await?
+        {
+            return Ok(task.id);
+        }
 
         let call = message
             .contents
@@ -432,6 +460,19 @@ where
         let mut outputs = Vec::new();
 
         for call in tool_calls {
+            if self
+                .stop_if_cancel_requested(task_id, "before_tool_call")
+                .await?
+            {
+                if !outputs.is_empty() {
+                    self.message_repository
+                        .save(task_id, Role::User, outputs)
+                        .await?;
+                }
+
+                return Ok(ToolCallRunOutcome::Stopped);
+            }
+
             self.emit(
                 task_id,
                 "tool_call_started",
@@ -839,6 +880,40 @@ where
         }
 
         specs
+    }
+
+    async fn stop_if_cancel_requested(
+        &self,
+        task_id: Uuid,
+        checkpoint: &str,
+    ) -> Result<bool, AgentRuntimeError> {
+        let task = self
+            .task_repository
+            .find_by_id(task_id)
+            .await?
+            .ok_or(AgentRuntimeError::TaskNotFound)?;
+
+        if task.status == TaskStatus::Cancelled {
+            return Ok(true);
+        }
+
+        if task.status == TaskStatus::CancelRequested {
+            self.cancel_task(task_id, checkpoint).await?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    async fn cancel_task(&self, task_id: Uuid, checkpoint: &str) -> Result<(), AgentRuntimeError> {
+        self.task_repository.cancel(task_id).await?;
+        self.emit(
+            task_id,
+            "task_cancelled",
+            json!({ "checkpoint": checkpoint }),
+        )
+        .await?;
+        Ok(())
     }
 }
 

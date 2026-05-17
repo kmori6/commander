@@ -24,6 +24,8 @@ pub trait TaskRepository: Send + Sync {
 
     async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError>;
 
+    async fn cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
+
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError>;
 
     async fn list_by_session_id(&self, session_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError>;
