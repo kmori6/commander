@@ -14,8 +14,6 @@ pub struct TaskStatusInput {
     #[serde(default)]
     pub task_id: Option<String>,
     #[serde(default)]
-    pub parent_task_id: Option<String>,
-    #[serde(default)]
     pub status: Option<TaskStatus>,
     #[serde(default = "default_task_status_limit")]
     pub limit: usize,
@@ -99,14 +97,6 @@ pub fn parse_task_status_input(arguments: Value) -> Result<TaskStatusInput, Stri
         .task_id
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty());
-    input.parent_task_id = input
-        .parent_task_id
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
-
-    if input.task_id.is_some() && input.parent_task_id.is_some() {
-        return Err("task_id and parent_task_id cannot be used together".to_string());
-    }
 
     if input.limit == 0 {
         input.limit = DEFAULT_TASK_STATUS_LIMIT;
@@ -119,13 +109,12 @@ pub fn parse_task_status_input(arguments: Value) -> Result<TaskStatusInput, Stri
 pub fn task_status_tool_spec() -> ToolSpec {
     ToolSpec {
         name: TASK_STATUS_TOOL_NAME.to_string(),
-        description: "Get task status. With task_id, returns one task with result. With parent_task_id, lists child tasks without result. With no IDs, lists recent tasks without result.".to_string(),
+        description: "Get task status. With task_id, returns one task with result. With no task_id, lists recent tasks without result.".to_string(),
         parameters: json!({
             "type": "object",
             "additionalProperties": false,
             "properties": {
                 "task_id": { "type": "string" },
-                "parent_task_id": { "type": "string" },
                 "status": {
                     "type": "string",
                     "enum": ["queued", "running", "awaiting_approval", "awaiting_child", "completed", "failed", "cancel_requested", "cancelled"]

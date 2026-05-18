@@ -626,17 +626,6 @@ where
             vec![task_status_tool::TaskStatusTaskOutput::from_task(
                 &task, true,
             )]
-        } else if let Some(parent_task_id) = input.parent_task_id {
-            let parent_task_id = Uuid::parse_str(&parent_task_id).map_err(|err| {
-                AgentRuntimeError::Unsupported(format!("invalid parent_task_id: {err}"))
-            })?;
-
-            self.task_repository
-                .list_children(parent_task_id, input.status, input.limit)
-                .await?
-                .iter()
-                .map(|task| task_status_tool::TaskStatusTaskOutput::from_task(task, false))
-                .collect()
         } else {
             self.task_repository
                 .list_recent(input.status, input.limit)
