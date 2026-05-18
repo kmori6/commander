@@ -12,6 +12,8 @@ pub struct CreateTask {
     pub source_kind: TaskSourceKind,
     pub source_message_id: Option<Uuid>,
     pub source_schedule_id: Option<Uuid>,
+    pub source_tool_call_id: Option<String>,
+    pub subagent_profile: Option<String>,
     pub parent_task_id: Option<Uuid>,
     pub scheduled_at: Option<DateTime<Utc>>,
 }
@@ -38,6 +40,8 @@ pub trait TaskRepository: Send + Sync {
 
     async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError>;
 
+    async fn requeue_running(&self) -> Result<u64, TaskRepositoryError>;
+
     async fn update_status(
         &self,
         id: Uuid,
@@ -45,6 +49,10 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<Task, TaskRepositoryError>;
 
     async fn request_cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
+
+    async fn cancel_children(&self, parent_task_id: Uuid) -> Result<u64, TaskRepositoryError>;
+
+    async fn has_open_children(&self, parent_task_id: Uuid) -> Result<bool, TaskRepositoryError>;
 
     async fn list_by_source_schedule_id(
         &self,
@@ -57,10 +65,16 @@ pub trait TaskRepository: Send + Sync {
         scheduled_at: DateTime<Utc>,
     ) -> Result<Option<Task>, TaskRepositoryError>;
 
-    async fn list_by_parent_task_id(
+    async fn list_children(
         &self,
         parent_task_id: Uuid,
         status: Option<TaskStatus>,
         limit: usize,
+    ) -> Result<Vec<Task>, TaskRepositoryError>;
+
+    async fn list_child_group(
+        &self,
+        parent_task_id: Uuid,
+        source_tool_call_id: &str,
     ) -> Result<Vec<Task>, TaskRepositoryError>;
 }

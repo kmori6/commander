@@ -113,6 +113,8 @@ where
                 source_kind: TaskSourceKind::Schedule,
                 source_message_id: None,
                 source_schedule_id: Some(schedule_id),
+                source_tool_call_id: None,
+                subagent_profile: None,
                 parent_task_id: None,
                 scheduled_at: Some(scheduled_at),
             })

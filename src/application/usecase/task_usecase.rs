@@ -55,6 +55,8 @@ where
                 },
                 source_message_id: None,
                 source_schedule_id: None,
+                source_tool_call_id: None,
+                subagent_profile: None,
                 parent_task_id,
                 scheduled_at: None,
             })
@@ -78,7 +80,7 @@ where
         if let Some(parent_task_id) = parent_task_id {
             return self
                 .task_repository
-                .list_by_parent_task_id(parent_task_id, status, limit)
+                .list_children(parent_task_id, status, limit)
                 .await
                 .map_err(Into::into);
         }
@@ -96,14 +98,30 @@ where
             .await?
             .ok_or(TaskRepositoryError::NotFound(id))?;
 
-        if !task.status.can_request_cancel() {
-            return Ok(task);
-        }
+        match task.status {
+            TaskStatus::Queued | TaskStatus::AwaitingApproval => {
+                self.task_repository.cancel(id).await.map_err(Into::into)
+            }
+            TaskStatus::Running => self
+                .task_repository
+                .request_cancel(id)
+                .await
+                .map_err(Into::into),
+            TaskStatus::AwaitingChild => {
+                let task = self.task_repository.request_cancel(id).await?;
+                self.task_repository.cancel_children(id).await?;
 
-        self.task_repository
-            .request_cancel(id)
-            .await
-            .map_err(Into::into)
+                if !self.task_repository.has_open_children(id).await? {
+                    return self.task_repository.cancel(id).await.map_err(Into::into);
+                }
+
+                Ok(task)
+            }
+            TaskStatus::CancelRequested
+            | TaskStatus::Completed
+            | TaskStatus::Failed
+            | TaskStatus::Cancelled => Ok(task),
+        }
     }
 
     pub async fn list_events(&self, task_id: Uuid) -> Result<Vec<Event>, TaskUsecaseError> {

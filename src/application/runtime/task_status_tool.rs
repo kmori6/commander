@@ -128,7 +128,7 @@ pub fn task_status_tool_spec() -> ToolSpec {
                 "parent_task_id": { "type": "string" },
                 "status": {
                     "type": "string",
-                    "enum": ["queued", "running", "awaiting_approval", "completed", "failed", "cancel_requested", "cancelled"]
+                    "enum": ["queued", "running", "awaiting_approval", "awaiting_child", "completed", "failed", "cancel_requested", "cancelled"]
                 },
                 "limit": {
                     "type": "integer",

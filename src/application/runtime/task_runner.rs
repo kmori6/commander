@@ -43,6 +43,10 @@ impl TaskRunner {
     }
 
     pub async fn run(self) {
+        if let Err(err) = self.recover_interrupted().await {
+            log::warn!("task runner recovery failed: {err}");
+        }
+
         let mut interval = time::interval(self.poll_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -68,6 +72,16 @@ impl TaskRunner {
 
         if let Err(err) = self.agent_runtime.clone().run(task.id).await {
             log::warn!("failed to run claimed task {}: {err}", task.id);
+        }
+
+        Ok(())
+    }
+
+    async fn recover_interrupted(&self) -> Result<(), TaskRepositoryError> {
+        let count = self.task_repository.requeue_running().await?;
+
+        if count > 0 {
+            log::warn!("requeued {count} interrupted running task(s)");
         }
 
         Ok(())

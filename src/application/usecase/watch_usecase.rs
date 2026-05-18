@@ -101,6 +101,8 @@ where
                 source_kind: TaskSourceKind::Watch,
                 source_message_id: None,
                 source_schedule_id: None,
+                source_tool_call_id: None,
+                subagent_profile: None,
                 parent_task_id: None,
                 scheduled_at: Some(scheduled_at),
             })

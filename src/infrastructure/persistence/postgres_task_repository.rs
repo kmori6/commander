@@ -27,6 +27,8 @@ struct TaskRow {
     source_kind: String,
     source_message_id: Option<Uuid>,
     source_schedule_id: Option<Uuid>,
+    source_tool_call_id: Option<String>,
+    subagent_profile: Option<String>,
     parent_task_id: Option<Uuid>,
     scheduled_at: Option<DateTime<Utc>>,
     output: String,
@@ -60,6 +62,8 @@ impl TryFrom<TaskRow> for Task {
             source_kind,
             row.source_message_id,
             row.source_schedule_id,
+            row.source_tool_call_id,
+            row.subagent_profile,
             row.parent_task_id,
             row.scheduled_at,
             row.output,
@@ -99,6 +103,8 @@ session_id,
 source_kind,
 source_message_id,
 source_schedule_id,
+source_tool_call_id,
+subagent_profile,
 parent_task_id,
 scheduled_at,
 output,
@@ -126,10 +132,12 @@ impl TaskRepository for PostgresTaskRepository {
               source_kind,
               source_message_id,
               source_schedule_id,
+              source_tool_call_id,
+              subagent_profile,
               parent_task_id,
               scheduled_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING {TASK_COLUMNS}
             "#
         ))
@@ -138,6 +146,8 @@ impl TaskRepository for PostgresTaskRepository {
         .bind(input.source_kind.as_str())
         .bind(input.source_message_id)
         .bind(input.source_schedule_id)
+        .bind(input.source_tool_call_id)
+        .bind(input.subagent_profile)
         .bind(input.parent_task_id)
         .bind(input.scheduled_at)
         .fetch_one(&self.pool)
@@ -294,6 +304,23 @@ impl TaskRepository for PostgresTaskRepository {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
+    async fn requeue_running(&self) -> Result<u64, TaskRepositoryError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE tasks
+            SET status = 'queued',
+                updated_at = NOW(),
+                started_at = NULL
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn update_status(
         &self,
         id: Uuid,
@@ -327,6 +354,51 @@ impl TaskRepository for PostgresTaskRepository {
 
     async fn request_cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
         self.update_status(id, TaskStatus::CancelRequested).await
+    }
+
+    async fn cancel_children(&self, parent_task_id: Uuid) -> Result<u64, TaskRepositoryError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE tasks
+            SET status = CASE
+                WHEN status IN ('queued', 'awaiting_approval') THEN 'cancelled'
+                WHEN status = 'running' THEN 'cancel_requested'
+                ELSE status
+                END,
+                updated_at = NOW(),
+                finished_at = CASE
+                WHEN status IN ('queued', 'awaiting_approval') THEN NOW()
+                ELSE finished_at
+                END
+            WHERE parent_task_id = $1
+            AND status IN ('queued', 'running', 'awaiting_approval')
+            "#,
+        )
+        .bind(parent_task_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(result.rows_affected())
+    }
+
+    async fn has_open_children(&self, parent_task_id: Uuid) -> Result<bool, TaskRepositoryError> {
+        let has_open_children = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+              SELECT 1
+              FROM tasks
+              WHERE parent_task_id = $1
+                AND status NOT IN ('completed', 'failed', 'cancelled')
+            )
+            "#,
+        )
+        .bind(parent_task_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(has_open_children)
     }
 
     async fn list_by_source_schedule_id(
@@ -373,7 +445,7 @@ impl TaskRepository for PostgresTaskRepository {
         row.map(TryInto::try_into).transpose()
     }
 
-    async fn list_by_parent_task_id(
+    async fn list_children(
         &self,
         parent_task_id: Uuid,
         status: Option<TaskStatus>,
@@ -395,6 +467,29 @@ impl TaskRepository for PostgresTaskRepository {
         .bind(parent_task_id)
         .bind(status.map(TaskStatus::as_str))
         .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn list_child_group(
+        &self,
+        parent_task_id: Uuid,
+        source_tool_call_id: &str,
+    ) -> Result<Vec<Task>, TaskRepositoryError> {
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            SELECT {TASK_COLUMNS}
+            FROM tasks
+            WHERE parent_task_id = $1
+              AND source_tool_call_id = $2
+            ORDER BY created_at ASC, id ASC
+            "#
+        ))
+        .bind(parent_task_id)
+        .bind(source_tool_call_id)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;

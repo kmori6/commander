@@ -41,6 +41,7 @@ pub enum TaskStatus {
     Queued,
     Running,
     AwaitingApproval,
+    AwaitingChild,
     Completed,
     Failed,
     CancelRequested,
@@ -53,6 +54,7 @@ impl TaskStatus {
             Self::Queued => "queued",
             Self::Running => "running",
             Self::AwaitingApproval => "awaiting_approval",
+            Self::AwaitingChild => "awaiting_child",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::CancelRequested => "cancel_requested",
@@ -65,6 +67,7 @@ impl TaskStatus {
             "queued" => Some(Self::Queued),
             "running" => Some(Self::Running),
             "awaiting_approval" => Some(Self::AwaitingApproval),
+            "awaiting_child" => Some(Self::AwaitingChild),
             "completed" => Some(Self::Completed),
             "failed" => Some(Self::Failed),
             "cancel_requested" => Some(Self::CancelRequested),
@@ -75,10 +78,6 @@ impl TaskStatus {
 
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
-    }
-
-    pub fn can_request_cancel(self) -> bool {
-        !self.is_terminal() && !matches!(self, Self::CancelRequested)
     }
 }
 
@@ -91,6 +90,8 @@ pub struct Task {
     pub source_kind: TaskSourceKind,
     pub source_message_id: Option<Uuid>,
     pub source_schedule_id: Option<Uuid>,
+    pub source_tool_call_id: Option<String>,
+    pub subagent_profile: Option<String>,
     pub parent_task_id: Option<Uuid>,
     pub scheduled_at: Option<DateTime<Utc>>,
     pub output: String,
@@ -111,6 +112,8 @@ impl Task {
         source_kind: TaskSourceKind,
         source_message_id: Option<Uuid>,
         source_schedule_id: Option<Uuid>,
+        source_tool_call_id: Option<String>,
+        subagent_profile: Option<String>,
         parent_task_id: Option<Uuid>,
         scheduled_at: Option<DateTime<Utc>>,
         output: String,
@@ -128,6 +131,8 @@ impl Task {
             source_kind,
             source_message_id,
             source_schedule_id,
+            source_tool_call_id,
+            subagent_profile,
             parent_task_id,
             scheduled_at,
             output,

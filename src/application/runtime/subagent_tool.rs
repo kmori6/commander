@@ -4,19 +4,10 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 pub const SUBAGENT_TOOL_NAME: &str = "subagent";
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[derive(Default)]
-pub enum SubagentMode {
-    #[default]
-    Wait,
-    Spawn,
-}
+const MAX_SUBAGENT_TASKS: usize = 5;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SubagentInput {
-    #[serde(default)]
-    pub mode: SubagentMode,
     pub tasks: Vec<SubagentTaskInput>,
 }
 
@@ -28,7 +19,6 @@ pub struct SubagentTaskInput {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SubagentOutput {
-    pub mode: SubagentMode,
     pub results: Vec<SubagentTaskOutput>,
 }
 
@@ -47,7 +37,6 @@ pub struct SubagentTaskOutput {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubagentTaskStatus {
-    Spawned,
     Completed,
     Failed,
     Cancelled,
@@ -157,6 +146,12 @@ impl Subagents {
             return Err("subagent requires at least one task".to_string());
         }
 
+        if input.tasks.len() > MAX_SUBAGENT_TASKS {
+            return Err(format!(
+                "subagent supports at most {MAX_SUBAGENT_TASKS} tasks"
+            ));
+        }
+
         let supported = self
             .profiles
             .iter()
@@ -218,20 +213,16 @@ impl Subagents {
         Some(ToolSpec {
             name: SUBAGENT_TOOL_NAME.to_string(),
             description: format!(
-                "Run focused child tasks. mode=wait runs tasks in parallel and returns final results; mode=spawn starts tasks and returns task IDs immediately. Available profiles: {descriptions}."
+                "Run focused child tasks and return their results to the parent agent. Available profiles: {descriptions}."
             ),
             parameters: json!({
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["wait", "spawn"],
-                        "description": "wait returns final results. spawn starts child tasks and returns task IDs immediately. Defaults to wait."
-                    },
                     "tasks": {
                         "type": "array",
                         "minItems": 1,
+                        "maxItems": MAX_SUBAGENT_TASKS,
                         "items": {
                             "type": "object",
                             "additionalProperties": false,
