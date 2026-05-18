@@ -6,4 +6,3 @@ pub mod session_usecase_error;
 pub mod task_usecase_error;
 pub mod tool_approval_usecase_error;
 pub mod tool_usecase_error;
-pub mod watch_usecase_error;

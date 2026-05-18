@@ -1,6 +1,8 @@
 use crate::application::error::schedule_daemon_error::ScheduleDaemonError;
-use crate::application::usecase::schedule_usecase::ScheduleUsecase;
-use crate::application::usecase::watch_usecase::WatchUsecase;
+use crate::application::usecase::schedule_usecase::{DueTaskInput, ScheduleUsecase};
+use crate::domain::model::task::TaskSourceKind;
+use crate::domain::repository::watch_repository::WatchRepository;
+use crate::domain::service::instruction_service::InstructionService;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -13,21 +15,23 @@ const POLL_INTERVAL: Duration = Duration::from_secs(30);
 const DUE_WINDOW: chrono::Duration = chrono::Duration::seconds(60);
 
 type AppScheduleUsecase = ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>;
-type AppWatchUsecase = WatchUsecase<PostgresTaskRepository, FileWatchRepository>;
 
 pub struct ScheduleDaemon {
     schedule_usecase: Arc<AppScheduleUsecase>,
-    watch_usecase: Arc<AppWatchUsecase>,
+    watch_repository: FileWatchRepository,
+    instruction_service: Arc<InstructionService>,
 }
 
 impl ScheduleDaemon {
     pub fn new(
         schedule_usecase: Arc<AppScheduleUsecase>,
-        watch_usecase: Arc<AppWatchUsecase>,
+        watch_repository: FileWatchRepository,
+        instruction_service: Arc<InstructionService>,
     ) -> Self {
         Self {
             schedule_usecase,
-            watch_usecase,
+            watch_repository,
+            instruction_service,
         }
     }
 
@@ -65,7 +69,32 @@ impl ScheduleDaemon {
     }
 
     async fn tick_watch(&self) -> Result<(), ScheduleDaemonError> {
-        self.watch_usecase.run_due(Utc::now(), DUE_WINDOW).await?;
+        let Some(config) = self.watch_repository.get().await? else {
+            return Ok(());
+        };
+
+        if !config.enabled {
+            return Ok(());
+        }
+
+        let Some(scheduled_at) = config.due_time(Utc::now(), DUE_WINDOW) else {
+            return Ok(());
+        };
+
+        let Some(request) = self.instruction_service.build_watch_request() else {
+            return Ok(());
+        };
+
+        self.schedule_usecase
+            .run_due_task(DueTaskInput {
+                request,
+                source_kind: TaskSourceKind::Watch,
+                source_schedule_id: None,
+                scheduled_at,
+                skip_if_open_same_source: true,
+            })
+            .await?;
+
         Ok(())
     }
 }

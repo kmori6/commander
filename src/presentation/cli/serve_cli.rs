@@ -8,7 +8,6 @@ use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
-use crate::application::usecase::watch_usecase::WatchUsecase;
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::tool_executor::ToolExecutor;
@@ -151,11 +150,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         schedule_repository,
         task_repository.clone(),
     ));
-    let watch_usecase = Arc::new(WatchUsecase::new(
-        task_repository.clone(),
-        watch_repository.clone(),
-        instruction_service.clone(),
-    ));
     let tool_approval_usecase =
         Arc::new(ToolApprovalUsecase::new(tool_approval_repository.clone()));
 
@@ -192,7 +186,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         tool_approval_usecase,
     };
 
-    let schedule_daemon = ScheduleDaemon::new(app_state.schedule_usecase.clone(), watch_usecase);
+    let schedule_daemon = ScheduleDaemon::new(
+        app_state.schedule_usecase.clone(),
+        watch_repository,
+        instruction_service.clone(),
+    );
 
     tokio::spawn(async move {
         schedule_daemon.run().await;
