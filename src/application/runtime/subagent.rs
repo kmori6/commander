@@ -4,38 +4,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::Path;
 
-pub const SUBAGENT_TOOL_NAME: &str = "subagent";
-const MAX_SUBAGENT_TASKS: usize = 5;
+pub const TOOL_NAME: &str = "subagent";
+const MAX_TASKS: usize = 5;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SubagentInput {
-    pub tasks: Vec<SubagentTaskInput>,
+pub struct Input {
+    pub tasks: Vec<TaskInput>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SubagentTaskInput {
+pub struct TaskInput {
     pub profile: String,
     pub request: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SubagentOutput {
-    pub results: Vec<SubagentTaskOutput>,
+pub struct Output {
+    pub results: Vec<TaskOutput>,
 }
 
-impl SubagentOutput {
+impl Output {
     pub fn from_tasks(tasks: &[Task]) -> Self {
         let results = tasks
             .iter()
             .enumerate()
-            .map(|(index, task)| SubagentTaskOutput {
+            .map(|(index, task)| TaskOutput {
                 index,
                 task_id: task.id.to_string(),
                 profile: task.subagent_profile.clone().unwrap_or_default(),
                 status: match task.status {
-                    TaskStatus::Completed => SubagentTaskStatus::Completed,
-                    TaskStatus::Cancelled => SubagentTaskStatus::Cancelled,
-                    _ => SubagentTaskStatus::Failed,
+                    TaskStatus::Completed => Status::Completed,
+                    TaskStatus::Cancelled => Status::Cancelled,
+                    _ => Status::Failed,
                 },
                 output: (task.status == TaskStatus::Completed).then(|| task.output.clone()),
                 error: if task.status == TaskStatus::Completed {
@@ -53,11 +53,11 @@ impl SubagentOutput {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SubagentTaskOutput {
+pub struct TaskOutput {
     pub index: usize,
     pub task_id: String,
     pub profile: String,
-    pub status: SubagentTaskStatus,
+    pub status: Status,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,14 +66,14 @@ pub struct SubagentTaskOutput {
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SubagentTaskStatus {
+pub enum Status {
     Completed,
     Failed,
     Cancelled,
 }
 
 #[derive(Debug, Deserialize)]
-struct SubagentProfileFile {
+struct ProfileFile {
     #[serde(default)]
     description: String,
     instruction: String,
@@ -81,8 +81,8 @@ struct SubagentProfileFile {
     allowed_tools: Vec<String>,
 }
 
-impl SubagentProfile {
-    fn from_file(name: &str, file: SubagentProfileFile) -> Option<Self> {
+impl Profile {
+    fn from_file(name: &str, file: ProfileFile) -> Option<Self> {
         let instruction = file.instruction.trim().to_string();
         let allowed_tools = file
             .allowed_tools
@@ -117,7 +117,7 @@ impl SubagentProfile {
 }
 
 #[derive(Debug, Clone)]
-pub struct SubagentProfile {
+pub struct Profile {
     pub name: String,
     pub description: String,
     pub instruction: String,
@@ -125,11 +125,11 @@ pub struct SubagentProfile {
 }
 
 #[derive(Debug, Clone)]
-pub struct Subagents {
-    profiles: Vec<SubagentProfile>,
+pub struct Registry {
+    profiles: Vec<Profile>,
 }
 
-impl Subagents {
+impl Registry {
     pub fn load(workspace_root: &Path) -> Self {
         let root = workspace_root.join("subagents");
         let mut profiles = Vec::new();
@@ -150,9 +150,9 @@ impl Subagents {
                     continue;
                 };
 
-                match serde_json::from_str::<SubagentProfileFile>(&content) {
+                match serde_json::from_str::<ProfileFile>(&content) {
                     Ok(file) => {
-                        if let Some(profile) = SubagentProfile::from_file(name, file) {
+                        if let Some(profile) = Profile::from_file(name, file) {
                             profiles.push(profile);
                         }
                     }
@@ -167,19 +167,17 @@ impl Subagents {
         Self { profiles }
     }
 
-    pub fn find(&self, name: &str) -> Option<&SubagentProfile> {
+    pub fn find(&self, name: &str) -> Option<&Profile> {
         self.profiles.iter().find(|profile| profile.name == name)
     }
 
-    fn validate_input(&self, input: &SubagentInput) -> Result<(), String> {
+    fn validate_input(&self, input: &Input) -> Result<(), String> {
         if input.tasks.is_empty() {
             return Err("subagent requires at least one task".to_string());
         }
 
-        if input.tasks.len() > MAX_SUBAGENT_TASKS {
-            return Err(format!(
-                "subagent supports at most {MAX_SUBAGENT_TASKS} tasks"
-            ));
+        if input.tasks.len() > MAX_TASKS {
+            return Err(format!("subagent supports at most {MAX_TASKS} tasks"));
         }
 
         let supported = self
@@ -209,8 +207,8 @@ impl Subagents {
         Ok(())
     }
 
-    pub fn parse_input(&self, arguments: Value) -> Result<SubagentInput, String> {
-        let mut input = serde_json::from_value::<SubagentInput>(arguments)
+    pub fn parse_input(&self, arguments: Value) -> Result<Input, String> {
+        let mut input = serde_json::from_value::<Input>(arguments)
             .map_err(|err| format!("invalid subagent arguments: {err}"))?;
 
         for task in &mut input.tasks {
@@ -241,7 +239,7 @@ impl Subagents {
             .join(", ");
 
         Some(ToolSpec {
-            name: SUBAGENT_TOOL_NAME.to_string(),
+            name: TOOL_NAME.to_string(),
             description: format!(
                 "Run focused child tasks and return their results to the parent agent. Available profiles: {descriptions}."
             ),
@@ -252,7 +250,7 @@ impl Subagents {
                     "tasks": {
                         "type": "array",
                         "minItems": 1,
-                        "maxItems": MAX_SUBAGENT_TASKS,
+                        "maxItems": MAX_TASKS,
                         "items": {
                             "type": "object",
                             "additionalProperties": false,

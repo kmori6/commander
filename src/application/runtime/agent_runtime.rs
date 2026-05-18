@@ -1,6 +1,6 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::application::runtime::context_manager::ContextManager;
-use crate::application::runtime::subagent_tool::{self, SubagentProfile, Subagents};
+use crate::application::runtime::subagent::{self, Profile, Registry};
 use crate::application::runtime::task_status_tool;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::Role;
@@ -34,7 +34,7 @@ enum ToolRun {
 
 #[derive(Clone)]
 struct AgentScope {
-    profile: Option<SubagentProfile>,
+    profile: Option<Profile>,
 }
 
 impl AgentScope {
@@ -42,7 +42,7 @@ impl AgentScope {
         Self { profile: None }
     }
 
-    fn child(profile: SubagentProfile) -> Self {
+    fn child(profile: Profile) -> Self {
         Self {
             profile: Some(profile),
         }
@@ -140,7 +140,7 @@ where
             return Ok(AgentScope::root());
         };
 
-        let subagents = Subagents::load(self.instruction_service.workspace_root());
+        let subagents = Registry::load(self.instruction_service.workspace_root());
         let profile = subagents.find(profile_name).cloned().ok_or_else(|| {
             AgentRuntimeError::Unsupported(format!("unsupported subagent profile: {profile_name}"))
         })?;
@@ -483,7 +483,7 @@ where
                     return Ok(ToolRun::AwaitingApproval);
                 }
                 ToolPermissionMode::Allow => {
-                    if call.tool_name == subagent_tool::SUBAGENT_TOOL_NAME {
+                    if call.tool_name == subagent::TOOL_NAME {
                         if !outputs.is_empty() {
                             self.message_repository
                                 .save(task_id, Role::User, outputs)
@@ -545,7 +545,7 @@ where
         source_tool_call_id: &str,
         arguments: Value,
     ) -> Result<(), AgentRuntimeError> {
-        let subagents = Subagents::load(self.instruction_service.workspace_root());
+        let subagents = Registry::load(self.instruction_service.workspace_root());
         let input = subagents
             .parse_input(arguments)
             .map_err(AgentRuntimeError::Unsupported)?;
@@ -600,7 +600,7 @@ where
             let count = children.len();
 
             for child in children {
-                self.join_parent(&child).await?;
+                self.join_child(&child).await?;
             }
 
             if count < limit {
@@ -659,7 +659,7 @@ where
         Ok(())
     }
 
-    async fn join_parent(&self, child: &Task) -> Result<(), AgentRuntimeError> {
+    async fn join_child(&self, child: &Task) -> Result<(), AgentRuntimeError> {
         let Some(parent_task_id) = child.parent_task_id else {
             return Ok(());
         };
@@ -712,7 +712,7 @@ where
             return Ok(());
         }
 
-        let output = serde_json::to_value(subagent_tool::SubagentOutput::from_tasks(&children))
+        let output = serde_json::to_value(subagent::Output::from_tasks(&children))
             .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))?;
         let tool_output = ToolCallOutput::success(source_tool_call_id.to_string(), output);
 
@@ -804,7 +804,7 @@ where
             return specs;
         }
 
-        let subagents = Subagents::load(self.instruction_service.workspace_root());
+        let subagents = Registry::load(self.instruction_service.workspace_root());
 
         if let Some(spec) = subagents.tool_spec() {
             specs.push(spec);
@@ -851,13 +851,12 @@ where
     }
 
     async fn try_join(&self, task: &Task) {
-        if let Err(err) = self.join_parent(task).await {
+        if let Err(err) = self.join_child(task).await {
             log::warn!("failed to join parent for task {}: {err}", task.id);
         }
     }
 }
 
 fn is_runtime_tool(tool_name: &str) -> bool {
-    tool_name == subagent_tool::SUBAGENT_TOOL_NAME
-        || tool_name == task_status_tool::TASK_STATUS_TOOL_NAME
+    tool_name == subagent::TOOL_NAME || tool_name == task_status_tool::TASK_STATUS_TOOL_NAME
 }
