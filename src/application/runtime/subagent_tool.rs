@@ -1,3 +1,4 @@
+use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::model::tool_call::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -20,6 +21,35 @@ pub struct SubagentTaskInput {
 #[derive(Debug, Clone, Serialize)]
 pub struct SubagentOutput {
     pub results: Vec<SubagentTaskOutput>,
+}
+
+impl SubagentOutput {
+    pub fn from_tasks(tasks: &[Task]) -> Self {
+        let results = tasks
+            .iter()
+            .enumerate()
+            .map(|(index, task)| SubagentTaskOutput {
+                index,
+                task_id: task.id.to_string(),
+                profile: task.subagent_profile.clone().unwrap_or_default(),
+                status: match task.status {
+                    TaskStatus::Completed => SubagentTaskStatus::Completed,
+                    TaskStatus::Cancelled => SubagentTaskStatus::Cancelled,
+                    _ => SubagentTaskStatus::Failed,
+                },
+                output: (task.status == TaskStatus::Completed).then(|| task.output.clone()),
+                error: if task.status == TaskStatus::Completed {
+                    None
+                } else {
+                    task.error
+                        .clone()
+                        .or_else(|| Some(task.status.as_str().to_string()))
+                },
+            })
+            .collect();
+
+        Self { results }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

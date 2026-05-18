@@ -54,6 +54,8 @@ pub trait TaskRepository: Send + Sync {
 
     async fn has_open_children(&self, parent_task_id: Uuid) -> Result<bool, TaskRepositoryError>;
 
+    async fn list_joinable_children(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError>;
+
     async fn list_by_source_schedule_id(
         &self,
         schedule_id: Uuid,

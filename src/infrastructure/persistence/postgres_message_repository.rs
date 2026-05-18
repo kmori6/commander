@@ -385,4 +385,31 @@ impl MessageRepository for PostgresMessageRepository {
         .await
         .map_err(map_sqlx_error)
     }
+
+    async fn has_tool_output(
+        &self,
+        task_id: Uuid,
+        call_id: &str,
+    ) -> Result<bool, MessageRepositoryError> {
+        let exists = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+            SELECT 1
+            FROM messages m
+            JOIN message_contents c ON c.message_id = m.id
+            WHERE m.task_id = $1
+                AND m.role = 'user'
+                AND c.type = 'tool_call_output'
+                AND c.call_id = $2
+            )
+            "#,
+        )
+        .bind(task_id)
+        .bind(call_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(exists)
+    }
 }

@@ -401,6 +401,43 @@ impl TaskRepository for PostgresTaskRepository {
         Ok(has_open_children)
     }
 
+    async fn list_joinable_children(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError> {
+        let limit = i64::try_from(limit)
+            .map_err(|_| TaskRepositoryError::Unexpected(format!("invalid limit: {limit}")))?;
+
+        let rows = sqlx::query_as::<_, TaskRow>(&format!(
+            r#"
+            WITH ready AS (
+            SELECT DISTINCT ON (child.parent_task_id, child.source_tool_call_id)
+                child.id
+            FROM tasks child
+            JOIN tasks parent ON parent.id = child.parent_task_id
+            WHERE child.source_tool_call_id IS NOT NULL
+                AND parent.status IN ('awaiting_child', 'cancel_requested')
+                AND NOT EXISTS (
+                SELECT 1
+                FROM tasks open_child
+                WHERE open_child.parent_task_id = child.parent_task_id
+                    AND open_child.source_tool_call_id = child.source_tool_call_id
+                    AND open_child.status NOT IN ('completed', 'failed', 'cancelled')
+                )
+            ORDER BY child.parent_task_id, child.source_tool_call_id, child.created_at ASC, child.id ASC
+            LIMIT $1
+            )
+            SELECT {TASK_COLUMNS}
+            FROM tasks
+            WHERE id IN (SELECT id FROM ready)
+            ORDER BY created_at ASC, id ASC
+            "#
+        ))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
     async fn list_by_source_schedule_id(
         &self,
         schedule_id: Uuid,

@@ -589,6 +589,26 @@ where
         Ok(())
     }
 
+    pub async fn recover_children(&self, limit: usize) -> Result<(), AgentRuntimeError> {
+        loop {
+            let children = self.task_repository.list_joinable_children(limit).await?;
+
+            if children.is_empty() {
+                return Ok(());
+            }
+
+            let count = children.len();
+
+            for child in children {
+                self.join_parent(&child).await?;
+            }
+
+            if count < limit {
+                return Ok(());
+            }
+        }
+    }
+
     async fn task_status(&self, arguments: Value) -> Result<Value, AgentRuntimeError> {
         let input = task_status_tool::parse_task_status_input(arguments)
             .map_err(AgentRuntimeError::Unsupported)?;
@@ -633,7 +653,7 @@ where
     async fn complete(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
         let task = self.task_repository.complete(task_id, output).await?;
         self.emit(task_id, "task_completed", json!({})).await?;
-        self.join_parent(&task).await?;
+        self.try_join(&task).await;
         Ok(())
     }
 
@@ -645,7 +665,7 @@ where
         self.emit(task_id, "task_failed", json!({ "error": output }))
             .await?;
 
-        self.join_parent(&task).await?;
+        self.try_join(&task).await;
 
         Ok(())
     }
@@ -692,30 +712,18 @@ where
             return Ok(());
         }
 
-        let results = children
-            .iter()
-            .enumerate()
-            .map(|(index, task)| subagent_tool::SubagentTaskOutput {
-                index,
-                task_id: task.id.to_string(),
-                profile: task.subagent_profile.clone().unwrap_or_default(),
-                status: match task.status {
-                    TaskStatus::Completed => subagent_tool::SubagentTaskStatus::Completed,
-                    TaskStatus::Cancelled => subagent_tool::SubagentTaskStatus::Cancelled,
-                    _ => subagent_tool::SubagentTaskStatus::Failed,
-                },
-                output: (task.status == TaskStatus::Completed).then(|| task.output.clone()),
-                error: if task.status == TaskStatus::Completed {
-                    None
-                } else {
-                    task.error
-                        .clone()
-                        .or_else(|| Some(task.status.as_str().to_string()))
-                },
-            })
-            .collect();
+        if self
+            .message_repository
+            .has_tool_output(parent_task_id, source_tool_call_id)
+            .await?
+        {
+            self.task_repository
+                .update_status(parent_task_id, TaskStatus::Queued)
+                .await?;
+            return Ok(());
+        }
 
-        let output = serde_json::to_value(subagent_tool::SubagentOutput { results })
+        let output = serde_json::to_value(subagent_tool::SubagentOutput::from_tasks(&children))
             .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))?;
         let tool_output = ToolCallOutput::success(source_tool_call_id.to_string(), output);
 
@@ -849,8 +857,14 @@ where
             json!({ "checkpoint": checkpoint }),
         )
         .await?;
-        self.join_parent(&task).await?;
+        self.try_join(&task).await;
         Ok(())
+    }
+
+    async fn try_join(&self, task: &Task) {
+        if let Err(err) = self.join_parent(task).await {
+            log::warn!("failed to join parent for task {}: {err}", task.id);
+        }
     }
 }
 

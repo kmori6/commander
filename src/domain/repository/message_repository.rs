@@ -22,4 +22,10 @@ pub trait MessageRepository: Send + Sync {
         message_id: Uuid,
         call_id: &str,
     ) -> Result<Option<Uuid>, MessageRepositoryError>;
+
+    async fn has_tool_output(
+        &self,
+        task_id: Uuid,
+        call_id: &str,
+    ) -> Result<bool, MessageRepositoryError>;
 }
