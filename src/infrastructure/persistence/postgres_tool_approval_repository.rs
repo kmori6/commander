@@ -295,8 +295,8 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
             )
             GROUP BY ta.task_id
             ORDER BY MIN(ta.resolved_at) ASC NULLS LAST,
-                     MIN(ta.requested_at) ASC,
-                     ta.task_id ASC
+                    MIN(ta.requested_at) ASC,
+                    ta.task_id ASC
             LIMIT $1
             "#,
         )
