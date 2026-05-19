@@ -1,5 +1,4 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
-use crate::application::runtime::context_manager::ContextManager;
 use crate::application::runtime::subagent::{self, Profile, Registry};
 use crate::application::runtime::task_status_tool;
 use crate::domain::model::event::Event;
@@ -8,18 +7,21 @@ use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
 use crate::domain::model::tool_call::{
     ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
 };
-use crate::domain::port::llm_provider::{LlmProvider, LlmRequest};
+use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenUsageRepository};
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
+use crate::domain::service::compaction_service::{CompactionConfig, CompactionService};
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::tool_executor::ToolExecutor;
+use chrono::Local;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -30,6 +32,11 @@ enum ToolRun {
     AwaitingApproval,
     AwaitingChild,
     Stopped,
+}
+
+struct Checkpoint {
+    until: Uuid,
+    summary: String,
 }
 
 #[derive(Clone)]
@@ -69,13 +76,13 @@ pub struct AgentRuntime<L, T, M, E, U, P, A> {
 
 impl<L, T, M, E, U, P, A> AgentRuntime<L, T, M, E, U, P, A>
 where
-    L: LlmProvider + 'static,
-    T: TaskRepository + 'static,
-    M: MessageRepository + 'static,
-    E: EventRepository + 'static,
-    U: TokenUsageRepository + 'static,
-    P: ToolPermissionRepository + 'static,
-    A: ToolApprovalRepository + 'static,
+    L: LlmProvider,
+    T: TaskRepository,
+    M: MessageRepository,
+    E: EventRepository,
+    U: TokenUsageRepository,
+    P: ToolPermissionRepository,
+    A: ToolApprovalRepository,
 {
     pub fn new(
         llm_provider: L,
@@ -148,6 +155,84 @@ where
         Ok(AgentScope::child(profile))
     }
 
+    async fn build_llm_messages(
+        &self,
+        task: &Task,
+        scope: &AgentScope,
+        checkpoint: Option<&Checkpoint>,
+    ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
+        let mut instruction = self.instruction_service.build_agent_instruction();
+
+        if let Some(profile) = &scope.profile {
+            instruction.push_str("\n\n# Child Agent Profile\n");
+            instruction.push_str(&profile.instruction);
+        }
+
+        let mut messages = vec![LlmMessage::system_text(instruction)];
+        let mut checkpoint_until = checkpoint.map(|checkpoint| checkpoint.until);
+
+        if let Some(session_id) = task.session_id {
+            let session_tasks = self.task_repository.list_by_session_id(session_id).await?;
+            let mut included_current_task = false;
+
+            for session_task in session_tasks {
+                self.append_task_messages(&mut messages, &session_task, &mut checkpoint_until)
+                    .await?;
+
+                if session_task.id == task.id {
+                    included_current_task = true;
+                    break;
+                }
+            }
+
+            if !included_current_task {
+                self.append_task_messages(&mut messages, task, &mut checkpoint_until)
+                    .await?;
+            }
+
+            return Ok(messages);
+        }
+
+        self.append_task_messages(&mut messages, task, &mut checkpoint_until)
+            .await?;
+
+        Ok(messages)
+    }
+
+    async fn append_task_messages(
+        &self,
+        messages: &mut Vec<LlmMessage>,
+        task: &Task,
+        checkpoint_until: &mut Option<Uuid>,
+    ) -> Result<(), AgentRuntimeError> {
+        let mut task_messages = self.message_repository.list_for_task(task.id).await?;
+
+        if let Some(until) = checkpoint_until.as_ref().copied() {
+            let Some(index) = task_messages.iter().position(|message| message.id == until) else {
+                return Ok(());
+            };
+
+            task_messages = task_messages.split_off(index + 1);
+            *checkpoint_until = None;
+        }
+
+        let has_user_message = task_messages
+            .iter()
+            .any(|message| message.role == Role::User);
+
+        if !has_user_message {
+            messages.push(LlmMessage::user_text(task.request.clone()));
+        }
+
+        messages.extend(
+            task_messages
+                .into_iter()
+                .map(|message| LlmMessage::new(message.role, message.contents)),
+        );
+
+        Ok(())
+    }
+
     pub async fn run(self: Arc<Self>, task_id: Uuid) -> Result<(), AgentRuntimeError> {
         match self.run_loop(task_id, true).await {
             Ok(()) => Ok(()),
@@ -160,13 +245,13 @@ where
         }
     }
 
+    // agent loop
     async fn run_loop(&self, task_id: Uuid, emit_started: bool) -> Result<(), AgentRuntimeError> {
         let task = self
             .task_repository
             .find_by_id(task_id)
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
-        let scope = self.task_scope(&task)?;
 
         if emit_started {
             self.emit(task_id, "task_started", json!({})).await?;
@@ -180,24 +265,18 @@ where
             .update_status(task_id, TaskStatus::Running)
             .await?;
 
+        let scope = self.task_scope(&task)?;
         for step in 0..MAX_LLM_STEPS {
             if self.stop_cancelled(task_id, "before_llm").await? {
                 return Ok(());
             }
 
             // LLM call
-            let child_agent_instruction = scope
-                .profile
-                .as_ref()
-                .map(|profile| profile.instruction.as_str());
-            let messages = ContextManager::new(
-                &self.task_repository,
-                &self.message_repository,
-                self.instruction_service.as_ref(),
-            )
-            .build_for_task(&task, child_agent_instruction)
-            .await?;
             let model = self.model().await;
+            let checkpoint = self.compact_context(&task, &model).await?;
+            let messages = self
+                .build_llm_messages(&task, &scope, checkpoint.as_ref())
+                .await?;
 
             self.emit(
                 task_id,
@@ -536,6 +615,151 @@ where
             .await?;
 
         Ok(ToolRun::Continue)
+    }
+
+    async fn compact_context(
+        &self,
+        task: &Task,
+        model: &str,
+    ) -> Result<Option<Checkpoint>, AgentRuntimeError> {
+        let checkpoint = self.checkpoint(task).await?;
+
+        let mut messages = Vec::new();
+
+        if let Some(session_id) = task.session_id {
+            for session_task in self.task_repository.list_by_session_id(session_id).await? {
+                let mut task_messages = self
+                    .message_repository
+                    .list_for_task(session_task.id)
+                    .await?;
+                messages.append(&mut task_messages);
+
+                if session_task.id == task.id {
+                    break;
+                }
+            }
+        } else {
+            messages = self.message_repository.list_for_task(task.id).await?;
+        }
+
+        if let Some(checkpoint) = &checkpoint
+            && let Some(index) = messages
+                .iter()
+                .position(|message| message.id == checkpoint.until)
+        {
+            messages = messages.split_off(index + 1);
+        }
+
+        let context_window = self
+            .llm_provider
+            .context_window(model)
+            .await
+            .try_into()
+            .unwrap_or(256_000);
+
+        let service = CompactionService::new(CompactionConfig::for_window(context_window));
+
+        let Some(result) = service
+            .compact(
+                &self.llm_provider,
+                model,
+                messages,
+                checkpoint.as_ref().map(|c| c.summary.as_str()),
+            )
+            .await?
+        else {
+            return Ok(checkpoint);
+        };
+
+        let summary = result.summary.clone();
+
+        self.append_journal(&summary).await?;
+
+        self.emit(
+            task.id,
+            "compaction_finished",
+            json!({
+                "until_message_id": result.until.to_string(),
+                "summary": result.summary,
+            }),
+        )
+        .await?;
+
+        Ok(Some(Checkpoint {
+            until: result.until,
+            summary,
+        }))
+    }
+
+    async fn checkpoint(&self, task: &Task) -> Result<Option<Checkpoint>, AgentRuntimeError> {
+        let mut latest = None;
+
+        let tasks = if let Some(session_id) = task.session_id {
+            self.task_repository.list_by_session_id(session_id).await?
+        } else {
+            vec![task.clone()]
+        };
+
+        let current_task_id = task.id;
+
+        for session_task in tasks {
+            for event in self.event_repository.list_for_task(session_task.id).await? {
+                if event.event_type != "compaction_finished" {
+                    continue;
+                }
+
+                let Some(until) = event
+                    .payload
+                    .get("until_message_id")
+                    .and_then(|v| v.as_str())
+                    .and_then(|v| Uuid::parse_str(v).ok())
+                else {
+                    continue;
+                };
+
+                let Some(summary) = event.payload.get("summary").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+
+                latest = Some(Checkpoint {
+                    until,
+                    summary: summary.to_string(),
+                });
+            }
+
+            if session_task.id == current_task_id {
+                break;
+            }
+        }
+
+        Ok(latest)
+    }
+
+    async fn append_journal(&self, summary: &str) -> Result<(), AgentRuntimeError> {
+        let path = self
+            .instruction_service
+            .workspace_root()
+            .join("memory")
+            .join("journals")
+            .join(format!(
+                "{}.md",
+                Local::now().date_naive().format("%Y-%m-%d")
+            ));
+
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .await?;
+
+        file.write_all(format!("\n## Compaction Summary\n\n{summary}\n").as_bytes())
+            .await?;
+
+        Ok(())
     }
 
     async fn start_children(

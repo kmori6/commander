@@ -36,17 +36,17 @@ pub enum ScheduleExecutionOutcome {
     AlreadyRecorded(ScheduleExecution),
 }
 
-pub struct ScheduleUsecase<S, TaskRepo> {
+pub struct ScheduleUsecase<S, T> {
     schedule_repository: S,
-    task_repository: TaskRepo,
+    task_repository: T,
 }
 
-impl<S, TaskRepo> ScheduleUsecase<S, TaskRepo>
+impl<S, T> ScheduleUsecase<S, T>
 where
     S: ScheduleRepository,
-    TaskRepo: TaskRepository,
+    T: TaskRepository,
 {
-    pub fn new(schedule_repository: S, task_repository: TaskRepo) -> Self {
+    pub fn new(schedule_repository: S, task_repository: T) -> Self {
         Self {
             schedule_repository,
             task_repository,

@@ -108,4 +108,6 @@ impl LlmResponse {
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn respond(&self, request: LlmRequest) -> Result<LlmResponse, LlmProviderError>;
+
+    async fn context_window(&self, model: &str) -> i64;
 }

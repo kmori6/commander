@@ -121,6 +121,11 @@ impl LlmProvider for BedrockLlmProvider {
             usage,
         })
     }
+
+    // HACK: fix hardcoded context window
+    async fn context_window(&self, _model: &str) -> i64 {
+        256_000
+    }
 }
 
 fn build_system_content_blocks(

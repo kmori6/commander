@@ -48,4 +48,7 @@ pub enum AgentRuntimeError {
 
     #[error("tool approval is still pending: {0}")]
     ToolApprovalPending(Uuid),
+
+    #[error("failed to access runtime file: {0}")]
+    Io(#[from] std::io::Error),
 }

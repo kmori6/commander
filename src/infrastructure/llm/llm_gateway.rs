@@ -161,6 +161,15 @@ impl LlmProvider for LlmGateway {
             }
         }
     }
+
+    async fn context_window(&self, model: &str) -> i64 {
+        self.catalog
+            .read()
+            .await
+            .find_model(model)
+            .map(|model| model.context_window)
+            .unwrap_or(256_000)
+    }
 }
 
 async fn load_catalog(paths: &ModelConfigPaths) -> Result<Catalog, LlmProviderError> {
