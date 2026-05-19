@@ -226,4 +226,83 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
         row.ok_or(ToolApprovalRepositoryError::NotFound(id))?
             .try_into()
     }
+
+    async fn ready_for_task(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<ToolApproval>, ToolApprovalRepositoryError> {
+        let rows = sqlx::query_as::<_, ToolApprovalRow>(
+            r#"
+            SELECT
+              ta.id,
+              ta.task_id,
+              ta.message_content_id,
+              mc.message_id,
+              COALESCE(mc.call_id, '') AS call_id,
+              ta.status,
+              ta.requested_at,
+              ta.resolved_at
+            FROM tool_approvals ta
+            INNER JOIN message_contents mc
+              ON mc.id = ta.message_content_id
+            WHERE ta.task_id = $1
+              AND ta.status IN ('approved', 'rejected')
+              AND NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                INNER JOIN message_contents out_content
+                  ON out_content.message_id = m.id
+                WHERE m.task_id = ta.task_id
+                  AND m.role = 'user'
+                  AND out_content.type = 'tool_call_output'
+                  AND out_content.call_id = mc.call_id
+              )
+            ORDER BY ta.resolved_at ASC NULLS LAST, ta.requested_at ASC, ta.id ASC
+            "#,
+        )
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn ready_task_ids(&self, limit: usize) -> Result<Vec<Uuid>, ToolApprovalRepositoryError> {
+        let limit = i64::try_from(limit).map_err(|_| {
+            ToolApprovalRepositoryError::Unexpected(format!("invalid limit: {limit}"))
+        })?;
+
+        sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT ta.task_id
+            FROM tool_approvals ta
+            INNER JOIN tasks t
+              ON t.id = ta.task_id
+            INNER JOIN message_contents mc
+              ON mc.id = ta.message_content_id
+            WHERE t.status = 'awaiting_approval'
+              AND ta.status IN ('approved', 'rejected')
+              AND NOT EXISTS (
+                SELECT 1
+                FROM messages m
+                INNER JOIN message_contents out_content
+                  ON out_content.message_id = m.id
+                WHERE m.task_id = ta.task_id
+                  AND m.role = 'user'
+                  AND out_content.type = 'tool_call_output'
+                  AND out_content.call_id = mc.call_id
+            )
+            GROUP BY ta.task_id
+            ORDER BY MIN(ta.resolved_at) ASC NULLS LAST,
+                     MIN(ta.requested_at) ASC,
+                     ta.task_id ASC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)
+    }
 }

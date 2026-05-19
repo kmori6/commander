@@ -36,7 +36,8 @@ pub struct AppState {
     >,
     pub schedule_usecase: Arc<ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>>,
     pub tool_usecase: Arc<ToolUsecase<FileToolPermissionRepository>>,
-    pub tool_approval_usecase: Arc<ToolApprovalUsecase<PostgresToolApprovalRepository>>,
+    pub tool_approval_usecase:
+        Arc<ToolApprovalUsecase<PostgresToolApprovalRepository, PostgresTaskRepository>>,
     // runtimes
     pub agent_runtime: Arc<
         AgentRuntime<

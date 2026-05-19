@@ -24,6 +24,7 @@ type AppAgentRuntime = AgentRuntime<
 >;
 
 const CHILD_RECOVERY_LIMIT: usize = 20;
+const APPROVAL_RECOVERY_LIMIT: usize = 20;
 
 pub struct TaskRunner {
     task_repository: PostgresTaskRepository,
@@ -47,6 +48,14 @@ impl TaskRunner {
     pub async fn run(self) {
         if let Err(err) = self.recover_interrupted().await {
             log::warn!("task runner recovery failed: {err}");
+        }
+
+        if let Err(err) = self
+            .agent_runtime
+            .recover_approvals(APPROVAL_RECOVERY_LIMIT)
+            .await
+        {
+            log::warn!("approval recovery failed: {err}");
         }
 
         if let Err(err) = self

@@ -150,8 +150,10 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         schedule_repository,
         task_repository.clone(),
     ));
-    let tool_approval_usecase =
-        Arc::new(ToolApprovalUsecase::new(tool_approval_repository.clone()));
+    let tool_approval_usecase = Arc::new(ToolApprovalUsecase::new(
+        tool_approval_repository.clone(),
+        task_repository.clone(),
+    ));
 
     let model = llm_gateway.default_model_id().await;
 

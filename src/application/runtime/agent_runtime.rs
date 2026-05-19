@@ -5,7 +5,7 @@ use crate::domain::model::event::Event;
 use crate::domain::model::message::Role;
 use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
 use crate::domain::model::tool_call::{
-    ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
+    ToolApproval, ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
 };
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
@@ -265,6 +265,8 @@ where
             .update_status(task_id, TaskStatus::Running)
             .await?;
 
+        self.apply_approvals(task_id).await?;
+
         let scope = self.task_scope(&task)?;
         for step in 0..MAX_LLM_STEPS {
             if self.stop_cancelled(task_id, "before_llm").await? {
@@ -374,29 +376,22 @@ where
         )))
     }
 
-    pub async fn resume(self: Arc<Self>, approval_id: Uuid) -> Result<(), AgentRuntimeError> {
-        let task_id = self.apply_approval(approval_id).await?;
+    async fn apply_approvals(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
+        let approvals = self
+            .tool_approval_repository
+            .ready_for_task(task_id)
+            .await?;
 
-        match self.run_loop(task_id, false).await {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                if let Err(fail_err) = self.fail(task_id, &err).await {
-                    log::warn!("failed to mark task {task_id} as failed: {fail_err}");
-                }
-                Err(err)
-            }
+        for approval in approvals {
+            self.apply_approval(approval).await?;
         }
+
+        Ok(())
     }
 
-    async fn apply_approval(&self, approval_id: Uuid) -> Result<Uuid, AgentRuntimeError> {
-        let approval = self
-            .tool_approval_repository
-            .find_by_id(approval_id)
-            .await?
-            .ok_or(AgentRuntimeError::ToolApprovalNotFound)?;
-
+    async fn apply_approval(&self, approval: ToolApproval) -> Result<Uuid, AgentRuntimeError> {
         if approval.status == ToolApprovalStatus::Pending {
-            return Err(AgentRuntimeError::ToolApprovalPending(approval_id));
+            return Err(AgentRuntimeError::ToolApprovalPending(approval.id));
         }
 
         let message = self
@@ -407,7 +402,7 @@ where
 
         let task = self
             .task_repository
-            .find_by_id(message.task_id)
+            .find_by_id(approval.task_id)
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
 
@@ -811,6 +806,35 @@ where
         .await?;
 
         Ok(())
+    }
+
+    pub async fn recover_approvals(&self, limit: usize) -> Result<u64, AgentRuntimeError> {
+        if limit == 0 {
+            return Ok(0);
+        }
+
+        let mut total = 0;
+
+        loop {
+            let task_ids = self.tool_approval_repository.ready_task_ids(limit).await?;
+
+            if task_ids.is_empty() {
+                return Ok(total);
+            }
+
+            let count = task_ids.len();
+
+            for task_id in task_ids {
+                self.task_repository
+                    .update_status(task_id, TaskStatus::Queued)
+                    .await?;
+                total += 1;
+            }
+
+            if count < limit {
+                return Ok(total);
+            }
+        }
     }
 
     pub async fn recover_children(&self, limit: usize) -> Result<(), AgentRuntimeError> {
