@@ -1,5 +1,4 @@
 use crate::application::usecase::schedule_usecase::{DueTaskInput, ScheduleUsecase};
-use crate::domain::model::task::TaskSourceKind;
 use crate::domain::repository::watch_repository::WatchRepository;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
@@ -88,7 +87,6 @@ impl ScheduleDaemon {
         self.schedule_usecase
             .run_due_task(DueTaskInput {
                 request,
-                source_kind: TaskSourceKind::Watch,
                 source_schedule_id: None,
                 scheduled_at,
                 skip_if_open_same_source: true,

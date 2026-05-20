@@ -909,7 +909,6 @@ components:
         - awaiting_approval
         - completed
         - failed
-        - cancel_requested
         - cancelled
 
     Task:
@@ -919,8 +918,6 @@ components:
         - request
         - status
         - session_id
-        - source_message_id
-        - parent_task_id
         - created_at
         - updated_at
         - started_at
@@ -936,16 +933,16 @@ components:
         session_id:
           type: string
           format: uuid
-        source_message_id:
+        source_schedule_id:
           type:
             - string
             - "null"
           format: uuid
-        parent_task_id:
+        scheduled_at:
           type:
             - string
             - "null"
-          format: uuid
+          format: date-time
         created_at:
           type: string
           format: date-time
@@ -970,11 +967,6 @@ components:
       properties:
         request:
           type: string
-        parent_task_id:
-          type:
-            - string
-            - "null"
-          format: uuid
 
     ListTasksResponse:
       type: object

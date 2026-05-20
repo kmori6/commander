@@ -9,8 +9,8 @@ pub enum ToolApprovalRepositoryError {
     #[error("task not found: {0}")]
     TaskNotFound(Uuid),
 
-    #[error("message content not found: {0}")]
-    MessageContentNotFound(Uuid),
+    #[error("message not found: {0}")]
+    MessageNotFound(Uuid),
 
     #[error("invalid tool approval: {0}")]
     InvalidApproval(String),

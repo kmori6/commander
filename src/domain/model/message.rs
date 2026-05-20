@@ -44,14 +44,6 @@ impl ToolCallOutputStatus {
             Self::Error => "error",
         }
     }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "success" => Some(Self::Success),
-            "error" => Some(Self::Error),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -83,17 +75,6 @@ pub enum MessageContent {
 }
 
 impl MessageContent {
-    pub fn content_type(&self) -> &'static str {
-        match self {
-            Self::InputText { .. } => "input_text",
-            Self::InputImage { .. } => "input_image",
-            Self::InputFile { .. } => "input_file",
-            Self::OutputText { .. } => "output_text",
-            Self::ToolCall { .. } => "tool_call",
-            Self::ToolCallOutput { .. } => "tool_call_output",
-        }
-    }
-
     pub fn input_text(text: impl Into<String>) -> Self {
         Self::InputText { text: text.into() }
     }

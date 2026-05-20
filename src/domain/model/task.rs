@@ -4,47 +4,12 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskSourceKind {
-    Chat,
-    Schedule,
-    Task,
-    Manual,
-    Watch,
-}
-
-impl TaskSourceKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Chat => "chat",
-            Self::Schedule => "schedule",
-            Self::Task => "task",
-            Self::Manual => "manual",
-            Self::Watch => "watch",
-        }
-    }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "chat" => Some(Self::Chat),
-            "schedule" => Some(Self::Schedule),
-            "task" => Some(Self::Task),
-            "manual" => Some(Self::Manual),
-            "watch" => Some(Self::Watch),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Queued,
     Running,
     AwaitingApproval,
-    AwaitingChild,
     Completed,
     Failed,
-    CancelRequested,
     Cancelled,
 }
 
@@ -54,10 +19,8 @@ impl TaskStatus {
             Self::Queued => "queued",
             Self::Running => "running",
             Self::AwaitingApproval => "awaiting_approval",
-            Self::AwaitingChild => "awaiting_child",
             Self::Completed => "completed",
             Self::Failed => "failed",
-            Self::CancelRequested => "cancel_requested",
             Self::Cancelled => "cancelled",
         }
     }
@@ -67,10 +30,8 @@ impl TaskStatus {
             "queued" => Some(Self::Queued),
             "running" => Some(Self::Running),
             "awaiting_approval" => Some(Self::AwaitingApproval),
-            "awaiting_child" => Some(Self::AwaitingChild),
             "completed" => Some(Self::Completed),
             "failed" => Some(Self::Failed),
-            "cancel_requested" => Some(Self::CancelRequested),
             "cancelled" => Some(Self::Cancelled),
             _ => None,
         }
@@ -87,12 +48,7 @@ pub struct Task {
     pub request: String,
     pub status: TaskStatus,
     pub session_id: Option<Uuid>,
-    pub source_kind: TaskSourceKind,
-    pub source_message_id: Option<Uuid>,
     pub source_schedule_id: Option<Uuid>,
-    pub source_tool_call_id: Option<String>,
-    pub subagent_profile: Option<String>,
-    pub parent_task_id: Option<Uuid>,
     pub scheduled_at: Option<DateTime<Utc>>,
     pub output: String,
     pub error: Option<String>,
@@ -103,18 +59,12 @@ pub struct Task {
 }
 
 impl Task {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Uuid,
         request: String,
         status: TaskStatus,
         session_id: Option<Uuid>,
-        source_kind: TaskSourceKind,
-        source_message_id: Option<Uuid>,
         source_schedule_id: Option<Uuid>,
-        source_tool_call_id: Option<String>,
-        subagent_profile: Option<String>,
-        parent_task_id: Option<Uuid>,
         scheduled_at: Option<DateTime<Utc>>,
         output: String,
         error: Option<String>,
@@ -128,12 +78,7 @@ impl Task {
             request,
             status,
             session_id,
-            source_kind,
-            source_message_id,
             source_schedule_id,
-            source_tool_call_id,
-            subagent_profile,
-            parent_task_id,
             scheduled_at,
             output,
             error,

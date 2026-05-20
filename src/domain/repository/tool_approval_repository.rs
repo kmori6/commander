@@ -9,7 +9,8 @@ pub trait ToolApprovalRepository: Send + Sync {
     async fn create_pending(
         &self,
         task_id: Uuid,
-        message_content_id: Uuid,
+        message_id: Uuid,
+        call_id: &str,
     ) -> Result<ToolApproval, ToolApprovalRepositoryError>;
 
     async fn list(

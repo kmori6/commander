@@ -2,15 +2,15 @@ use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::application::runtime::subagent::{self, Profile, Registry};
 use crate::application::runtime::task_status_tool;
 use crate::domain::model::event::Event;
-use crate::domain::model::message::Role;
-use crate::domain::model::task::{Task, TaskSourceKind, TaskStatus};
+use crate::domain::model::message::{MessageContent, Role};
+use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::model::tool_call::{
     ToolApproval, ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
 };
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
-use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
+use crate::domain::repository::task_repository::TaskRepository;
 use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenUsageRepository};
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
@@ -18,6 +18,7 @@ use crate::domain::service::compaction_service::{CompactionConfig, CompactionSer
 use crate::domain::service::event_service::EventService;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::domain::service::tool_executor::ToolExecutor;
+use async_recursion::async_recursion;
 use chrono::Local;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -27,10 +28,20 @@ use uuid::Uuid;
 
 const MAX_LLM_STEPS: usize = 30;
 
+enum LoopState {
+    Durable { task: Task },
+    Ephemeral { messages: Vec<LlmMessage> },
+}
+
+enum LoopOutcome {
+    Completed(String),
+    AwaitingApproval,
+    Stopped,
+}
+
 enum ToolRun {
     Continue,
     AwaitingApproval,
-    AwaitingChild,
     Stopped,
 }
 
@@ -141,20 +152,6 @@ where
         Ok(event)
     }
 
-    // root agent or subscribed subagent
-    fn task_scope(&self, task: &Task) -> Result<AgentScope, AgentRuntimeError> {
-        let Some(profile_name) = task.subagent_profile.as_deref() else {
-            return Ok(AgentScope::root());
-        };
-
-        let subagents = Registry::load(self.instruction_service.workspace_root());
-        let profile = subagents.find(profile_name).cloned().ok_or_else(|| {
-            AgentRuntimeError::Unsupported(format!("unsupported subagent profile: {profile_name}"))
-        })?;
-
-        Ok(AgentScope::child(profile))
-    }
-
     async fn build_llm_messages(
         &self,
         task: &Task,
@@ -233,8 +230,68 @@ where
         Ok(())
     }
 
-    pub async fn run(self: Arc<Self>, task_id: Uuid) -> Result<(), AgentRuntimeError> {
-        match self.run_loop(task_id, true).await {
+    async fn append_tool_outputs(
+        &self,
+        task_id: Uuid,
+        state: &mut LoopState,
+        outputs: &mut Vec<MessageContent>,
+    ) -> Result<(), AgentRuntimeError> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
+
+        let contents = std::mem::take(outputs);
+
+        match state {
+            LoopState::Durable { .. } => {
+                self.message_repository
+                    .save(task_id, Role::User, contents)
+                    .await?;
+            }
+            LoopState::Ephemeral { messages } => {
+                messages.push(LlmMessage::new(Role::User, contents));
+            }
+        }
+
+        Ok(())
+    }
+
+    // root agent entry
+    pub async fn run(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
+        let result = async {
+            let task = self
+                .task_repository
+                .find_by_id(task_id)
+                .await?
+                .ok_or(AgentRuntimeError::TaskNotFound)?;
+
+            self.emit(task_id, "task_started", json!({})).await?;
+
+            if self.stop_cancelled(task_id).await? {
+                return Ok(());
+            }
+
+            self.task_repository
+                .update_status(task_id, TaskStatus::Running)
+                .await?;
+
+            self.apply_approvals(task_id).await?;
+
+            let mut state = LoopState::Durable { task };
+
+            match self
+                .run_loop(task_id, AgentScope::root(), &mut state)
+                .await?
+            {
+                LoopOutcome::Completed(output) => self.complete(task_id, output).await?,
+                LoopOutcome::AwaitingApproval | LoopOutcome::Stopped => {}
+            }
+
+            Ok(())
+        }
+        .await;
+
+        match result {
             Ok(()) => Ok(()),
             Err(err) => {
                 if let Err(fail_err) = self.fail(task_id, &err).await {
@@ -246,39 +303,28 @@ where
     }
 
     // agent loop
-    async fn run_loop(&self, task_id: Uuid, emit_started: bool) -> Result<(), AgentRuntimeError> {
-        let task = self
-            .task_repository
-            .find_by_id(task_id)
-            .await?
-            .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-        if emit_started {
-            self.emit(task_id, "task_started", json!({})).await?;
-        }
-
-        if self.stop_cancelled(task_id, "before_start").await? {
-            return Ok(());
-        }
-
-        self.task_repository
-            .update_status(task_id, TaskStatus::Running)
-            .await?;
-
-        self.apply_approvals(task_id).await?;
-
-        let scope = self.task_scope(&task)?;
+    #[async_recursion]
+    async fn run_loop(
+        &self,
+        task_id: Uuid,
+        scope: AgentScope,
+        state: &mut LoopState,
+    ) -> Result<LoopOutcome, AgentRuntimeError> {
         for step in 0..MAX_LLM_STEPS {
-            if self.stop_cancelled(task_id, "before_llm").await? {
-                return Ok(());
+            if self.stop_cancelled(task_id).await? {
+                return Ok(LoopOutcome::Stopped);
             }
 
-            // LLM call
             let model = self.model().await;
-            let checkpoint = self.compact_context(&task, &model).await?;
-            let messages = self
-                .build_llm_messages(&task, &scope, checkpoint.as_ref())
-                .await?;
+
+            let messages = match state {
+                LoopState::Durable { task } => {
+                    let checkpoint = self.compact_context(task, &model).await?;
+                    self.build_llm_messages(task, &scope, checkpoint.as_ref())
+                        .await?
+                }
+                LoopState::Ephemeral { messages } => messages.clone(),
+            };
 
             self.emit(
                 task_id,
@@ -328,22 +374,6 @@ where
             )
             .await?;
 
-            let assistant_message = self
-                .message_repository
-                .save(task_id, Role::Assistant, response.message.contents.clone())
-                .await?;
-
-            self.token_usage_repository
-                .save(CreateTokenUsage {
-                    message_id: assistant_message.id,
-                    model: model.clone(),
-                    input_tokens: response.usage.input_tokens,
-                    output_tokens: response.usage.output_tokens,
-                    cache_read_tokens: response.usage.cache_read_tokens,
-                    cache_write_tokens: response.usage.cache_write_tokens,
-                })
-                .await?;
-
             let tool_calls = response
                 .message
                 .contents
@@ -351,29 +381,264 @@ where
                 .filter_map(ToolCall::from_message_content)
                 .collect::<Vec<_>>();
 
+            let assistant_message_id = match state {
+                LoopState::Durable { .. } => {
+                    let assistant_message = self
+                        .message_repository
+                        .save(task_id, Role::Assistant, response.message.contents.clone())
+                        .await?;
+
+                    self.token_usage_repository
+                        .save(CreateTokenUsage {
+                            message_id: assistant_message.id,
+                            model: model.clone(),
+                            input_tokens: response.usage.input_tokens,
+                            output_tokens: response.usage.output_tokens,
+                            cache_read_tokens: response.usage.cache_read_tokens,
+                            cache_write_tokens: response.usage.cache_write_tokens,
+                        })
+                        .await?;
+
+                    Some(assistant_message.id)
+                }
+                LoopState::Ephemeral { messages } => {
+                    messages.push(response.message.clone());
+                    None
+                }
+            };
+
             if tool_calls.is_empty() {
-                if self.stop_cancelled(task_id, "before_complete").await? {
-                    return Ok(());
+                if self.stop_cancelled(task_id).await? {
+                    return Ok(LoopOutcome::Stopped);
                 }
 
-                self.complete(task_id, response.output_text("\n")).await?;
-                return Ok(());
+                return Ok(LoopOutcome::Completed(response.output_text("\n")));
             }
 
             match self
-                .run_tools(task_id, assistant_message.id, tool_calls, &scope)
+                .run_tools(task_id, assistant_message_id, tool_calls, &scope, state)
                 .await?
             {
                 ToolRun::Continue => {}
-                ToolRun::AwaitingApproval => return Ok(()),
-                ToolRun::AwaitingChild => return Ok(()),
-                ToolRun::Stopped => return Ok(()),
+                ToolRun::AwaitingApproval => return Ok(LoopOutcome::AwaitingApproval),
+                ToolRun::Stopped => return Ok(LoopOutcome::Stopped),
             }
         }
 
         Err(AgentRuntimeError::Unsupported(format!(
             "maximum LLM steps exceeded: {MAX_LLM_STEPS}"
         )))
+    }
+
+    async fn run_tools(
+        &self,
+        task_id: Uuid,
+        assistant_message_id: Option<Uuid>,
+        tool_calls: Vec<ToolCall>,
+        scope: &AgentScope,
+        state: &mut LoopState,
+    ) -> Result<ToolRun, AgentRuntimeError> {
+        let mut outputs = Vec::new();
+
+        for call in tool_calls {
+            if self.stop_cancelled(task_id).await? {
+                self.append_tool_outputs(task_id, state, &mut outputs)
+                    .await?;
+                return Ok(ToolRun::Stopped);
+            }
+
+            self.emit(
+                task_id,
+                "tool_call_started",
+                json!({
+                    "call_id": call.call_id,
+                    "tool_name": call.tool_name,
+                    "arguments": call.arguments,
+                }),
+            )
+            .await?;
+
+            // tool executor does not have subagent, so we need to resolve permission for subagent tool call here
+            let mode = if is_runtime_tool(&call.tool_name) {
+                if scope.is_root() {
+                    ToolPermissionMode::Allow
+                } else {
+                    ToolPermissionMode::Deny
+                }
+            } else {
+                self.tool_permission(&call.tool_name, scope).await?
+            };
+
+            self.emit(
+                task_id,
+                "tool_call_permission_resolved",
+                json!({
+                    "call_id": call.call_id,
+                    "tool_name": call.tool_name,
+                    "mode": mode.as_str(),
+                }),
+            )
+            .await?;
+
+            let output = match mode {
+                ToolPermissionMode::Deny => ToolCallOutput::error(
+                    call.call_id.clone(),
+                    format!("tool execution denied: {}", call.tool_name),
+                ),
+                ToolPermissionMode::Ask => {
+                    let assistant_message_id = assistant_message_id.ok_or_else(|| {
+                        AgentRuntimeError::Unsupported(
+                            "subagent cannot await tool approval".to_string(),
+                        )
+                    })?;
+
+                    self.append_tool_outputs(task_id, state, &mut outputs)
+                        .await?;
+
+                    let approval = self
+                        .tool_approval_repository
+                        .create_pending(task_id, assistant_message_id, &call.call_id)
+                        .await?;
+
+                    self.task_repository
+                        .update_status(task_id, TaskStatus::AwaitingApproval)
+                        .await?;
+
+                    self.emit(
+                        task_id,
+                        "tool_approval_requested",
+                        json!({
+                            "approval_id": approval.id.to_string(),
+                            "message_id": assistant_message_id.to_string(),
+                            "call_id": call.call_id,
+                            "tool_name": call.tool_name,
+                        }),
+                    )
+                    .await?;
+
+                    return Ok(ToolRun::AwaitingApproval);
+                }
+                ToolPermissionMode::Allow => {
+                    if call.tool_name == subagent::TOOL_NAME {
+                        match async {
+                            let registry =
+                                Registry::load(self.instruction_service.workspace_root());
+                            let input = registry
+                                .parse_input(call.arguments.clone())
+                                .map_err(AgentRuntimeError::Unsupported)?;
+
+                            let mut results = Vec::new();
+
+                            for (index, task_input) in input.tasks.into_iter().enumerate() {
+                                let profile = registry
+                                    .find(&task_input.profile)
+                                    .cloned()
+                                    .ok_or_else(|| {
+                                        AgentRuntimeError::Unsupported(format!(
+                                            "unsupported profile: {}",
+                                            task_input.profile
+                                        ))
+                                    })?;
+
+                                let profile_name = profile.name.clone();
+
+                                let mut instruction =
+                                    self.instruction_service.build_agent_instruction();
+                                instruction.push_str("\n\n# Child Agent Profile\n");
+                                instruction.push_str(&profile.instruction);
+                                instruction.push_str(
+                "\n\nComplete the delegated request and return a concise final result.",
+            );
+
+                                let mut child_state = LoopState::Ephemeral {
+                                    messages: vec![
+                                        LlmMessage::system_text(instruction),
+                                        LlmMessage::user_text(task_input.request),
+                                    ],
+                                };
+
+                                let outcome = self
+                                    .run_loop(task_id, AgentScope::child(profile), &mut child_state)
+                                    .await;
+
+                                let (status, output, error) = match outcome {
+                                    Ok(LoopOutcome::Completed(output)) => {
+                                        (subagent::Status::Completed, Some(output), None)
+                                    }
+                                    Ok(LoopOutcome::Stopped) => (
+                                        subagent::Status::Cancelled,
+                                        None,
+                                        Some("parent task cancelled".to_string()),
+                                    ),
+                                    Ok(LoopOutcome::AwaitingApproval) => (
+                                        subagent::Status::Failed,
+                                        None,
+                                        Some("subagent cannot await tool approval".to_string()),
+                                    ),
+                                    Err(err) => {
+                                        (subagent::Status::Failed, None, Some(err.to_string()))
+                                    }
+                                };
+
+                                results.push(subagent::TaskOutput {
+                                    index,
+                                    profile: profile_name,
+                                    status,
+                                    output,
+                                    error,
+                                });
+                            }
+
+                            let output = serde_json::to_value(subagent::Output::new(results))
+                                .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))?;
+
+                            Ok::<_, AgentRuntimeError>(ToolCallOutput::success(
+                                call.call_id.clone(),
+                                output,
+                            ))
+                        }
+                        .await
+                        {
+                            Ok(output) => output,
+                            Err(err) => {
+                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
+                            }
+                        }
+                    } else if call.tool_name == task_status_tool::TASK_STATUS_TOOL_NAME {
+                        match self.task_status(call.arguments.clone()).await {
+                            Ok(output) => ToolCallOutput::success(call.call_id.clone(), output),
+                            Err(err) => {
+                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
+                            }
+                        }
+                    } else {
+                        match self.tool_executor.execute(call.clone()).await {
+                            Ok(output) => output,
+                            Err(err) => {
+                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
+                            }
+                        }
+                    }
+                }
+            };
+
+            self.emit(
+                task_id,
+                "tool_call_finished",
+                json!({
+                    "call_id": output.call_id,
+                    "output": output.output,
+                    "status": output.status.as_str(),
+                }),
+            )
+            .await?;
+
+            outputs.push(output.into_message_content());
+        }
+
+        self.append_tool_outputs(task_id, state, &mut outputs)
+            .await?;
+        Ok(ToolRun::Continue)
     }
 
     async fn apply_approvals(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
@@ -406,10 +671,7 @@ where
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
 
-        if self
-            .stop_cancelled(task.id, "before_approval_resume")
-            .await?
-        {
+        if self.stop_cancelled(task.id).await? {
             return Ok(task.id);
         }
 
@@ -460,156 +722,6 @@ where
             .await?;
 
         Ok(task.id)
-    }
-
-    async fn run_tools(
-        &self,
-        task_id: Uuid,
-        assistant_message_id: Uuid,
-        tool_calls: Vec<ToolCall>,
-        scope: &AgentScope,
-    ) -> Result<ToolRun, AgentRuntimeError> {
-        let mut outputs = Vec::new();
-
-        for call in tool_calls {
-            if self.stop_cancelled(task_id, "before_tool_call").await? {
-                if !outputs.is_empty() {
-                    self.message_repository
-                        .save(task_id, Role::User, outputs)
-                        .await?;
-                }
-
-                return Ok(ToolRun::Stopped);
-            }
-
-            self.emit(
-                task_id,
-                "tool_call_started",
-                json!({
-                    "call_id": call.call_id,
-                    "tool_name": call.tool_name,
-                    "arguments": call.arguments,
-                }),
-            )
-            .await?;
-
-            // tool executor does not have subagent, so we need to resolve permission for subagent tool call here
-            let mode = if is_runtime_tool(&call.tool_name) {
-                if scope.is_root() {
-                    ToolPermissionMode::Allow
-                } else {
-                    ToolPermissionMode::Deny
-                }
-            } else {
-                self.tool_permission(&call.tool_name, scope).await?
-            };
-
-            self.emit(
-                task_id,
-                "tool_call_permission_resolved",
-                json!({
-                    "call_id": call.call_id,
-                    "tool_name": call.tool_name,
-                    "mode": mode.as_str(),
-                }),
-            )
-            .await?;
-
-            let output = match mode {
-                ToolPermissionMode::Deny => ToolCallOutput::error(
-                    call.call_id.clone(),
-                    format!("tool execution denied: {}", call.tool_name),
-                ),
-                ToolPermissionMode::Ask => {
-                    if !outputs.is_empty() {
-                        self.message_repository
-                            .save(task_id, Role::User, outputs)
-                            .await?;
-                    }
-
-                    let message_content_id = self
-                        .message_repository
-                        .find_tool_call_content_id(assistant_message_id, &call.call_id)
-                        .await?
-                        .ok_or_else(|| AgentRuntimeError::ToolCallNotFound(call.call_id.clone()))?;
-
-                    let approval = self
-                        .tool_approval_repository
-                        .create_pending(task_id, message_content_id)
-                        .await?;
-
-                    self.task_repository
-                        .update_status(task_id, TaskStatus::AwaitingApproval)
-                        .await?;
-
-                    self.emit(
-                        task_id,
-                        "tool_approval_requested",
-                        json!({
-                            "approval_id": approval.id.to_string(),
-                            "message_id": assistant_message_id.to_string(),
-                            "call_id": call.call_id,
-                            "tool_name": call.tool_name,
-                        }),
-                    )
-                    .await?;
-
-                    return Ok(ToolRun::AwaitingApproval);
-                }
-                ToolPermissionMode::Allow => {
-                    if call.tool_name == subagent::TOOL_NAME {
-                        if !outputs.is_empty() {
-                            self.message_repository
-                                .save(task_id, Role::User, outputs)
-                                .await?;
-                        }
-
-                        self.start_children(
-                            task_id,
-                            assistant_message_id,
-                            &call.call_id,
-                            call.arguments.clone(),
-                        )
-                        .await?;
-
-                        return Ok(ToolRun::AwaitingChild);
-                    } else if call.tool_name == task_status_tool::TASK_STATUS_TOOL_NAME {
-                        match self.task_status(call.arguments.clone()).await {
-                            Ok(output) => ToolCallOutput::success(call.call_id.clone(), output),
-                            Err(err) => {
-                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
-                            }
-                        }
-                    } else {
-                        match self.tool_executor.execute(call.clone()).await {
-                            Ok(output) => output,
-                            Err(err) => {
-                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
-                            }
-                        }
-                    }
-                }
-            };
-
-            self.emit(
-                task_id,
-                "tool_call_finished",
-                json!({
-                    "call_id": output.call_id,
-                    "output": output.output,
-                    "status": output.status.as_str(),
-                }),
-            )
-            .await?;
-
-            outputs.push(output.into_message_content());
-        }
-
-        self.message_repository
-            .save(task_id, Role::User, outputs)
-            .await?;
-
-        Ok(ToolRun::Continue)
     }
 
     async fn compact_context(
@@ -757,57 +869,6 @@ where
         Ok(())
     }
 
-    async fn start_children(
-        &self,
-        parent_task_id: Uuid,
-        assistant_message_id: Uuid,
-        source_tool_call_id: &str,
-        arguments: Value,
-    ) -> Result<(), AgentRuntimeError> {
-        let subagents = Registry::load(self.instruction_service.workspace_root());
-        let input = subagents
-            .parse_input(arguments)
-            .map_err(AgentRuntimeError::Unsupported)?;
-
-        for task_input in input.tasks {
-            let profile = subagents.find(&task_input.profile).ok_or_else(|| {
-                AgentRuntimeError::Unsupported(format!(
-                    "unsupported profile: {}",
-                    task_input.profile
-                ))
-            })?;
-
-            self.task_repository
-                .create(CreateTask {
-                    request: task_input.request,
-                    session_id: None,
-                    source_kind: TaskSourceKind::Task,
-                    source_message_id: Some(assistant_message_id),
-                    source_schedule_id: None,
-                    source_tool_call_id: Some(source_tool_call_id.to_string()),
-                    subagent_profile: Some(profile.name.clone()),
-                    parent_task_id: Some(parent_task_id),
-                    scheduled_at: None,
-                })
-                .await?;
-        }
-
-        self.task_repository
-            .update_status(parent_task_id, TaskStatus::AwaitingChild)
-            .await?;
-
-        self.emit(
-            parent_task_id,
-            "task_awaiting_child",
-            json!({
-                "source_tool_call_id": source_tool_call_id,
-            }),
-        )
-        .await?;
-
-        Ok(())
-    }
-
     pub async fn recover_approvals(&self, limit: usize) -> Result<u64, AgentRuntimeError> {
         if limit == 0 {
             return Ok(0);
@@ -833,26 +894,6 @@ where
 
             if count < limit {
                 return Ok(total);
-            }
-        }
-    }
-
-    pub async fn recover_children(&self, limit: usize) -> Result<(), AgentRuntimeError> {
-        loop {
-            let children = self.task_repository.list_joinable_children(limit).await?;
-
-            if children.is_empty() {
-                return Ok(());
-            }
-
-            let count = children.len();
-
-            for child in children {
-                self.join_child(&child).await?;
-            }
-
-            if count < limit {
-                return Ok(());
             }
         }
     }
@@ -888,113 +929,17 @@ where
     }
 
     async fn complete(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
-        let task = self.task_repository.complete(task_id, output).await?;
+        self.task_repository.complete(task_id, output).await?;
         self.emit(task_id, "task_completed", json!({})).await?;
-        self.try_join(&task).await;
         Ok(())
     }
 
     async fn fail(&self, task_id: Uuid, err: &AgentRuntimeError) -> Result<(), AgentRuntimeError> {
         let output = err.to_string();
 
-        let task = self.task_repository.fail(task_id, output.clone()).await?;
+        self.task_repository.fail(task_id, output.clone()).await?;
 
         self.emit(task_id, "task_failed", json!({ "error": output }))
-            .await?;
-
-        self.try_join(&task).await;
-
-        Ok(())
-    }
-
-    async fn join_child(&self, child: &Task) -> Result<(), AgentRuntimeError> {
-        let Some(parent_task_id) = child.parent_task_id else {
-            return Ok(());
-        };
-
-        let Some(source_tool_call_id) = child.source_tool_call_id.as_deref() else {
-            return Ok(());
-        };
-
-        let parent = self
-            .task_repository
-            .find_by_id(parent_task_id)
-            .await?
-            .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-        if !matches!(
-            parent.status,
-            TaskStatus::AwaitingChild | TaskStatus::CancelRequested
-        ) {
-            return Ok(());
-        }
-
-        let children = self
-            .task_repository
-            .list_child_group(parent_task_id, source_tool_call_id)
-            .await?;
-
-        if children.is_empty() || children.iter().any(|task| !task.status.is_terminal()) {
-            return Ok(());
-        }
-
-        if parent.status == TaskStatus::CancelRequested {
-            self.task_repository.cancel(parent_task_id).await?;
-            self.emit(
-                parent_task_id,
-                "task_cancelled",
-                json!({ "checkpoint": "after_child_tasks" }),
-            )
-            .await?;
-            return Ok(());
-        }
-
-        if self
-            .message_repository
-            .has_tool_output(parent_task_id, source_tool_call_id)
-            .await?
-        {
-            self.task_repository
-                .update_status(parent_task_id, TaskStatus::Queued)
-                .await?;
-            return Ok(());
-        }
-
-        let output = serde_json::to_value(subagent::Output::from_tasks(&children))
-            .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))?;
-        let tool_output = ToolCallOutput::success(source_tool_call_id.to_string(), output);
-
-        self.emit(
-            parent_task_id,
-            "tool_call_finished",
-            json!({
-                "call_id": &tool_output.call_id,
-                "output": &tool_output.output,
-                "status": tool_output.status.as_str(),
-            }),
-        )
-        .await?;
-
-        self.message_repository
-            .save(
-                parent_task_id,
-                Role::User,
-                vec![tool_output.into_message_content()],
-            )
-            .await?;
-
-        self.emit(
-            parent_task_id,
-            "child_tasks_joined",
-            json!({
-                "source_tool_call_id": source_tool_call_id,
-                "child_count": children.len(),
-            }),
-        )
-        .await?;
-
-        self.task_repository
-            .update_status(parent_task_id, TaskStatus::Queued)
             .await?;
 
         Ok(())
@@ -1063,45 +1008,14 @@ where
         specs
     }
 
-    async fn stop_cancelled(
-        &self,
-        task_id: Uuid,
-        checkpoint: &str,
-    ) -> Result<bool, AgentRuntimeError> {
+    async fn stop_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
         let task = self
             .task_repository
             .find_by_id(task_id)
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
 
-        if task.status == TaskStatus::Cancelled {
-            return Ok(true);
-        }
-
-        if task.status == TaskStatus::CancelRequested {
-            self.cancel(task_id, checkpoint).await?;
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    async fn cancel(&self, task_id: Uuid, checkpoint: &str) -> Result<(), AgentRuntimeError> {
-        let task = self.task_repository.cancel(task_id).await?;
-        self.emit(
-            task_id,
-            "task_cancelled",
-            json!({ "checkpoint": checkpoint }),
-        )
-        .await?;
-        self.try_join(&task).await;
-        Ok(())
-    }
-
-    async fn try_join(&self, task: &Task) {
-        if let Err(err) = self.join_child(task).await {
-            log::warn!("failed to join parent for task {}: {err}", task.id);
-        }
+        Ok(task.status == TaskStatus::Cancelled)
     }
 }
 

@@ -37,9 +37,7 @@ impl TaskStatusOutput {
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskStatusTaskOutput {
     pub task_id: String,
-    pub parent_task_id: Option<String>,
     pub status: String,
-    pub source_kind: String,
     pub request: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<TaskStatusResultOutput>,
@@ -76,9 +74,7 @@ impl TaskStatusTaskOutput {
 
         Self {
             task_id: task.id.to_string(),
-            parent_task_id: task.parent_task_id.map(|id| id.to_string()),
             status: task.status.as_str().to_string(),
-            source_kind: task.source_kind.as_str().to_string(),
             request: task.request.clone(),
             result,
             created_at: task.created_at.to_rfc3339(),
@@ -117,7 +113,7 @@ pub fn task_status_tool_spec() -> ToolSpec {
                 "task_id": { "type": "string" },
                 "status": {
                     "type": "string",
-                    "enum": ["queued", "running", "awaiting_approval", "awaiting_child", "completed", "failed", "cancel_requested", "cancelled"]
+                    "enum": ["queued", "running", "awaiting_approval", "completed", "failed", "cancelled"]
                 },
                 "limit": {
                     "type": "integer",

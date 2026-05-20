@@ -1,4 +1,3 @@
-use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::model::tool_call::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -19,49 +18,25 @@ pub struct TaskInput {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct Output {
-    pub results: Vec<TaskOutput>,
-}
-
-impl Output {
-    pub fn from_tasks(tasks: &[Task]) -> Self {
-        let results = tasks
-            .iter()
-            .enumerate()
-            .map(|(index, task)| TaskOutput {
-                index,
-                task_id: task.id.to_string(),
-                profile: task.subagent_profile.clone().unwrap_or_default(),
-                status: match task.status {
-                    TaskStatus::Completed => Status::Completed,
-                    TaskStatus::Cancelled => Status::Cancelled,
-                    _ => Status::Failed,
-                },
-                output: (task.status == TaskStatus::Completed).then(|| task.output.clone()),
-                error: if task.status == TaskStatus::Completed {
-                    None
-                } else {
-                    task.error
-                        .clone()
-                        .or_else(|| Some(task.status.as_str().to_string()))
-                },
-            })
-            .collect();
-
-        Self { results }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct TaskOutput {
     pub index: usize,
-    pub task_id: String,
     pub profile: String,
     pub status: Status,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Output {
+    pub results: Vec<TaskOutput>,
+}
+
+impl Output {
+    pub fn new(results: Vec<TaskOutput>) -> Self {
+        Self { results }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]

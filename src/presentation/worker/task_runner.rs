@@ -23,7 +23,6 @@ type AppAgentRuntime = AgentRuntime<
     PostgresToolApprovalRepository,
 >;
 
-const CHILD_RECOVERY_LIMIT: usize = 20;
 const APPROVAL_RECOVERY_LIMIT: usize = 20;
 
 pub struct TaskRunner {
@@ -56,14 +55,6 @@ impl TaskRunner {
             .await
         {
             log::warn!("approval recovery failed: {err}");
-        }
-
-        if let Err(err) = self
-            .agent_runtime
-            .recover_children(CHILD_RECOVERY_LIMIT)
-            .await
-        {
-            log::warn!("child join recovery failed: {err}");
         }
 
         let mut interval = time::interval(self.poll_interval);

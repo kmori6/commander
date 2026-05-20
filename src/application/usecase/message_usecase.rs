@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
 use crate::domain::model::message::{Message, MessageContent, Role};
-use crate::domain::model::task::{Task, TaskSourceKind};
+use crate::domain::model::task::Task;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
@@ -43,12 +43,7 @@ where
             .create(CreateTask {
                 request: text.clone(),
                 session_id: Some(session_id),
-                source_kind: TaskSourceKind::Chat,
-                source_message_id: None,
                 source_schedule_id: None,
-                source_tool_call_id: None,
-                subagent_profile: None,
-                parent_task_id: None,
                 scheduled_at: None,
             })
             .await?;

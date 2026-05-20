@@ -5,7 +5,7 @@ use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
 use crate::domain::model::schedule::Schedule;
 use crate::domain::model::schedule_execution::ScheduleExecution;
-use crate::domain::model::task::{Task, TaskSourceKind};
+use crate::domain::model::task::Task;
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
@@ -13,7 +13,6 @@ use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
 
 pub struct DueTaskInput {
     pub request: String,
-    pub source_kind: TaskSourceKind,
     pub source_schedule_id: Option<Uuid>,
     pub scheduled_at: DateTime<Utc>,
     pub skip_if_open_same_source: bool,
@@ -123,7 +122,6 @@ where
         match self
             .run_due_task(DueTaskInput {
                 request: schedule.request,
-                source_kind: TaskSourceKind::Schedule,
                 source_schedule_id: Some(schedule_id),
                 scheduled_at,
                 skip_if_open_same_source: false,
@@ -190,7 +188,6 @@ where
         match self
             .run_due_task(DueTaskInput {
                 request: schedule.request,
-                source_kind: TaskSourceKind::Schedule,
                 source_schedule_id: Some(schedule_id),
                 scheduled_at,
                 skip_if_open_same_source: false,
@@ -227,20 +224,20 @@ where
             return Ok(DueTaskOutcome::AlreadyRecorded(task));
         }
 
-        if input.source_kind == TaskSourceKind::Watch {
+        if input.source_schedule_id.is_none() {
             let recent = self.task_repository.list_recent(None, 100).await?;
 
-            if let Some(task) = recent.iter().find(|task| {
-                task.source_kind == TaskSourceKind::Watch
-                    && task.scheduled_at == Some(input.scheduled_at)
-            }) {
+            if let Some(task) = recent
+                .iter()
+                .find(|task| is_watch_task(task) && task.scheduled_at == Some(input.scheduled_at))
+            {
                 return Ok(DueTaskOutcome::AlreadyRecorded(task.clone()));
             }
 
             if input.skip_if_open_same_source
-                && let Some(task) = recent.into_iter().find(|task| {
-                    task.source_kind == TaskSourceKind::Watch && !task.status.is_terminal()
-                })
+                && let Some(task) = recent
+                    .into_iter()
+                    .find(|task| is_watch_task(task) && !task.status.is_terminal())
             {
                 return Ok(DueTaskOutcome::AlreadyRunning(task));
             }
@@ -251,12 +248,7 @@ where
             .create(CreateTask {
                 request,
                 session_id: None,
-                source_kind: input.source_kind,
-                source_message_id: None,
                 source_schedule_id: input.source_schedule_id,
-                source_tool_call_id: None,
-                subagent_profile: None,
-                parent_task_id: None,
                 scheduled_at: Some(input.scheduled_at),
             })
             .await?;
@@ -274,6 +266,10 @@ where
             task,
         }))
     }
+}
+
+fn is_watch_task(task: &Task) -> bool {
+    task.source_schedule_id.is_none() && task.scheduled_at.is_some() && task.session_id.is_none()
 }
 
 fn execution_from_task(schedule_id: Uuid, task: &Task) -> ScheduleExecution {

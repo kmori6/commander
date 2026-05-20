@@ -68,7 +68,6 @@ impl ToolApprovalStatus {
 pub struct ToolApproval {
     pub id: Uuid,
     pub task_id: Uuid,
-    pub message_content_id: Uuid,
     pub message_id: Uuid,
     pub call_id: String,
     pub status: ToolApprovalStatus,

@@ -1,12 +1,7 @@
 CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
   session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('chat', 'schedule', 'task', 'manual', 'watch')),
-  source_message_id UUID,
   source_schedule_id UUID,
-  source_tool_call_id TEXT,
-  subagent_profile TEXT,
-  parent_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
   scheduled_at TIMESTAMPTZ,
   request TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued' CHECK (
@@ -14,10 +9,8 @@ CREATE TABLE tasks (
       'queued',
       'running',
       'awaiting_approval',
-      'awaiting_child',
       'completed',
       'failed',
-      'cancel_requested',
       'cancelled'
     )
   ),
@@ -36,25 +29,11 @@ CREATE INDEX idx_tasks_session_created
 CREATE INDEX idx_tasks_status_created
   ON tasks(status, created_at, id);
 
-CREATE INDEX idx_tasks_source_message
-  ON tasks(source_message_id)
-  WHERE source_message_id IS NOT NULL;
-
 CREATE INDEX idx_tasks_source_schedule
   ON tasks(source_schedule_id, scheduled_at, id)
   WHERE source_schedule_id IS NOT NULL;
 
-CREATE INDEX idx_tasks_parent
-  ON tasks(parent_task_id)
-  WHERE parent_task_id IS NOT NULL;
-
 CREATE UNIQUE INDEX idx_tasks_schedule_scheduled_at_unique
   ON tasks(source_schedule_id, scheduled_at)
-  WHERE source_kind = 'schedule'
-    AND source_schedule_id IS NOT NULL
+  WHERE source_schedule_id IS NOT NULL
     AND scheduled_at IS NOT NULL;
-
-CREATE INDEX idx_tasks_parent_tool_call
-  ON tasks(parent_task_id, source_tool_call_id, created_at, id)
-  WHERE parent_task_id IS NOT NULL
-    AND source_tool_call_id IS NOT NULL;
