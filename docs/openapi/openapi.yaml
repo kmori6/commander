@@ -915,7 +915,6 @@ components:
       type: object
       required:
         - id
-        - request
         - status
         - session_id
         - created_at
@@ -926,8 +925,6 @@ components:
         id:
           type: string
           format: uuid
-        request:
-          type: string
         status:
           $ref: "#/components/schemas/TaskStatus"
         session_id:

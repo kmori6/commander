@@ -3,11 +3,11 @@ use uuid::Uuid;
 use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::event::Event;
-use crate::domain::model::message::TaskUsage;
+use crate::domain::model::message::{MessageContent, Role, TaskUsage};
 use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
-use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
+use crate::domain::repository::task_repository::TaskRepository;
 
 pub struct TaskUsecase<T, E, M> {
     task_repository: T,
@@ -30,15 +30,26 @@ where
     }
 
     pub async fn create(&self, request: String) -> Result<Task, TaskUsecaseError> {
-        self.task_repository
-            .create(CreateTask {
-                request,
-                session_id: None,
-                source_schedule_id: None,
-                scheduled_at: None,
-            })
-            .await
-            .map_err(Into::into)
+        let request = request.trim().to_string();
+
+        if request.is_empty() {
+            return Err(TaskRepositoryError::InvalidTask(
+                "task request must not be empty".to_string(),
+            )
+            .into());
+        }
+
+        let task = self.task_repository.create(None, None, None).await?;
+
+        self.message_repository
+            .save(
+                task.id,
+                Role::User,
+                vec![MessageContent::input_text(request)],
+            )
+            .await?;
+
+        Ok(task)
     }
 
     pub async fn find(&self, id: Uuid) -> Result<Option<Task>, TaskUsecaseError> {

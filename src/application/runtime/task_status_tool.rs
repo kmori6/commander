@@ -7,7 +7,6 @@ pub const TASK_STATUS_TOOL_NAME: &str = "task_status";
 
 const DEFAULT_TASK_STATUS_LIMIT: usize = 20;
 const MAX_TASK_STATUS_LIMIT: usize = 100;
-const TASK_RESULT_OUTPUT_MAX_CHARS: usize = 4000;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TaskStatusInput {
@@ -38,7 +37,6 @@ impl TaskStatusOutput {
 pub struct TaskStatusTaskOutput {
     pub task_id: String,
     pub status: String,
-    pub request: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<TaskStatusResultOutput>,
     pub created_at: String,
@@ -49,33 +47,18 @@ pub struct TaskStatusTaskOutput {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskStatusResultOutput {
-    pub output: Option<String>,
     pub error: Option<String>,
-    pub truncated: bool,
 }
 
 impl TaskStatusTaskOutput {
     pub fn from_task(task: &Task, include_result: bool) -> Self {
-        let result = include_result.then(|| {
-            let (output, truncated) = if task.output.is_empty() {
-                (None, false)
-            } else {
-                let (output, truncated) =
-                    truncate_chars(&task.output, TASK_RESULT_OUTPUT_MAX_CHARS);
-                (Some(output), truncated)
-            };
-
-            TaskStatusResultOutput {
-                output,
-                error: task.error.clone(),
-                truncated,
-            }
+        let result = include_result.then(|| TaskStatusResultOutput {
+            error: task.error.clone(),
         });
 
         Self {
             task_id: task.id.to_string(),
             status: task.status.as_str().to_string(),
-            request: task.request.clone(),
             result,
             created_at: task.created_at.to_rfc3339(),
             updated_at: task.updated_at.to_rfc3339(),
@@ -105,7 +88,7 @@ pub fn parse_task_status_input(arguments: Value) -> Result<TaskStatusInput, Stri
 pub fn task_status_tool_spec() -> ToolSpec {
     ToolSpec {
         name: TASK_STATUS_TOOL_NAME.to_string(),
-        description: "Get task status. With task_id, returns one task with result. With no task_id, lists recent tasks without result.".to_string(),
+        description: "Get task status. With task_id, returns one task with error details. With no task_id, lists recent tasks.".to_string(),
         parameters: json!({
             "type": "object",
             "additionalProperties": false,
@@ -128,13 +111,4 @@ pub fn task_status_tool_spec() -> ToolSpec {
 
 fn default_task_status_limit() -> usize {
     DEFAULT_TASK_STATUS_LIMIT
-}
-
-fn truncate_chars(text: &str, max_chars: usize) -> (String, bool) {
-    if text.chars().count() <= max_chars {
-        return (text.to_string(), false);
-    }
-
-    let truncated = text.chars().take(max_chars).collect::<String>();
-    (format!("{truncated}\n... [truncated]"), true)
 }

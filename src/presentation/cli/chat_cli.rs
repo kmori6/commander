@@ -78,10 +78,8 @@ struct ListTasksResponse {
 #[derive(Debug, Deserialize)]
 struct TaskResponse {
     id: Uuid,
-    request: String,
     status: String,
     session_id: Option<Uuid>,
-    output: String,
     error: Option<String>,
     started_at: Option<String>,
     finished_at: Option<String>,
@@ -719,12 +717,10 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                             println!("no tasks");
                         } else {
                             println!("tasks");
-                            println!("  {:<36}  {:<16}  request", "task", "status");
+                            println!("  {:<36}  status", "task");
 
                             for task in tasks {
-                                let request = truncate(&task.request, 80);
-
-                                println!("  {:<36}  {:<16}  {}", task.id, task.status, request);
+                                println!("  {:<36}  {}", task.id, task.status);
                             }
                         }
                     }
@@ -741,7 +737,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         println!("task");
                         println!("  id       {}", task.id);
                         println!("  status   {}", task.status);
-                        println!("  request  {}", task.request);
 
                         if let Some(session_id) = task.session_id {
                             println!("  session  {session_id}");
@@ -851,7 +846,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         if let Some(session_id) = task.session_id {
                             println!("  session  {session_id}");
                         }
-                        println!("  request  {}", truncate(&task.request, 120));
 
                         let outcome = wait_events(&client, task.id).await?;
 
@@ -1038,21 +1032,32 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
                 "task_completed" => {
                     stop_spinner(&mut spinner);
 
-                    let task = client.get_task(task_id).await?;
-                    if let Some(result) = terminal_task_text(&task) {
-                        termimad::print_text(result);
+                    if let Some(output) = payload
+                        .get("output")
+                        .and_then(|v| v.as_str())
+                        .and_then(non_empty)
+                    {
+                        termimad::print_text(output);
                     }
                     return Ok(AgentTurnOutcome::Completed);
                 }
                 "task_failed" => {
                     stop_spinner(&mut spinner);
 
-                    match client.get_task(task_id).await {
-                        Ok(task) => match terminal_task_text(&task) {
-                            Some(result) => termimad::print_text(result),
-                            None => println!("[task failed]"),
-                        },
-                        Err(_) => println!("[task failed]"),
+                    if let Some(error) = payload
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .and_then(non_empty)
+                    {
+                        termimad::print_text(error);
+                    } else {
+                        match client.get_task(task_id).await {
+                            Ok(task) => match terminal_task_text(&task) {
+                                Some(result) => termimad::print_text(result),
+                                None => println!("[task failed]"),
+                            },
+                            Err(_) => println!("[task failed]"),
+                        }
                     }
                     return Ok(AgentTurnOutcome::Failed);
                 }
@@ -1076,15 +1081,7 @@ fn truncate(value: &str, max_chars: usize) -> String {
 }
 
 fn terminal_task_text(task: &TaskResponse) -> Option<&str> {
-    if task.status == "failed" {
-        return task
-            .error
-            .as_deref()
-            .and_then(non_empty)
-            .or_else(|| non_empty(&task.output));
-    }
-
-    non_empty(&task.output).or_else(|| task.error.as_deref().and_then(non_empty))
+    task.error.as_deref().and_then(non_empty)
 }
 
 fn non_empty(value: &str) -> Option<&str> {

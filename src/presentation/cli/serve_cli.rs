@@ -147,6 +147,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
         task_repository.clone(),
+        message_repository.clone(),
     ));
     let tool_approval_usecase = Arc::new(ToolApprovalUsecase::new(
         tool_approval_repository.clone(),

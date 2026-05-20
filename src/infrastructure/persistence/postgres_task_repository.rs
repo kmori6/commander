@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::task::{Task, TaskStatus};
-use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
+use crate::domain::repository::task_repository::TaskRepository;
 
 #[derive(Clone)]
 pub struct PostgresTaskRepository {
@@ -21,12 +21,10 @@ impl PostgresTaskRepository {
 #[derive(sqlx::FromRow)]
 struct TaskRow {
     id: Uuid,
-    request: String,
     status: String,
     session_id: Option<Uuid>,
     source_schedule_id: Option<Uuid>,
     scheduled_at: Option<DateTime<Utc>>,
-    output: String,
     error: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -42,20 +40,18 @@ impl TryFrom<TaskRow> for Task {
             TaskRepositoryError::Unexpected(format!("unknown task status: {}", row.status))
         })?;
 
-        Ok(Self::new(
-            row.id,
-            row.request,
+        Ok(Task {
+            id: row.id,
             status,
-            row.session_id,
-            row.source_schedule_id,
-            row.scheduled_at,
-            row.output,
-            row.error,
-            row.created_at,
-            row.updated_at,
-            row.started_at,
-            row.finished_at,
-        ))
+            session_id: row.session_id,
+            source_schedule_id: row.source_schedule_id,
+            scheduled_at: row.scheduled_at,
+            error: row.error,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            started_at: row.started_at,
+            finished_at: row.finished_at,
+        })
     }
 }
 
@@ -76,12 +72,10 @@ fn map_sqlx_error(err: sqlx::Error) -> TaskRepositoryError {
 
 const TASK_COLUMNS: &str = r#"
 id,
-request,
 status,
 session_id,
 source_schedule_id,
 scheduled_at,
-output,
 error,
 created_at,
 updated_at,
@@ -91,29 +85,26 @@ finished_at
 
 #[async_trait]
 impl TaskRepository for PostgresTaskRepository {
-    async fn create(&self, input: CreateTask) -> Result<Task, TaskRepositoryError> {
-        if input.request.trim().is_empty() {
-            return Err(TaskRepositoryError::InvalidTask(
-                "task request must not be empty".to_string(),
-            ));
-        }
-
+    async fn create(
+        &self,
+        session_id: Option<Uuid>,
+        source_schedule_id: Option<Uuid>,
+        scheduled_at: Option<DateTime<Utc>>,
+    ) -> Result<Task, TaskRepositoryError> {
         let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             INSERT INTO tasks (
-              request,
               session_id,
               source_schedule_id,
               scheduled_at
             )
-            VALUES ($1, $2, $3, $4)
+            VALUES ($1, $2, $3)
             RETURNING {TASK_COLUMNS}
             "#
         ))
-        .bind(input.request)
-        .bind(input.session_id)
-        .bind(input.source_schedule_id)
-        .bind(input.scheduled_at)
+        .bind(session_id)
+        .bind(source_schedule_id)
+        .bind(scheduled_at)
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -121,12 +112,11 @@ impl TaskRepository for PostgresTaskRepository {
         row.try_into()
     }
 
-    async fn complete(&self, id: Uuid, output: String) -> Result<Task, TaskRepositoryError> {
+    async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
         let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             UPDATE tasks
             SET status = 'completed',
-                output = $2,
                 error = NULL,
                 updated_at = NOW(),
                 started_at = COALESCE(started_at, NOW()),
@@ -136,7 +126,6 @@ impl TaskRepository for PostgresTaskRepository {
             "#
         ))
         .bind(id)
-        .bind(output)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;

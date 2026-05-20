@@ -208,14 +208,6 @@ where
             *checkpoint_until = None;
         }
 
-        let has_user_message = task_messages
-            .iter()
-            .any(|message| message.role == Role::User);
-
-        if !has_user_message {
-            messages.push(LlmMessage::user_text(task.request.clone()));
-        }
-
         messages.extend(
             task_messages
                 .into_iter()
@@ -918,8 +910,9 @@ where
     }
 
     async fn complete(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
-        self.task_repository.complete(task_id, output).await?;
-        self.emit(task_id, "task_completed", json!({})).await?;
+        self.task_repository.complete(task_id).await?;
+        self.emit(task_id, "task_completed", json!({ "output": output }))
+            .await?;
         Ok(())
     }
 

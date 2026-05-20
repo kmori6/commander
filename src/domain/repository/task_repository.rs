@@ -5,19 +5,16 @@ use uuid::Uuid;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::task::{Task, TaskStatus};
 
-#[derive(Debug, Clone)]
-pub struct CreateTask {
-    pub request: String,
-    pub session_id: Option<Uuid>,
-    pub source_schedule_id: Option<Uuid>,
-    pub scheduled_at: Option<DateTime<Utc>>,
-}
-
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
-    async fn create(&self, input: CreateTask) -> Result<Task, TaskRepositoryError>;
+    async fn create(
+        &self,
+        session_id: Option<Uuid>,
+        source_schedule_id: Option<Uuid>,
+        scheduled_at: Option<DateTime<Utc>>,
+    ) -> Result<Task, TaskRepositoryError>;
 
-    async fn complete(&self, id: Uuid, output: String) -> Result<Task, TaskRepositoryError>;
+    async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
     async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError>;
 

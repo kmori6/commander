@@ -3,13 +3,15 @@ use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
+use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::schedule::Schedule;
 use crate::domain::model::schedule_execution::ScheduleExecution;
 use crate::domain::model::task::Task;
+use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
-use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
+use crate::domain::repository::task_repository::TaskRepository;
 
 pub struct DueTaskInput {
     pub request: String,
@@ -35,20 +37,23 @@ pub enum ScheduleExecutionOutcome {
     AlreadyRecorded(ScheduleExecution),
 }
 
-pub struct ScheduleUsecase<S, T> {
+pub struct ScheduleUsecase<S, T, M> {
     schedule_repository: S,
     task_repository: T,
+    message_repository: M,
 }
 
-impl<S, T> ScheduleUsecase<S, T>
+impl<S, T, M> ScheduleUsecase<S, T, M>
 where
     S: ScheduleRepository,
     T: TaskRepository,
+    M: MessageRepository,
 {
-    pub fn new(schedule_repository: S, task_repository: T) -> Self {
+    pub fn new(schedule_repository: S, task_repository: T, message_repository: M) -> Self {
         Self {
             schedule_repository,
             task_repository,
+            message_repository,
         }
     }
 
@@ -245,12 +250,15 @@ where
 
         let task = self
             .task_repository
-            .create(CreateTask {
-                request,
-                session_id: None,
-                source_schedule_id: input.source_schedule_id,
-                scheduled_at: Some(input.scheduled_at),
-            })
+            .create(None, input.source_schedule_id, Some(input.scheduled_at))
+            .await?;
+
+        self.message_repository
+            .save(
+                task.id,
+                Role::User,
+                vec![MessageContent::input_text(request)],
+            )
             .await?;
 
         let execution = ScheduleExecution {

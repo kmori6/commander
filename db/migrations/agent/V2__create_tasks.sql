@@ -3,18 +3,9 @@ CREATE TABLE tasks (
   session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
   source_schedule_id UUID,
   scheduled_at TIMESTAMPTZ,
-  request TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued' CHECK (
-    status IN (
-      'queued',
-      'running',
-      'awaiting_approval',
-      'completed',
-      'failed',
-      'cancelled'
-    )
+    status IN ('queued', 'running', 'awaiting_approval', 'completed', 'failed', 'cancelled')
   ),
-  output TEXT NOT NULL DEFAULT '',
   error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

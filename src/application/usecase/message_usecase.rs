@@ -1,11 +1,12 @@
 use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
+use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::task::Task;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::session_repository::SessionRepository;
-use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
+use crate::domain::repository::task_repository::TaskRepository;
 pub struct MessageTask {
     pub message: Message,
     pub task: Task,
@@ -36,16 +37,20 @@ where
         session_id: Uuid,
         text: String,
     ) -> Result<MessageTask, MessageUsecaseError> {
+        let text = text.trim().to_string();
+
+        if text.is_empty() {
+            return Err(TaskRepositoryError::InvalidTask(
+                "message text must not be empty".to_string(),
+            )
+            .into());
+        }
+
         self.ensure_existing_session(session_id).await?;
 
         let task = self
             .task_repository
-            .create(CreateTask {
-                request: text.clone(),
-                session_id: Some(session_id),
-                source_schedule_id: None,
-                scheduled_at: None,
-            })
+            .create(Some(session_id), None, None)
             .await?;
 
         let message = self
