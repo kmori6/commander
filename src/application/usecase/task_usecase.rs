@@ -3,29 +3,29 @@ use uuid::Uuid;
 use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::event::Event;
+use crate::domain::model::message::TaskUsage;
 use crate::domain::model::task::{Task, TaskStatus};
-use crate::domain::model::token_usage::TaskTokenUsage;
 use crate::domain::repository::event_repository::EventRepository;
+use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::{CreateTask, TaskRepository};
-use crate::domain::repository::token_usage_repository::TokenUsageRepository;
 
-pub struct TaskUsecase<T, E, U> {
+pub struct TaskUsecase<T, E, M> {
     task_repository: T,
     event_repository: E,
-    token_usage_repository: U,
+    message_repository: M,
 }
 
-impl<T, E, U> TaskUsecase<T, E, U>
+impl<T, E, M> TaskUsecase<T, E, M>
 where
     T: TaskRepository,
     E: EventRepository,
-    U: TokenUsageRepository,
+    M: MessageRepository,
 {
-    pub fn new(task_repository: T, event_repository: E, token_usage_repository: U) -> Self {
+    pub fn new(task_repository: T, event_repository: E, message_repository: M) -> Self {
         Self {
             task_repository,
             event_repository,
-            token_usage_repository,
+            message_repository,
         }
     }
 
@@ -85,13 +85,13 @@ where
             .map_err(Into::into)
     }
 
-    pub async fn find_usage(&self, task_id: Uuid) -> Result<TaskTokenUsage, TaskUsecaseError> {
+    pub async fn find_usage(&self, task_id: Uuid) -> Result<TaskUsage, TaskUsecaseError> {
         if self.task_repository.find_by_id(task_id).await?.is_none() {
             return Err(TaskRepositoryError::NotFound(task_id).into());
         }
 
-        self.token_usage_repository
-            .summarize_for_task(task_id)
+        self.message_repository
+            .task_usage(task_id)
             .await
             .map_err(Into::into)
     }

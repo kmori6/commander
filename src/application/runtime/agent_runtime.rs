@@ -11,7 +11,6 @@ use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::event_repository::EventRepository;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::TaskRepository;
-use crate::domain::repository::token_usage_repository::{CreateTokenUsage, TokenUsageRepository};
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use crate::domain::service::compaction_service::{CompactionConfig, CompactionService};
@@ -71,13 +70,12 @@ impl AgentScope {
     }
 }
 
-pub struct AgentRuntime<L, T, M, E, U, P, A> {
+pub struct AgentRuntime<L, T, M, E, P, A> {
     llm_provider: L,
     tool_executor: Arc<ToolExecutor>,
     task_repository: T,
     message_repository: M,
     event_repository: E,
-    token_usage_repository: U,
     tool_permission_repository: P,
     tool_approval_repository: A,
     event_service: Arc<EventService>,
@@ -85,13 +83,12 @@ pub struct AgentRuntime<L, T, M, E, U, P, A> {
     model: RwLock<String>,
 }
 
-impl<L, T, M, E, U, P, A> AgentRuntime<L, T, M, E, U, P, A>
+impl<L, T, M, E, P, A> AgentRuntime<L, T, M, E, P, A>
 where
     L: LlmProvider,
     T: TaskRepository,
     M: MessageRepository,
     E: EventRepository,
-    U: TokenUsageRepository,
     P: ToolPermissionRepository,
     A: ToolApprovalRepository,
 {
@@ -101,7 +98,6 @@ where
         task_repository: T,
         message_repository: M,
         event_repository: E,
-        token_usage_repository: U,
         event_service: Arc<EventService>,
         tool_permission_repository: P,
         tool_approval_repository: A,
@@ -114,7 +110,6 @@ where
             task_repository,
             message_repository,
             event_repository,
-            token_usage_repository,
             event_service,
             tool_permission_repository,
             tool_approval_repository,
@@ -385,18 +380,12 @@ where
                 LoopState::Durable { .. } => {
                     let assistant_message = self
                         .message_repository
-                        .save(task_id, Role::Assistant, response.message.contents.clone())
-                        .await?;
-
-                    self.token_usage_repository
-                        .save(CreateTokenUsage {
-                            message_id: assistant_message.id,
-                            model: model.clone(),
-                            input_tokens: response.usage.input_tokens,
-                            output_tokens: response.usage.output_tokens,
-                            cache_read_tokens: response.usage.cache_read_tokens,
-                            cache_write_tokens: response.usage.cache_write_tokens,
-                        })
+                        .save_response(
+                            task_id,
+                            response.message.contents.clone(),
+                            &model,
+                            response.usage,
+                        )
                         .await?;
 
                     Some(assistant_message.id)

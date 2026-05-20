@@ -5,8 +5,7 @@ use serde_json::{Value, json};
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::llm::{ModelSpec, ProviderSpec};
-use crate::domain::model::message::{MessageContent, Role};
-use crate::domain::model::token_usage::TokenUsageCounts;
+use crate::domain::model::message::{MessageContent, MessageUsage, Role};
 use crate::domain::port::llm_provider::{LlmMessage, LlmRequest, LlmResponse};
 
 #[derive(Clone)]
@@ -264,10 +263,10 @@ fn parse_responses_output(value: &Value) -> Result<LlmResponse, LlmProviderError
     })
 }
 
-fn parse_usage(value: &Value) -> TokenUsageCounts {
+fn parse_usage(value: &Value) -> MessageUsage {
     let usage = &value["usage"];
 
-    TokenUsageCounts {
+    MessageUsage {
         input_tokens: usage["input_tokens"].as_i64().unwrap_or_default(),
         output_tokens: usage["output_tokens"].as_i64().unwrap_or_default(),
         cache_read_tokens: usage["input_tokens_details"]["cached_tokens"]

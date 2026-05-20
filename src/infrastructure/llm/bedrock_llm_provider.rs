@@ -15,8 +15,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
-use crate::domain::model::message::{MessageContent, Role, ToolCallOutputStatus};
-use crate::domain::model::token_usage::TokenUsageCounts;
+use crate::domain::model::message::{MessageContent, MessageUsage, Role, ToolCallOutputStatus};
 use crate::domain::model::tool_call::ToolSpec;
 use crate::domain::port::llm_provider::{
     LlmMessage, LlmProvider, LlmRequest, LlmResponse, StructuredOutputSchema,
@@ -485,12 +484,12 @@ fn bedrock_document_name() -> String {
     format!("document-{}", Uuid::new_v4())
 }
 
-fn convert_token_usage(usage: Option<&TokenUsage>) -> TokenUsageCounts {
+fn convert_token_usage(usage: Option<&TokenUsage>) -> MessageUsage {
     let Some(usage) = usage else {
-        return TokenUsageCounts::default();
+        return MessageUsage::default();
     };
 
-    TokenUsageCounts {
+    MessageUsage {
         input_tokens: i64::from(usage.input_tokens().max(0)),
         output_tokens: i64::from(usage.output_tokens().max(0)),
         cache_read_tokens: i64::from(usage.cache_read_input_tokens().unwrap_or_default().max(0)),

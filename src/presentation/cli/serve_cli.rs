@@ -18,7 +18,6 @@ use crate::infrastructure::persistence::postgres_event_repository::PostgresEvent
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::tool::file_edit_tool::FileEditTool;
 use crate::infrastructure::tool::file_list_tool::FileListTool;
@@ -96,7 +95,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let schedule_repository = FileScheduleRepository::new(paths.schedules_path());
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
-    let token_usage_repository = PostgresTokenUsageRepository::new(pool.clone());
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
 
     let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
@@ -140,7 +138,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let task_usecase = Arc::new(TaskUsecase::new(
         task_repository.clone(),
         event_repository.clone(),
-        token_usage_repository.clone(),
+        message_repository.clone(),
     ));
     let tool_usecase = Arc::new(ToolUsecase::new(
         tool_executor.clone(),
@@ -163,7 +161,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_repository.clone(),
         message_repository.clone(),
         event_repository.clone(),
-        token_usage_repository.clone(),
         event_service.clone(),
         tool_permission_repository.clone(),
         tool_approval_repository.clone(),

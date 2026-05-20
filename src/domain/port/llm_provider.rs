@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
-use crate::domain::model::message::{MessageContent, Role};
-use crate::domain::model::token_usage::TokenUsageCounts;
+use crate::domain::model::message::{MessageContent, MessageUsage, Role};
 use crate::domain::model::tool_call::ToolSpec;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,7 +95,7 @@ impl LlmRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlmResponse {
     pub message: LlmMessage,
-    pub usage: TokenUsageCounts,
+    pub usage: MessageUsage,
 }
 
 impl LlmResponse {

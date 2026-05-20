@@ -101,12 +101,50 @@ impl MessageContent {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageUsage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+}
+
+impl MessageUsage {
+    pub fn total_tokens(&self) -> i64 {
+        self.input_tokens + self.output_tokens
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.input_tokens == 0
+            && self.output_tokens == 0
+            && self.cache_read_tokens == 0
+            && self.cache_write_tokens == 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskUsage {
+    pub task_id: Uuid,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+}
+
+impl TaskUsage {
+    pub fn total_tokens(&self) -> i64 {
+        self.input_tokens + self.output_tokens
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub id: Uuid,
     pub task_id: Uuid,
     pub role: Role,
     pub contents: Vec<MessageContent>,
+    pub model: Option<String>,
+    pub usage: Option<MessageUsage>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -116,6 +154,8 @@ impl Message {
         task_id: Uuid,
         role: Role,
         contents: Vec<MessageContent>,
+        model: Option<String>,
+        usage: Option<MessageUsage>,
         created_at: DateTime<Utc>,
     ) -> Self {
         Self {
@@ -123,6 +163,8 @@ impl Message {
             task_id,
             role,
             contents,
+            model,
+            usage,
             created_at,
         }
     }

@@ -9,10 +9,10 @@ use uuid::Uuid;
 
 use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::model::token_usage::TaskTokenUsage;
+use crate::domain::model::message::TaskUsage;
 use crate::presentation::state::app_state::AppState;
 
-fn task_usage_json(usage: TaskTokenUsage) -> serde_json::Value {
+fn task_usage_json(usage: TaskUsage) -> serde_json::Value {
     json!({
         "task_id": usage.task_id.to_string(),
         "input_tokens": usage.input_tokens,

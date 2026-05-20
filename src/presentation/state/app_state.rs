@@ -15,7 +15,6 @@ use crate::infrastructure::persistence::postgres_event_repository::PostgresEvent
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_token_usage_repository::PostgresTokenUsageRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 
 #[derive(Clone)]
@@ -32,7 +31,7 @@ pub struct AppState {
         >,
     >,
     pub task_usecase: Arc<
-        TaskUsecase<PostgresTaskRepository, PostgresEventRepository, PostgresTokenUsageRepository>,
+        TaskUsecase<PostgresTaskRepository, PostgresEventRepository, PostgresMessageRepository>,
     >,
     pub schedule_usecase: Arc<ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>>,
     pub tool_usecase: Arc<ToolUsecase<FileToolPermissionRepository>>,
@@ -45,7 +44,6 @@ pub struct AppState {
             PostgresTaskRepository,
             PostgresMessageRepository,
             PostgresEventRepository,
-            PostgresTokenUsageRepository,
             FileToolPermissionRepository,
             PostgresToolApprovalRepository,
         >,
