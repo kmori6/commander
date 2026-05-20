@@ -126,22 +126,4 @@ impl Message {
             created_at,
         }
     }
-
-    pub fn first_text(&self) -> Option<&str> {
-        self.contents.iter().find_map(|content| match content {
-            MessageContent::InputText { text } => Some(text.as_str()),
-            MessageContent::OutputText { text } => Some(text.as_str()),
-            _ => None,
-        })
-    }
-
-    pub fn output_texts(&self) -> Vec<&str> {
-        self.contents
-            .iter()
-            .filter_map(|content| match content {
-                MessageContent::OutputText { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect()
-    }
 }
