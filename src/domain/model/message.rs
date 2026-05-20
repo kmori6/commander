@@ -109,19 +109,6 @@ pub struct MessageUsage {
     pub cache_write_tokens: i64,
 }
 
-impl MessageUsage {
-    pub fn total_tokens(&self) -> i64 {
-        self.input_tokens + self.output_tokens
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.input_tokens == 0
-            && self.output_tokens == 0
-            && self.cache_read_tokens == 0
-            && self.cache_write_tokens == 0
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskUsage {
     pub task_id: Uuid,
