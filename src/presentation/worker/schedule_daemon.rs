@@ -3,6 +3,7 @@ use crate::domain::repository::watch_repository::WatchRepository;
 use crate::domain::service::instruction_service::InstructionService;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
+use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
 use crate::presentation::error::schedule_daemon_error::ScheduleDaemonError;
 use chrono::Utc;
@@ -13,7 +14,8 @@ use tokio::time;
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 const DUE_WINDOW: chrono::Duration = chrono::Duration::seconds(60);
 
-type AppScheduleUsecase = ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>;
+type AppScheduleUsecase =
+    ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository, PostgresMessageRepository>;
 
 pub struct ScheduleDaemon {
     schedule_usecase: Arc<AppScheduleUsecase>,
