@@ -160,8 +160,7 @@ The following skill documents are available in this workspace. Follow them when 
         read_optional_markdown(&self.watch_path()).map(|content| {
             format!(
                 "# Watch\n\n\
-Run this scheduled watch using `task_status` when useful. \
-Do not duplicate running work. \
+Run this scheduled watch. \
 If nothing needs action, finish quietly.\n\n\
 {}",
                 content

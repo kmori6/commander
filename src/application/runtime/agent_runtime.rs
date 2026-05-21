@@ -1,6 +1,5 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::application::runtime::subagent::{self, Profile, Registry};
-use crate::application::runtime::task_status_tool;
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::task::{Task, TaskStatus};
@@ -596,13 +595,6 @@ where
                                 ToolCallOutput::error(call.call_id.clone(), err.to_string())
                             }
                         }
-                    } else if call.tool_name == task_status_tool::TASK_STATUS_TOOL_NAME {
-                        match self.task_status(call.arguments.clone()).await {
-                            Ok(output) => ToolCallOutput::success(call.call_id.clone(), output),
-                            Err(err) => {
-                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
-                            }
-                        }
                     } else {
                         match self.tool_executor.execute(call.clone()).await {
                             Ok(output) => output,
@@ -745,36 +737,6 @@ where
         }
     }
 
-    async fn task_status(&self, arguments: Value) -> Result<Value, AgentRuntimeError> {
-        let input = task_status_tool::parse_task_status_input(arguments)
-            .map_err(AgentRuntimeError::Unsupported)?;
-
-        let tasks = if let Some(task_id) = input.task_id {
-            let task_id = Uuid::parse_str(&task_id)
-                .map_err(|err| AgentRuntimeError::Unsupported(format!("invalid task_id: {err}")))?;
-
-            let task = self
-                .task_repository
-                .find_by_id(task_id)
-                .await?
-                .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-            vec![task_status_tool::TaskStatusTaskOutput::from_task(
-                &task, true,
-            )]
-        } else {
-            self.task_repository
-                .list_recent(input.status, input.limit)
-                .await?
-                .iter()
-                .map(|task| task_status_tool::TaskStatusTaskOutput::from_task(task, false))
-                .collect()
-        };
-
-        serde_json::to_value(task_status_tool::TaskStatusOutput::new(tasks))
-            .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))
-    }
-
     async fn complete(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
         self.task_repository.complete(task_id).await?;
         self.emit(task_id, "task_completed", json!({ "output": output }))
@@ -851,8 +813,6 @@ where
             specs.push(spec);
         }
 
-        specs.push(task_status_tool::task_status_tool_spec());
-
         specs
     }
 
@@ -868,7 +828,7 @@ where
 }
 
 fn is_runtime_tool(tool_name: &str) -> bool {
-    tool_name == subagent::TOOL_NAME || tool_name == task_status_tool::TASK_STATUS_TOOL_NAME
+    tool_name == subagent::TOOL_NAME
 }
 
 fn message_to_llm(message: Message) -> LlmMessage {
