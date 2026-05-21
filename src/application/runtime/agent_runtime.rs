@@ -1,13 +1,17 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
-use crate::application::runtime::subagent::{self, Profile, Registry};
+use crate::application::runtime::subagent_call::{
+    SubagentCall, SubagentResult, SubagentResultStatus,
+};
 use crate::domain::model::event::Event;
 use crate::domain::model::message::{Message, MessageContent, Role};
+use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
 use crate::domain::model::tool_call::{
     ToolApproval, ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
 };
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::repository::message_repository::MessageRepository;
+use crate::domain::repository::subagent_repository::SubagentRepository;
 use crate::domain::repository::task_repository::TaskRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
@@ -43,22 +47,22 @@ enum ToolRun {
 
 #[derive(Clone)]
 struct AgentScope {
-    profile: Option<Profile>,
+    subagent: Option<Subagent>,
 }
 
 impl AgentScope {
     fn root() -> Self {
-        Self { profile: None }
+        Self { subagent: None }
     }
 
-    fn child(profile: Profile) -> Self {
+    fn child(subagent: Subagent) -> Self {
         Self {
-            profile: Some(profile),
+            subagent: Some(subagent),
         }
     }
 
     fn is_root(&self) -> bool {
-        self.profile.is_none()
+        self.subagent.is_none()
     }
 }
 
@@ -67,6 +71,7 @@ pub struct AgentRuntime<L, T, M, P, A> {
     tool_executor: Arc<ToolExecutor>,
     task_repository: T,
     message_repository: M,
+    subagent_repository: Arc<dyn SubagentRepository>,
     tool_permission_repository: P,
     tool_approval_repository: A,
     event_service: Arc<EventService>,
@@ -87,6 +92,7 @@ where
         tool_executor: Arc<ToolExecutor>,
         task_repository: T,
         message_repository: M,
+        subagent_repository: Arc<dyn SubagentRepository>,
         event_service: Arc<EventService>,
         tool_permission_repository: P,
         tool_approval_repository: A,
@@ -98,6 +104,7 @@ where
             tool_executor,
             task_repository,
             message_repository,
+            subagent_repository,
             event_service,
             tool_permission_repository,
             tool_approval_repository,
@@ -146,9 +153,9 @@ where
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut instruction = self.instruction_service.build_agent_instruction();
 
-        if let Some(profile) = &scope.profile {
+        if let Some(subagent) = &scope.subagent {
             instruction.push_str("\n\n# Child Agent Profile\n");
-            instruction.push_str(&profile.instruction);
+            instruction.push_str(&subagent.instruction);
         }
 
         let mut messages = vec![LlmMessage::system_text(instruction)];
@@ -336,7 +343,8 @@ where
             let response = match self
                 .llm_provider
                 .respond(
-                    LlmRequest::new(model.clone(), messages).with_tools(self.tool_specs(&scope)),
+                    LlmRequest::new(model.clone(), messages)
+                        .with_tools(self.tool_specs(&scope).await?),
                 )
                 .await
             {
@@ -449,8 +457,8 @@ where
             )
             .await?;
 
-            // tool executor does not have subagent, so we need to resolve permission for subagent tool call here
-            let mode = if is_runtime_tool(&call.tool_name) {
+            // Subagent is a runtime call, so it is permitted only for the root agent.
+            let mode = if call.tool_name == SubagentCall::TOOL_NAME {
                 if scope.is_root() {
                     ToolPermissionMode::Allow
                 } else {
@@ -510,68 +518,72 @@ where
                     return Ok(ToolRun::AwaitingApproval);
                 }
                 ToolPermissionMode::Allow => {
-                    if call.tool_name == subagent::TOOL_NAME {
+                    if call.tool_name == SubagentCall::TOOL_NAME {
                         match async {
-                            let registry =
-                                Registry::load(self.instruction_service.workspace_root());
-                            let input = registry
-                                .parse_input(call.arguments.clone())
+                            let subagent_call =
+                                SubagentCall::new(self.subagent_repository.list().await?);
+                            let input = subagent_call
+                                .parse(call.arguments.clone())
                                 .map_err(AgentRuntimeError::Unsupported)?;
 
                             let mut results = Vec::new();
 
-                            for (index, task_input) in input.tasks.into_iter().enumerate() {
-                                let profile = registry
-                                    .find(&task_input.profile)
+                            for (index, request) in input.tasks.into_iter().enumerate() {
+                                let subagent = subagent_call
+                                    .find(&request.profile)
                                     .cloned()
                                     .ok_or_else(|| {
                                         AgentRuntimeError::Unsupported(format!(
                                             "unsupported profile: {}",
-                                            task_input.profile
+                                            request.profile
                                         ))
                                     })?;
 
-                                let profile_name = profile.name.clone();
+                                let profile_name = subagent.name.clone();
 
                                 let mut instruction =
                                     self.instruction_service.build_agent_instruction();
                                 instruction.push_str("\n\n# Child Agent Profile\n");
-                                instruction.push_str(&profile.instruction);
+                                instruction.push_str(&subagent.instruction);
                                 instruction.push_str(
-                "\n\nComplete the delegated request and return a concise final result.",
-            );
+                                    "\n\nComplete the delegated request and return a concise final result.",
+                                );
 
                                 let mut child_state = LoopState::Ephemeral {
                                     messages: vec![
                                         LlmMessage::system_text(instruction),
-                                        LlmMessage::user_text(task_input.request),
+                                        LlmMessage::user_text(request.request),
                                     ],
                                 };
 
                                 let outcome = self
-                                    .run_loop(task_id, AgentScope::child(profile), &mut child_state)
+                                    .run_loop(
+                                        task_id,
+                                        AgentScope::child(subagent),
+                                        &mut child_state,
+                                    )
                                     .await;
 
                                 let (status, output, error) = match outcome {
                                     Ok(LoopOutcome::Completed(output)) => {
-                                        (subagent::Status::Completed, Some(output), None)
+                                        (SubagentResultStatus::Completed, Some(output), None)
                                     }
                                     Ok(LoopOutcome::Stopped) => (
-                                        subagent::Status::Cancelled,
+                                        SubagentResultStatus::Cancelled,
                                         None,
                                         Some("parent task cancelled".to_string()),
                                     ),
                                     Ok(LoopOutcome::AwaitingApproval) => (
-                                        subagent::Status::Failed,
+                                        SubagentResultStatus::Failed,
                                         None,
                                         Some("subagent cannot await tool approval".to_string()),
                                     ),
                                     Err(err) => {
-                                        (subagent::Status::Failed, None, Some(err.to_string()))
+                                        (SubagentResultStatus::Failed, None, Some(err.to_string()))
                                     }
                                 };
 
-                                results.push(subagent::TaskOutput {
+                                results.push(SubagentResult {
                                     index,
                                     profile: profile_name,
                                     status,
@@ -580,7 +592,7 @@ where
                                 });
                             }
 
-                            let output = serde_json::to_value(subagent::Output::new(results))
+                            let output = SubagentCall::output(results)
                                 .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))?;
 
                             Ok::<_, AgentRuntimeError>(ToolCallOutput::success(
@@ -761,8 +773,8 @@ where
         scope: &AgentScope,
     ) -> Result<ToolPermissionMode, AgentRuntimeError> {
         // check for subagent allowed tools
-        if let Some(profile) = scope.profile.as_ref() {
-            if !profile.allows_tool(tool_name) {
+        if let Some(subagent) = scope.subagent.as_ref() {
+            if !subagent.allows_tool(tool_name) {
                 return Ok(ToolPermissionMode::Deny);
             }
 
@@ -799,21 +811,21 @@ where
             .unwrap_or(ToolPermissionMode::Deny))
     }
 
-    fn tool_specs(&self, scope: &AgentScope) -> Vec<ToolSpec> {
+    async fn tool_specs(&self, scope: &AgentScope) -> Result<Vec<ToolSpec>, AgentRuntimeError> {
         let mut specs = self.tool_executor.specs();
 
-        if let Some(profile) = scope.profile.as_ref() {
-            specs.retain(|spec| profile.allows_tool(&spec.name));
-            return specs;
+        if let Some(subagent) = scope.subagent.as_ref() {
+            specs.retain(|spec| subagent.allows_tool(&spec.name));
+            return Ok(specs);
         }
 
-        let subagents = Registry::load(self.instruction_service.workspace_root());
+        let subagent_call = SubagentCall::new(self.subagent_repository.list().await?);
 
-        if let Some(spec) = subagents.tool_spec() {
+        if let Some(spec) = subagent_call.tool_spec() {
             specs.push(spec);
         }
 
-        specs
+        Ok(specs)
     }
 
     async fn stop_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
@@ -825,10 +837,6 @@ where
 
         Ok(task.status == TaskStatus::Cancelled)
     }
-}
-
-fn is_runtime_tool(tool_name: &str) -> bool {
-    tool_name == subagent::TOOL_NAME
 }
 
 fn message_to_llm(message: Message) -> LlmMessage {
