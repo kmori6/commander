@@ -15,7 +15,6 @@ pub mod list_model_handler;
 pub mod list_schedule_handler;
 pub mod list_schedule_run_handler;
 pub mod list_session_handler;
-pub mod list_task_event_handler;
 pub mod list_task_handler;
 pub mod list_tool_approval_handler;
 pub mod list_tool_handler;

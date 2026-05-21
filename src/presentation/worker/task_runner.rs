@@ -7,7 +7,6 @@ use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::repository::task_repository::TaskRepository;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
-use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
 use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
@@ -16,7 +15,6 @@ type AppAgentRuntime = AgentRuntime<
     LlmGateway,
     PostgresTaskRepository,
     PostgresMessageRepository,
-    PostgresEventRepository,
     FileToolPermissionRepository,
     PostgresToolApprovalRepository,
 >;

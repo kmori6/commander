@@ -10,7 +10,7 @@ pub trait TaskRepository: Send + Sync {
     async fn create(
         &self,
         session_id: Option<Uuid>,
-        source_schedule_id: Option<Uuid>,
+        schedule_id: Option<Uuid>,
         scheduled_at: Option<DateTime<Utc>>,
     ) -> Result<Task, TaskRepositoryError>;
 
@@ -40,12 +40,12 @@ pub trait TaskRepository: Send + Sync {
         status: TaskStatus,
     ) -> Result<Task, TaskRepositoryError>;
 
-    async fn list_by_source_schedule_id(
+    async fn list_by_schedule_id(
         &self,
         schedule_id: Uuid,
     ) -> Result<Vec<Task>, TaskRepositoryError>;
 
-    async fn find_by_source_schedule_id_and_scheduled_at(
+    async fn find_by_schedule_id_and_scheduled_at(
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,

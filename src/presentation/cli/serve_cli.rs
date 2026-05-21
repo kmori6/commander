@@ -14,7 +14,6 @@ use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
-use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -49,7 +48,6 @@ use crate::presentation::handler::list_model_handler::list_model_handler;
 use crate::presentation::handler::list_schedule_handler::list_schedule_handler;
 use crate::presentation::handler::list_schedule_run_handler::list_schedule_run_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
-use crate::presentation::handler::list_task_event_handler::list_task_event_handler;
 use crate::presentation::handler::list_task_handler::list_task_handler;
 use crate::presentation::handler::list_tool_approval_handler::list_tool_approval_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
@@ -89,7 +87,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // repositories
     let session_repository = PostgresSessionRepository::new(pool.clone());
     let task_repository = PostgresTaskRepository::new(pool.clone());
-    let event_repository = PostgresEventRepository::new(pool.clone());
     let tool_permission_repository =
         FileToolPermissionRepository::new(paths.tool_permissions_path());
     let schedule_repository = FileScheduleRepository::new(paths.schedules_path());
@@ -137,7 +134,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ));
     let task_usecase = Arc::new(TaskUsecase::new(
         task_repository.clone(),
-        event_repository.clone(),
         message_repository.clone(),
     ));
     let tool_usecase = Arc::new(ToolUsecase::new(
@@ -161,7 +157,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         tool_executor.clone(),
         task_repository.clone(),
         message_repository.clone(),
-        event_repository.clone(),
         event_service.clone(),
         tool_permission_repository.clone(),
         tool_approval_repository.clone(),
@@ -217,7 +212,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         )
         .route("/tasks", get(list_task_handler).post(create_task_handler))
         .route("/tasks/{id}", get(get_task_handler))
-        .route("/tasks/{id}/events", get(list_task_event_handler))
         .route("/tasks/{id}/cancel", post(cancel_task_handler))
         .route("/tasks/{id}/usage", get(get_task_usage_handler))
         .route(

@@ -23,7 +23,7 @@ struct TaskRow {
     id: Uuid,
     status: String,
     session_id: Option<Uuid>,
-    source_schedule_id: Option<Uuid>,
+    schedule_id: Option<Uuid>,
     scheduled_at: Option<DateTime<Utc>>,
     error: Option<String>,
     created_at: DateTime<Utc>,
@@ -44,7 +44,7 @@ impl TryFrom<TaskRow> for Task {
             id: row.id,
             status,
             session_id: row.session_id,
-            source_schedule_id: row.source_schedule_id,
+            schedule_id: row.schedule_id,
             scheduled_at: row.scheduled_at,
             error: row.error,
             created_at: row.created_at,
@@ -74,7 +74,7 @@ const TASK_COLUMNS: &str = r#"
 id,
 status,
 session_id,
-source_schedule_id,
+schedule_id,
 scheduled_at,
 error,
 created_at,
@@ -88,14 +88,14 @@ impl TaskRepository for PostgresTaskRepository {
     async fn create(
         &self,
         session_id: Option<Uuid>,
-        source_schedule_id: Option<Uuid>,
+        schedule_id: Option<Uuid>,
         scheduled_at: Option<DateTime<Utc>>,
     ) -> Result<Task, TaskRepositoryError> {
         let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             INSERT INTO tasks (
               session_id,
-              source_schedule_id,
+              schedule_id,
               scheduled_at
             )
             VALUES ($1, $2, $3)
@@ -103,7 +103,7 @@ impl TaskRepository for PostgresTaskRepository {
             "#
         ))
         .bind(session_id)
-        .bind(source_schedule_id)
+        .bind(schedule_id)
         .bind(scheduled_at)
         .fetch_one(&self.pool)
         .await
@@ -305,7 +305,7 @@ impl TaskRepository for PostgresTaskRepository {
         row.ok_or(TaskRepositoryError::NotFound(id))?.try_into()
     }
 
-    async fn list_by_source_schedule_id(
+    async fn list_by_schedule_id(
         &self,
         schedule_id: Uuid,
     ) -> Result<Vec<Task>, TaskRepositoryError> {
@@ -313,7 +313,7 @@ impl TaskRepository for PostgresTaskRepository {
             r#"
             SELECT {TASK_COLUMNS}
             FROM tasks
-            WHERE source_schedule_id = $1
+            WHERE schedule_id = $1
             ORDER BY scheduled_at DESC NULLS LAST, created_at DESC, id DESC
             "#
         ))
@@ -325,7 +325,7 @@ impl TaskRepository for PostgresTaskRepository {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
-    async fn find_by_source_schedule_id_and_scheduled_at(
+    async fn find_by_schedule_id_and_scheduled_at(
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
@@ -334,7 +334,7 @@ impl TaskRepository for PostgresTaskRepository {
             r#"
             SELECT {TASK_COLUMNS}
             FROM tasks
-            WHERE source_schedule_id = $1
+            WHERE schedule_id = $1
             AND scheduled_at = $2
             "#
         ))

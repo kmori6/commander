@@ -47,7 +47,7 @@ pub struct Task {
     pub id: Uuid,
     pub status: TaskStatus,
     pub session_id: Option<Uuid>,
-    pub source_schedule_id: Option<Uuid>,
+    pub schedule_id: Option<Uuid>,
     pub scheduled_at: Option<DateTime<Utc>>,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,

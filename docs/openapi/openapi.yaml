@@ -275,26 +275,6 @@ paths:
         "500":
           $ref: "#/components/responses/Error"
 
-  /v1/tasks/{id}/events:
-    get:
-      tags:
-        - Tasks
-      summary: List task events
-      operationId: listTaskEvents
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: Task events.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListTaskEventsResponse"
-        "404":
-          $ref: "#/components/responses/Error"
-        "500":
-          $ref: "#/components/responses/Error"
-
   /v1/tasks/{id}/cancel:
     post:
       tags:
@@ -930,7 +910,7 @@ components:
         session_id:
           type: string
           format: uuid
-        source_schedule_id:
+        schedule_id:
           type:
             - string
             - "null"
@@ -1004,38 +984,6 @@ components:
         created_at:
           type: string
           format: date-time
-
-    TaskEvent:
-      type: object
-      required:
-        - id
-        - task_id
-        - event_type
-        - payload
-        - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        task_id:
-          type: string
-          format: uuid
-        event_type:
-          type: string
-        payload: {}
-        created_at:
-          type: string
-          format: date-time
-
-    ListTaskEventsResponse:
-      type: object
-      required:
-        - events
-      properties:
-        events:
-          type: array
-          items:
-            $ref: "#/components/schemas/TaskEvent"
 
     TaskUsage:
       type: object

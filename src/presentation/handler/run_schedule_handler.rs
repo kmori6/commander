@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule_execution::ScheduleExecution;
 use crate::domain::model::task::Task;
 use crate::presentation::state::app_state::AppState;
 
@@ -18,7 +17,7 @@ fn task_json(task: Task) -> serde_json::Value {
         "id": task.id.to_string(),
         "status": task.status.as_str(),
         "session_id": task.session_id.map(|id| id.to_string()),
-        "source_schedule_id": task.source_schedule_id.map(|id| id.to_string()),
+        "schedule_id": task.schedule_id.map(|id| id.to_string()),
         "scheduled_at": task.scheduled_at.map(|dt| dt.to_rfc3339()),
         "error": task.error,
         "created_at": task.created_at.to_rfc3339(),
@@ -28,13 +27,13 @@ fn task_json(task: Task) -> serde_json::Value {
     })
 }
 
-fn schedule_execution_json(execution: ScheduleExecution) -> serde_json::Value {
+fn schedule_run_json(schedule_id: Uuid, task: &Task) -> serde_json::Value {
     json!({
-        "id": execution.id.to_string(),
-        "schedule_id": execution.schedule_id.to_string(),
-        "task_id": execution.task_id.to_string(),
-        "scheduled_at": execution.scheduled_at.to_rfc3339(),
-        "created_at": execution.created_at.to_rfc3339(),
+        "id": task.id.to_string(),
+        "schedule_id": schedule_id.to_string(),
+        "task_id": task.id.to_string(),
+        "scheduled_at": task.scheduled_at.unwrap_or(task.created_at).to_rfc3339(),
+        "created_at": task.created_at.to_rfc3339(),
     })
 }
 
@@ -43,11 +42,11 @@ pub async fn run_schedule_handler(
     Path(schedule_id): Path<Uuid>,
 ) -> Response {
     match state.schedule_usecase.run_now(schedule_id).await {
-        Ok(run_task) => (
+        Ok(task) => (
             StatusCode::ACCEPTED,
             Json(json!({
-                "run": schedule_execution_json(run_task.execution),
-                "task": task_json(run_task.task),
+                "run": schedule_run_json(schedule_id, &task),
+                "task": task_json(task),
             })),
         )
             .into_response(),

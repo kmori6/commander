@@ -89,7 +89,7 @@ impl ScheduleDaemon {
         self.schedule_usecase
             .run_due_task(DueTaskInput {
                 request,
-                source_schedule_id: None,
+                schedule_id: None,
                 scheduled_at,
                 skip_if_open_same_source: true,
             })

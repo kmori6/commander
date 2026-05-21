@@ -60,13 +60,12 @@ impl CompactionService {
         llm_provider: &L,
         model: &str,
         messages: Vec<Message>,
-        previous_summary: Option<&str>,
     ) -> Result<Option<CompactionResult>, LlmProviderError> {
         let Some(plan) = self.plan(messages) else {
             return Ok(None);
         };
 
-        let prompt = self.prompt(&plan, previous_summary);
+        let prompt = self.prompt(&plan);
 
         let response = llm_provider
             .respond(LlmRequest::new(
@@ -107,18 +106,12 @@ impl CompactionService {
         Some(CompactionPlan { compact, until })
     }
 
-    pub fn prompt(&self, plan: &CompactionPlan, previous: Option<&str>) -> String {
+    pub fn prompt(&self, plan: &CompactionPlan) -> String {
         let mut text = String::new();
 
-        text.push_str("Summarize the compacted conversation for future turns.\n");
+        text.push_str("Summarize the omitted conversation for the current LLM request.\n");
         text.push_str("Preserve active tasks, decisions, constraints, file paths, tool results, and open questions.\n");
         text.push_str("Be concise, but keep enough detail to continue the work safely.\n\n");
-
-        if let Some(previous) = previous {
-            text.push_str("# Previous Summary\n");
-            text.push_str(previous);
-            text.push_str("\n\n");
-        }
 
         text.push_str("# Conversation\n");
         text.push_str(&format_units(&plan.compact));

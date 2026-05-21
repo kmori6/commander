@@ -11,7 +11,6 @@ use crate::domain::service::event_service::EventService;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
-use crate::infrastructure::persistence::postgres_event_repository::PostgresEventRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -30,9 +29,7 @@ pub struct AppState {
             PostgresTaskRepository,
         >,
     >,
-    pub task_usecase: Arc<
-        TaskUsecase<PostgresTaskRepository, PostgresEventRepository, PostgresMessageRepository>,
-    >,
+    pub task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
     pub schedule_usecase: Arc<
         ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository, PostgresMessageRepository>,
     >,
@@ -45,7 +42,6 @@ pub struct AppState {
             LlmGateway,
             PostgresTaskRepository,
             PostgresMessageRepository,
-            PostgresEventRepository,
             FileToolPermissionRepository,
             PostgresToolApprovalRepository,
         >,

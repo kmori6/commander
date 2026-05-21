@@ -23,7 +23,7 @@ fn task_json(task: Task) -> serde_json::Value {
         "id": task.id.to_string(),
         "status": task.status.as_str(),
         "session_id": task.session_id.map(|id| id.to_string()),
-        "source_schedule_id": task.source_schedule_id.map(|id| id.to_string()),
+        "schedule_id": task.schedule_id.map(|id| id.to_string()),
         "scheduled_at": task.scheduled_at.map(|dt| dt.to_rfc3339()),
         "error": task.error,
         "created_at": task.created_at.to_rfc3339(),

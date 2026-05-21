@@ -1,4 +1,3 @@
-pub mod event_repository_error;
 pub mod llm_provider_error;
 pub mod message_repository_error;
 pub mod schedule_repository_error;

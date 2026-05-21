@@ -86,17 +86,6 @@ struct TaskResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct ListTaskEventsResponse {
-    events: Vec<TaskEventResponse>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TaskEventResponse {
-    event_type: String,
-    created_at: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct ListModelsResponse {
     models: Vec<ModelResponse>,
 }
@@ -416,22 +405,6 @@ impl ChatApiClient {
             .map_err(io::Error::other)
     }
 
-    async fn list_task_events(&self, task_id: Uuid) -> io::Result<Vec<TaskEventResponse>> {
-        let response = self
-            .http
-            .get(format!("{}/v1/tasks/{}/events", self.base_url, task_id))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<ListTaskEventsResponse>()
-            .await
-            .map_err(io::Error::other)?;
-
-        Ok(response.events)
-    }
-
     async fn cancel_task(&self, task_id: Uuid) -> io::Result<TaskResponse> {
         self.http
             .post(format!("{}/v1/tasks/{}/cancel", self.base_url, task_id))
@@ -748,16 +721,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
 
                         if let Some(finished_at) = task.finished_at.as_deref() {
                             println!("  finished {finished_at}");
-                        }
-
-                        let events = client.list_task_events(task_id).await?;
-
-                        if !events.is_empty() {
-                            println!("\nevents");
-
-                            for event in events {
-                                println!("  {:<28} {}", event.event_type, event.created_at);
-                            }
                         }
 
                         if matches!(task.status.as_str(), "completed" | "failed" | "cancelled")

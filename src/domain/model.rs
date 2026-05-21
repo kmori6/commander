@@ -2,7 +2,6 @@ pub mod event;
 pub mod llm;
 pub mod message;
 pub mod schedule;
-pub mod schedule_execution;
 pub mod session;
 pub mod task;
 pub mod tool_call;
