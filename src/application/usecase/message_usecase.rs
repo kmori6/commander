@@ -3,7 +3,7 @@ use uuid::Uuid;
 use crate::application::error::message_usecase_error::MessageUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::message::{Message, MessageContent, Role};
-use crate::domain::model::task::Task;
+use crate::domain::model::task::{Task, TaskSource};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::TaskRepository;
@@ -50,7 +50,7 @@ where
 
         let task = self
             .task_repository
-            .create(Some(session_id), None, None)
+            .create(TaskSource::Session { session_id })
             .await?;
 
         let message = self

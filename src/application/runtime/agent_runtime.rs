@@ -155,7 +155,7 @@ where
     }
 
     async fn context_messages(&self, task: &Task) -> Result<Vec<Message>, AgentRuntimeError> {
-        if let Some(session_id) = task.session_id {
+        if let Some(session_id) = task.session_id() {
             return self
                 .message_repository
                 .list_for_session(session_id, Some(task.id))
@@ -243,15 +243,17 @@ where
                 .await?
                 .ok_or(AgentRuntimeError::TaskNotFound)?;
 
+            if task.status == TaskStatus::Running {
+                return Err(AgentRuntimeError::TaskAlreadyRunning(task_id));
+            }
+
             self.emit(task_id, "task_started", json!({})).await?;
 
             if self.is_cancelled(task_id).await? {
                 return Ok(());
             }
 
-            self.task_repository
-                .update_status(task_id, TaskStatus::Running)
-                .await?;
+            self.task_repository.start(task_id).await?;
 
             self.apply_approvals(task_id).await?;
 
@@ -473,9 +475,7 @@ where
                         .create_pending(task_id, assistant_message_id, &call.call_id)
                         .await?;
 
-                    self.task_repository
-                        .update_status(task_id, TaskStatus::AwaitingApproval)
-                        .await?;
+                    self.task_repository.await_approval(task_id).await?;
 
                     self.emit(
                         task_id,
@@ -688,9 +688,7 @@ where
         let count = task_ids.len() as u64;
 
         for task_id in task_ids {
-            self.task_repository
-                .update_status(task_id, TaskStatus::Queued)
-                .await?;
+            self.task_repository.resume_after_approval(task_id).await?;
         }
 
         Ok(count)

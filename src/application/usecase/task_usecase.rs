@@ -3,7 +3,7 @@ use uuid::Uuid;
 use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::message::{MessageContent, Role, TaskUsage};
-use crate::domain::model::task::{Task, TaskStatus};
+use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::TaskRepository;
 
@@ -34,7 +34,7 @@ where
             .into());
         }
 
-        let task = self.task_repository.create(None, None, None).await?;
+        let task = self.task_repository.create(TaskSource::Direct).await?;
 
         self.message_repository
             .save(
@@ -72,12 +72,8 @@ where
             .await?
             .ok_or(TaskRepositoryError::NotFound(id))?;
 
-        if task.status.can_cancel() {
-            return self
-                .task_repository
-                .update_status(id, TaskStatus::Cancelled)
-                .await
-                .map_err(Into::into);
+        if task.can_cancel() {
+            return self.task_repository.cancel(id).await.map_err(Into::into);
         }
 
         Ok(task)

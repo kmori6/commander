@@ -5,7 +5,7 @@ use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
 use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::schedule::Schedule;
-use crate::domain::model::task::Task;
+use crate::domain::model::task::{Task, TaskSource};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
@@ -177,10 +177,15 @@ where
             return Ok(DueTaskOutcome::AlreadyRecorded(task));
         }
 
-        let task = self
-            .task_repository
-            .create(None, schedule_id, Some(scheduled_at))
-            .await?;
+        let source = match schedule_id {
+            Some(schedule_id) => TaskSource::Schedule {
+                schedule_id,
+                scheduled_at,
+            },
+            None => TaskSource::Watch { scheduled_at },
+        };
+
+        let task = self.task_repository.create(source).await?;
 
         self.message_repository
             .save(

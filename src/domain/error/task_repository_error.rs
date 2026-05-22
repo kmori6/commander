@@ -1,5 +1,12 @@
+use crate::domain::error::task_domain_error::TaskDomainError;
 use thiserror::Error;
 use uuid::Uuid;
+
+impl From<TaskDomainError> for TaskRepositoryError {
+    fn from(error: TaskDomainError) -> Self {
+        Self::InvalidTask(error.to_string())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum TaskRepositoryError {

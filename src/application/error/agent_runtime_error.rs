@@ -15,6 +15,9 @@ pub enum AgentRuntimeError {
     #[error("task not found")]
     TaskNotFound,
 
+    #[error("task is already running: {0}")]
+    TaskAlreadyRunning(Uuid),
+
     #[error("failed to access message repository: {0}")]
     MessageRepository(#[from] MessageRepositoryError),
 

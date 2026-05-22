@@ -16,9 +16,9 @@ fn task_json(task: Task) -> serde_json::Value {
     json!({
         "id": task.id.to_string(),
         "status": task.status.as_str(),
-        "session_id": task.session_id.map(|id| id.to_string()),
-        "schedule_id": task.schedule_id.map(|id| id.to_string()),
-        "scheduled_at": task.scheduled_at.map(|dt| dt.to_rfc3339()),
+        "session_id": task.session_id().map(|id| id.to_string()),
+        "schedule_id": task.schedule_id().map(|id| id.to_string()),
+        "scheduled_at": task.scheduled_at().map(|dt| dt.to_rfc3339()),
         "error": task.error,
         "created_at": task.created_at.to_rfc3339(),
         "updated_at": task.updated_at.to_rfc3339(),
@@ -32,7 +32,7 @@ fn schedule_run_json(schedule_id: Uuid, task: &Task) -> serde_json::Value {
         "id": task.id.to_string(),
         "schedule_id": schedule_id.to_string(),
         "task_id": task.id.to_string(),
-        "scheduled_at": task.scheduled_at.unwrap_or(task.created_at).to_rfc3339(),
+        "scheduled_at": task.scheduled_at().unwrap_or(task.created_at).to_rfc3339(),
         "created_at": task.created_at.to_rfc3339(),
     })
 }

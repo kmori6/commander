@@ -59,9 +59,7 @@ where
             .ok_or(TaskRepositoryError::NotFound(approval.task_id))?;
 
         if task.status == TaskStatus::AwaitingApproval {
-            self.task_repository
-                .update_status(task.id, TaskStatus::Queued)
-                .await?;
+            self.task_repository.resume_after_approval(task.id).await?;
         }
 
         Ok(approval)

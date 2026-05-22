@@ -3,6 +3,7 @@ pub mod message_repository_error;
 pub mod schedule_repository_error;
 pub mod session_repository_error;
 pub mod subagent_repository_error;
+pub mod task_domain_error;
 pub mod task_repository_error;
 pub mod tool_approval_repository_error;
 pub mod tool_executor_error;

@@ -17,7 +17,7 @@ fn schedule_run_json(schedule_id: Uuid, task: Task) -> serde_json::Value {
         "id": task.id.to_string(),
         "schedule_id": schedule_id.to_string(),
         "task_id": task.id.to_string(),
-        "scheduled_at": task.scheduled_at.unwrap_or(task.created_at).to_rfc3339(),
+        "scheduled_at": task.scheduled_at().unwrap_or(task.created_at).to_rfc3339(),
         "created_at": task.created_at.to_rfc3339(),
     })
 }

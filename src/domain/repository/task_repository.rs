@@ -3,20 +3,23 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::model::task::{Task, TaskStatus};
+use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
-    async fn create(
-        &self,
-        session_id: Option<Uuid>,
-        schedule_id: Option<Uuid>,
-        scheduled_at: Option<DateTime<Utc>>,
-    ) -> Result<Task, TaskRepositoryError>;
+    async fn create(&self, source: TaskSource) -> Result<Task, TaskRepositoryError>;
+
+    async fn start(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
+
+    async fn await_approval(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
+
+    async fn resume_after_approval(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
     async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError>;
+
+    async fn cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError>;
 
@@ -29,12 +32,6 @@ pub trait TaskRepository: Send + Sync {
     async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError>;
 
     async fn requeue_running(&self) -> Result<u64, TaskRepositoryError>;
-
-    async fn update_status(
-        &self,
-        id: Uuid,
-        status: TaskStatus,
-    ) -> Result<Task, TaskRepositoryError>;
 
     async fn list_runs(&self, schedule_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError>;
 
