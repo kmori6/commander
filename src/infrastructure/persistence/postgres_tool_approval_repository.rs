@@ -167,7 +167,7 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
         id: Uuid,
         status: ToolApprovalStatus,
     ) -> Result<ToolApproval, ToolApprovalRepositoryError> {
-        if status == ToolApprovalStatus::Pending {
+        if !status.is_resolved() {
             return Err(ToolApprovalRepositoryError::InvalidApproval(
                 "approval cannot be resolved to pending".to_string(),
             ));

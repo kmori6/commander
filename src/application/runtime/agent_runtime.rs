@@ -643,7 +643,7 @@ where
 
     // approval status: approved/rejected -> (tool call) -> tool call output
     async fn apply_approval(&self, approval: ToolApproval) -> Result<Uuid, AgentRuntimeError> {
-        if approval.status == ToolApprovalStatus::Pending {
+        if !approval.status.is_resolved() {
             return Err(AgentRuntimeError::ToolApprovalPending(approval.id));
         }
 
@@ -751,10 +751,7 @@ where
                     .unwrap_or(ToolPermissionMode::Deny)
             };
 
-            return Ok(match mode {
-                ToolPermissionMode::Allow => ToolPermissionMode::Allow,
-                ToolPermissionMode::Ask | ToolPermissionMode::Deny => ToolPermissionMode::Deny,
-            });
+            return Ok(mode.without_approval());
         }
 
         // check for root agent tools

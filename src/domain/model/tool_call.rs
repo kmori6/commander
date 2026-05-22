@@ -21,12 +21,10 @@ impl ToolPermissionMode {
         }
     }
 
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "allow" => Some(Self::Allow),
-            "ask" => Some(Self::Ask),
-            "deny" => Some(Self::Deny),
-            _ => None,
+    pub fn without_approval(self) -> Self {
+        match self {
+            Self::Allow => Self::Allow,
+            Self::Ask | Self::Deny => Self::Deny,
         }
     }
 }
@@ -46,6 +44,10 @@ pub enum ToolApprovalStatus {
 }
 
 impl ToolApprovalStatus {
+    pub fn is_resolved(self) -> bool {
+        matches!(self, Self::Approved | Self::Rejected)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -136,5 +138,63 @@ impl ToolCallOutput {
             output: self.output,
             status: self.status,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn permission_without_approval_denies_ask() {
+        assert_eq!(
+            ToolPermissionMode::Allow.without_approval(),
+            ToolPermissionMode::Allow
+        );
+        assert_eq!(
+            ToolPermissionMode::Ask.without_approval(),
+            ToolPermissionMode::Deny
+        );
+        assert_eq!(
+            ToolPermissionMode::Deny.without_approval(),
+            ToolPermissionMode::Deny
+        );
+    }
+
+    #[test]
+    fn approval_is_resolved_for_final_status() {
+        assert!(!ToolApprovalStatus::Pending.is_resolved());
+        assert!(ToolApprovalStatus::Approved.is_resolved());
+        assert!(ToolApprovalStatus::Rejected.is_resolved());
+    }
+
+    #[test]
+    fn tool_call_from_message_content_extracts_call() {
+        let content = MessageContent::ToolCall {
+            call_id: "call_1".to_string(),
+            tool_name: "shell".to_string(),
+            arguments: json!({ "cmd": "pwd" }),
+        };
+
+        let call = ToolCall::from_message_content(&content).expect("tool call");
+
+        assert_eq!(call.call_id, "call_1");
+        assert_eq!(call.tool_name, "shell");
+        assert_eq!(call.arguments, json!({ "cmd": "pwd" }));
+    }
+
+    #[test]
+    fn tool_output_becomes_message_content() {
+        let content = ToolCallOutput::error("call_1", "denied").into_message_content();
+
+        assert_eq!(
+            content,
+            MessageContent::ToolCallOutput {
+                call_id: "call_1".to_string(),
+                output: json!({ "error": "denied" }),
+                status: ToolCallOutputStatus::Error,
+            }
+        );
     }
 }
