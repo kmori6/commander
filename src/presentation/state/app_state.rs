@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use crate::application::runtime::agent_runtime::AgentRuntime;
+use crate::application::service::event_service::EventService;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
-use crate::domain::service::event_service::EventService;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;

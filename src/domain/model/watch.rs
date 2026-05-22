@@ -22,15 +22,7 @@ impl WatchSchedule {
     }
 
     pub fn due_time(&self, now: DateTime<Utc>, window: chrono::Duration) -> Option<DateTime<Utc>> {
-        let now_local = now.with_timezone(&self.timezone.as_tz());
-        let from_local = now_local - window;
-
-        self.cron
-            .schedule()
-            .after(&from_local)
-            .next()
-            .filter(|scheduled_at| *scheduled_at <= now_local)
-            .map(|scheduled_at| scheduled_at.with_timezone(&Utc))
+        self.cron.due_time(self.timezone, now, window)
     }
 }
 

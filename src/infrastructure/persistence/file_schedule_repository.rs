@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::{CronExpression, Schedule, ScheduleTimezone};
+use crate::domain::model::schedule::Schedule;
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
@@ -129,29 +129,36 @@ impl FileScheduleRepository {
 #[async_trait]
 impl ScheduleRepository for FileScheduleRepository {
     async fn create(&self, input: CreateSchedule) -> Result<Schedule, ScheduleRepositoryError> {
-        validate_create(&input)?;
-
         let _guard = self.lock.lock().await;
 
         let mut file = self.load().await?;
         let now = Utc::now();
+        let schedule = Schedule::restore(
+            Uuid::new_v4(),
+            input.title,
+            input.request,
+            input.cron,
+            input.timezone,
+            input.enabled,
+            now,
+            now,
+        )
+        .map_err(ScheduleRepositoryError::InvalidSchedule)?;
 
-        let stored = StoredSchedule {
-            id: Uuid::new_v4(),
-            title: input.title.trim().to_string(),
-            request: input.request.trim().to_string(),
-            cron: input.cron.trim().to_string(),
-            timezone: normalize_timezone(&input.timezone)?,
-            enabled: input.enabled,
-            created_at: now,
-            updated_at: now,
-        };
-
-        file.schedules.push(stored.clone());
+        file.schedules.push(StoredSchedule {
+            id: schedule.id,
+            title: schedule.title.clone(),
+            request: schedule.request.clone(),
+            cron: schedule.cron.as_str().to_string(),
+            timezone: schedule.timezone.as_str().to_string(),
+            enabled: schedule.enabled,
+            created_at: schedule.created_at,
+            updated_at: schedule.updated_at,
+        });
         sort_schedules(&mut file.schedules);
         self.save(&file).await?;
 
-        stored.try_into_model()
+        Ok(schedule)
     }
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Schedule>, ScheduleRepositoryError> {
@@ -179,8 +186,6 @@ impl ScheduleRepository for FileScheduleRepository {
         id: Uuid,
         input: UpdateSchedule,
     ) -> Result<Schedule, ScheduleRepositoryError> {
-        validate_update(&input)?;
-
         let _guard = self.lock.lock().await;
 
         let mut file = self.load().await?;
@@ -190,110 +195,30 @@ impl ScheduleRepository for FileScheduleRepository {
             .find(|schedule| schedule.id == id)
             .ok_or(ScheduleRepositoryError::NotFound(id))?;
 
-        if let Some(title) = input.title {
-            schedule.title = title.trim().to_string();
-        }
+        let updated = Schedule::restore(
+            schedule.id,
+            input.title.unwrap_or_else(|| schedule.title.clone()),
+            input.request.unwrap_or_else(|| schedule.request.clone()),
+            input.cron.unwrap_or_else(|| schedule.cron.clone()),
+            input.timezone.unwrap_or_else(|| schedule.timezone.clone()),
+            input.enabled.unwrap_or(schedule.enabled),
+            schedule.created_at,
+            Utc::now(),
+        )
+        .map_err(ScheduleRepositoryError::InvalidSchedule)?;
 
-        if let Some(request) = input.request {
-            schedule.request = request.trim().to_string();
-        }
-
-        if let Some(cron) = input.cron {
-            schedule.cron = cron.trim().to_string();
-        }
-
-        if let Some(timezone) = input.timezone {
-            schedule.timezone = normalize_timezone(&timezone)?;
-        }
-
-        if let Some(enabled) = input.enabled {
-            schedule.enabled = enabled;
-        }
-
-        schedule.updated_at = Utc::now();
-        let updated = schedule.clone();
+        schedule.title = updated.title.clone();
+        schedule.request = updated.request.clone();
+        schedule.cron = updated.cron.as_str().to_string();
+        schedule.timezone = updated.timezone.as_str().to_string();
+        schedule.enabled = updated.enabled;
+        schedule.updated_at = updated.updated_at;
 
         sort_schedules(&mut file.schedules);
         self.save(&file).await?;
 
-        updated.try_into_model()
+        Ok(updated)
     }
-
-    async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleRepositoryError> {
-        let mut file = self.load().await?;
-        sort_schedules(&mut file.schedules);
-
-        file.schedules
-            .into_iter()
-            .filter(|schedule| schedule.enabled)
-            .map(StoredSchedule::try_into_model)
-            .collect()
-    }
-}
-
-fn validate_create(input: &CreateSchedule) -> Result<(), ScheduleRepositoryError> {
-    validate_title(&input.title)?;
-    validate_request(&input.request)?;
-    validate_cron(&input.cron)?;
-    validate_timezone(&input.timezone)
-}
-
-fn validate_update(input: &UpdateSchedule) -> Result<(), ScheduleRepositoryError> {
-    if let Some(title) = &input.title {
-        validate_title(title)?;
-    }
-
-    if let Some(request) = &input.request {
-        validate_request(request)?;
-    }
-
-    if let Some(cron) = &input.cron {
-        validate_cron(cron)?;
-    }
-
-    if let Some(timezone) = &input.timezone {
-        validate_timezone(timezone)?;
-    }
-
-    Ok(())
-}
-
-fn validate_title(title: &str) -> Result<(), ScheduleRepositoryError> {
-    if title.trim().is_empty() {
-        return Err(ScheduleRepositoryError::InvalidSchedule(
-            "title must not be empty".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn validate_request(request: &str) -> Result<(), ScheduleRepositoryError> {
-    if request.trim().is_empty() {
-        return Err(ScheduleRepositoryError::InvalidSchedule(
-            "request must not be empty".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn validate_cron(cron: &str) -> Result<(), ScheduleRepositoryError> {
-    CronExpression::parse(cron)
-        .map(|_| ())
-        .map_err(ScheduleRepositoryError::InvalidSchedule)
-}
-
-fn validate_timezone(timezone: &str) -> Result<(), ScheduleRepositoryError> {
-    ScheduleTimezone::parse(timezone)
-        .map(|_| ())
-        .map_err(ScheduleRepositoryError::InvalidSchedule)
-}
-
-fn normalize_timezone(timezone: &str) -> Result<String, ScheduleRepositoryError> {
-    ScheduleTimezone::parse(timezone)
-        .map(|timezone| timezone.as_str().to_string())
-        .map_err(ScheduleRepositoryError::InvalidSchedule)
 }
 
 fn sort_schedules(schedules: &mut [StoredSchedule]) {

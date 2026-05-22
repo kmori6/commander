@@ -229,36 +229,30 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
-    async fn ready_task_ids(&self, limit: usize) -> Result<Vec<Uuid>, ToolApprovalRepositoryError> {
-        let limit = i64::try_from(limit).map_err(|_| {
-            ToolApprovalRepositoryError::Unexpected(format!("invalid limit: {limit}"))
-        })?;
-
+    async fn ready_task_ids(&self) -> Result<Vec<Uuid>, ToolApprovalRepositoryError> {
         sqlx::query_scalar::<_, Uuid>(
             r#"
             SELECT ta.task_id
             FROM tool_approvals ta
             INNER JOIN tasks t
-              ON t.id = ta.task_id
+                ON t.id = ta.task_id
             WHERE t.status = 'awaiting_approval'
-              AND ta.status IN ('approved', 'rejected')
-              AND NOT EXISTS (
-                SELECT 1
-                FROM messages m
-                CROSS JOIN LATERAL jsonb_array_elements(m.contents) AS content(value)
-                WHERE m.task_id = ta.task_id
-                  AND m.role = 'user'
-                  AND content.value->>'type' = 'tool_call_output'
-                  AND content.value->>'call_id' = ta.call_id
-              )
+                AND ta.status IN ('approved', 'rejected')
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM messages m
+                    CROSS JOIN LATERAL jsonb_array_elements(m.contents) AS content(value)
+                    WHERE m.task_id = ta.task_id
+                    AND m.role = 'user'
+                    AND content.value->>'type' = 'tool_call_output'
+                    AND content.value->>'call_id' = ta.call_id
+                )
             GROUP BY ta.task_id
             ORDER BY MIN(ta.resolved_at) ASC NULLS LAST,
                     MIN(ta.requested_at) ASC,
                     ta.task_id ASC
-            LIMIT $1
             "#,
         )
-        .bind(limit)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)

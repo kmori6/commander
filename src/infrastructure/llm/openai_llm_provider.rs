@@ -123,6 +123,12 @@ fn build_input(messages: &[LlmMessage]) -> Result<Value, LlmProviderError> {
         let mut content = Vec::new();
 
         for item in &message.contents {
+            if !item.fits_role(message.role) {
+                return Err(LlmProviderError::RequestBuild(
+                    "message content does not fit role".to_string(),
+                ));
+            }
+
             match item {
                 MessageContent::InputText { text } | MessageContent::OutputText { text } => {
                     let content_type = if message.role == Role::Assistant {

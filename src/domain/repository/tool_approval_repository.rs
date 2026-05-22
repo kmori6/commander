@@ -34,5 +34,5 @@ pub trait ToolApprovalRepository: Send + Sync {
         task_id: Uuid,
     ) -> Result<Vec<ToolApproval>, ToolApprovalRepositoryError>;
 
-    async fn ready_task_ids(&self, limit: usize) -> Result<Vec<Uuid>, ToolApprovalRepositoryError>;
+    async fn ready_task_ids(&self) -> Result<Vec<Uuid>, ToolApprovalRepositoryError>;
 }

@@ -46,8 +46,20 @@ impl CronExpression {
         &self.source
     }
 
-    pub fn schedule(&self) -> &CronSchedule {
-        &self.schedule
+    pub fn due_time(
+        &self,
+        timezone: ScheduleTimezone,
+        now: DateTime<Utc>,
+        window: chrono::Duration,
+    ) -> Option<DateTime<Utc>> {
+        let now_local = now.with_timezone(&timezone.timezone);
+        let from_local = now_local - window;
+
+        self.schedule
+            .after(&from_local)
+            .next()
+            .filter(|scheduled_at| *scheduled_at <= now_local)
+            .map(|scheduled_at| scheduled_at.with_timezone(&Utc))
     }
 }
 
@@ -78,10 +90,6 @@ impl ScheduleTimezone {
     pub fn as_str(&self) -> &str {
         self.source
     }
-
-    pub fn as_tz(&self) -> Tz {
-        self.timezone
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,7 +105,6 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    #[allow(clippy::too_many_arguments)]
     pub fn restore(
         id: Uuid,
         title: String,
@@ -108,6 +115,16 @@ impl Schedule {
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
     ) -> Result<Self, String> {
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return Err("title must not be empty".to_string());
+        }
+
+        let request = request.trim().to_string();
+        if request.is_empty() {
+            return Err("request must not be empty".to_string());
+        }
+
         Ok(Self {
             id,
             title,
@@ -125,15 +142,7 @@ impl Schedule {
             return None;
         }
 
-        let now_local = now.with_timezone(&self.timezone.as_tz());
-        let from_local = now_local - window;
-
-        self.cron
-            .schedule()
-            .after(&from_local)
-            .next()
-            .filter(|scheduled_at| *scheduled_at <= now_local)
-            .map(|scheduled_at| scheduled_at.with_timezone(&Utc))
+        self.cron.due_time(self.timezone, now, window)
     }
 }
 
@@ -159,6 +168,61 @@ mod tests {
     }
 
     #[test]
+    fn restore_trims_title_and_request() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
+        let schedule = Schedule::restore(
+            Uuid::nil(),
+            "  test schedule  ".to_string(),
+            "  run test task  ".to_string(),
+            "0 9 * * *".to_string(),
+            "Asia/Tokyo".to_string(),
+            true,
+            now,
+            now,
+        )
+        .unwrap();
+
+        assert_eq!("test schedule", schedule.title);
+        assert_eq!("run test task", schedule.request);
+    }
+
+    #[test]
+    fn restore_rejects_empty_title() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
+
+        let result = Schedule::restore(
+            Uuid::nil(),
+            "  ".to_string(),
+            "run test task".to_string(),
+            "0 9 * * *".to_string(),
+            "Asia/Tokyo".to_string(),
+            true,
+            now,
+            now,
+        );
+
+        assert_eq!(Err("title must not be empty".to_string()), result);
+    }
+
+    #[test]
+    fn restore_rejects_empty_request() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
+
+        let result = Schedule::restore(
+            Uuid::nil(),
+            "test schedule".to_string(),
+            "  ".to_string(),
+            "0 9 * * *".to_string(),
+            "Asia/Tokyo".to_string(),
+            true,
+            now,
+            now,
+        );
+
+        assert_eq!(Err("request must not be empty".to_string()), result);
+    }
+
+    #[test]
     fn due_time_returns_scheduled_time_in_utc() {
         let schedule = test_schedule("0 9 * * *", "Asia/Tokyo");
         let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 10).unwrap();
@@ -169,6 +233,17 @@ mod tests {
             Some(Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap()),
             due_time
         );
+    }
+
+    #[test]
+    fn due_time_returns_none_when_disabled() {
+        let mut schedule = test_schedule("0 9 * * *", "Asia/Tokyo");
+        schedule.enabled = false;
+        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 10).unwrap();
+
+        let due_time = schedule.due_time(now, chrono::Duration::seconds(60));
+
+        assert_eq!(None, due_time);
     }
 
     #[test]

@@ -96,8 +96,17 @@ impl MessageContent {
         }
     }
 
-    pub fn is_persistable(&self) -> bool {
+    pub fn can_persist(&self) -> bool {
         !matches!(self, Self::InputImage { .. } | Self::InputFile { .. })
+    }
+
+    pub fn fits_role(&self, role: Role) -> bool {
+        match self {
+            Self::InputText { .. } => matches!(role, Role::System | Role::User),
+            Self::InputImage { .. } | Self::InputFile { .. } => role == Role::User,
+            Self::OutputText { .. } | Self::ToolCall { .. } => role == Role::Assistant,
+            Self::ToolCallOutput { .. } => role == Role::User,
+        }
     }
 }
 
@@ -107,6 +116,19 @@ pub struct MessageUsage {
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_write_tokens: i64,
+}
+
+impl MessageUsage {
+    pub fn total_tokens(self) -> i64 {
+        self.input_tokens + self.output_tokens
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.input_tokens >= 0
+            && self.output_tokens >= 0
+            && self.cache_read_tokens >= 0
+            && self.cache_write_tokens >= 0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,24 +157,66 @@ pub struct Message {
     pub created_at: DateTime<Utc>,
 }
 
-impl Message {
-    pub fn new(
-        id: Uuid,
-        task_id: Uuid,
-        role: Role,
-        contents: Vec<MessageContent>,
-        model: Option<String>,
-        usage: Option<MessageUsage>,
-        created_at: DateTime<Utc>,
-    ) -> Self {
-        Self {
-            id,
-            task_id,
-            role,
-            contents,
-            model,
-            usage,
-            created_at,
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn usage_total_counts_input_and_output() {
+        let usage = MessageUsage {
+            input_tokens: 10,
+            output_tokens: 7,
+            cache_read_tokens: 100,
+            cache_write_tokens: 200,
+        };
+
+        assert_eq!(usage.total_tokens(), 17);
+    }
+
+    #[test]
+    fn usage_rejects_negative_tokens() {
+        let usage = MessageUsage {
+            input_tokens: 0,
+            output_tokens: -1,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+        };
+
+        assert!(!usage.is_valid());
+    }
+
+    #[test]
+    fn tool_call_fits_assistant_only() {
+        let content = MessageContent::ToolCall {
+            call_id: "call_1".to_string(),
+            tool_name: "shell".to_string(),
+            arguments: json!({}),
+        };
+
+        assert!(content.fits_role(Role::Assistant));
+        assert!(!content.fits_role(Role::User));
+        assert!(!content.fits_role(Role::System));
+    }
+
+    #[test]
+    fn tool_output_fits_user_only() {
+        let content = MessageContent::ToolCallOutput {
+            call_id: "call_1".to_string(),
+            output: json!({ "ok": true }),
+            status: ToolCallOutputStatus::Success,
+        };
+
+        assert!(content.fits_role(Role::User));
+        assert!(!content.fits_role(Role::Assistant));
+        assert!(!content.fits_role(Role::System));
+    }
+
+    #[test]
+    fn file_content_is_runtime_only() {
+        let content = MessageContent::input_file("a.txt", "data:text/plain;base64,xxx");
+
+        assert!(!content.can_persist());
+        assert!(content.fits_role(Role::User));
     }
 }

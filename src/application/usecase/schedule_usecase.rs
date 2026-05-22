@@ -12,17 +12,9 @@ use crate::domain::repository::schedule_repository::{
 };
 use crate::domain::repository::task_repository::TaskRepository;
 
-pub struct DueTaskInput {
-    pub request: String,
-    pub schedule_id: Option<Uuid>,
-    pub scheduled_at: DateTime<Utc>,
-    pub skip_if_open_same_source: bool,
-}
-
 pub enum DueTaskOutcome {
     Started(Task),
     AlreadyRecorded(Task),
-    AlreadyRunning(Task),
     NoRequest,
 }
 
@@ -75,13 +67,6 @@ where
         self.schedule_repository.list().await.map_err(Into::into)
     }
 
-    pub async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleUsecaseError> {
-        self.schedule_repository
-            .list_enabled()
-            .await
-            .map_err(Into::into)
-    }
-
     pub async fn find(&self, id: Uuid) -> Result<Option<Schedule>, ScheduleUsecaseError> {
         self.schedule_repository
             .find_by_id(id)
@@ -116,12 +101,7 @@ where
             .ok_or(ScheduleRepositoryError::NotFound(schedule_id))?;
 
         match self
-            .run_due_task(DueTaskInput {
-                request: schedule.request,
-                schedule_id: Some(schedule_id),
-                scheduled_at,
-                skip_if_open_same_source: false,
-            })
+            .run_due_task(schedule.request, Some(schedule_id), scheduled_at)
             .await?
         {
             DueTaskOutcome::Started(task) => Ok(task),
@@ -129,10 +109,10 @@ where
                 "schedule run already recorded".to_string(),
             )
             .into()),
-            DueTaskOutcome::AlreadyRunning(_) | DueTaskOutcome::NoRequest => Err(
-                ScheduleRepositoryError::InvalidSchedule("schedule did not start".to_string())
-                    .into(),
-            ),
+            DueTaskOutcome::NoRequest => Err(ScheduleRepositoryError::InvalidSchedule(
+                "schedule did not start".to_string(),
+            )
+            .into()),
         }
     }
 
@@ -157,14 +137,6 @@ where
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,
     ) -> Result<ScheduleRunOutcome, ScheduleUsecaseError> {
-        if let Some(task) = self
-            .task_repository
-            .find_by_schedule_id_and_scheduled_at(schedule_id, scheduled_at)
-            .await?
-        {
-            return Ok(ScheduleRunOutcome::AlreadyRecorded(task));
-        }
-
         let schedule = self
             .schedule_repository
             .find_by_id(schedule_id)
@@ -172,64 +144,42 @@ where
             .ok_or(ScheduleRepositoryError::NotFound(schedule_id))?;
 
         match self
-            .run_due_task(DueTaskInput {
-                request: schedule.request,
-                schedule_id: Some(schedule_id),
-                scheduled_at,
-                skip_if_open_same_source: false,
-            })
+            .run_due_task(schedule.request, Some(schedule_id), scheduled_at)
             .await?
         {
             DueTaskOutcome::Started(task) => Ok(ScheduleRunOutcome::Started(task)),
             DueTaskOutcome::AlreadyRecorded(task) => Ok(ScheduleRunOutcome::AlreadyRecorded(task)),
-            DueTaskOutcome::AlreadyRunning(_) | DueTaskOutcome::NoRequest => Err(
-                ScheduleRepositoryError::InvalidSchedule("schedule did not start".to_string())
-                    .into(),
-            ),
+            DueTaskOutcome::NoRequest => Err(ScheduleRepositoryError::InvalidSchedule(
+                "schedule did not start".to_string(),
+            )
+            .into()),
         }
     }
 
     pub async fn run_due_task(
         &self,
-        input: DueTaskInput,
+        request: String,
+        schedule_id: Option<Uuid>,
+        scheduled_at: DateTime<Utc>,
     ) -> Result<DueTaskOutcome, ScheduleUsecaseError> {
-        let request = input.request.trim().to_string();
+        let request = request.trim().to_string();
 
         if request.is_empty() {
             return Ok(DueTaskOutcome::NoRequest);
         }
 
-        if let Some(schedule_id) = input.schedule_id
+        if let Some(schedule_id) = schedule_id
             && let Some(task) = self
                 .task_repository
-                .find_by_schedule_id_and_scheduled_at(schedule_id, input.scheduled_at)
+                .find_by_schedule_id_and_scheduled_at(schedule_id, scheduled_at)
                 .await?
         {
             return Ok(DueTaskOutcome::AlreadyRecorded(task));
         }
 
-        if input.schedule_id.is_none() {
-            let recent = self.task_repository.list_recent(None, 100).await?;
-
-            if let Some(task) = recent
-                .iter()
-                .find(|task| is_watch_task(task) && task.scheduled_at == Some(input.scheduled_at))
-            {
-                return Ok(DueTaskOutcome::AlreadyRecorded(task.clone()));
-            }
-
-            if input.skip_if_open_same_source
-                && let Some(task) = recent
-                    .into_iter()
-                    .find(|task| is_watch_task(task) && !task.status.is_terminal())
-            {
-                return Ok(DueTaskOutcome::AlreadyRunning(task));
-            }
-        }
-
         let task = self
             .task_repository
-            .create(None, input.schedule_id, Some(input.scheduled_at))
+            .create(None, schedule_id, Some(scheduled_at))
             .await?;
 
         self.message_repository
@@ -242,8 +192,4 @@ where
 
         Ok(DueTaskOutcome::Started(task))
     }
-}
-
-fn is_watch_task(task: &Task) -> bool {
-    task.schedule_id.is_none() && task.scheduled_at.is_some() && task.session_id.is_none()
 }

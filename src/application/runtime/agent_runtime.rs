@@ -2,7 +2,10 @@ use crate::application::error::agent_runtime_error::AgentRuntimeError;
 use crate::application::runtime::subagent_call::{
     SubagentCall, SubagentResult, SubagentResultStatus,
 };
-use crate::domain::model::event::Event;
+use crate::application::service::compaction_service::{CompactionConfig, CompactionService};
+use crate::application::service::event_service::EventService;
+use crate::application::service::instruction_service::InstructionService;
+use crate::application::service::tool_executor::ToolExecutor;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
@@ -15,12 +18,7 @@ use crate::domain::repository::subagent_repository::SubagentRepository;
 use crate::domain::repository::task_repository::TaskRepository;
 use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
-use crate::domain::service::compaction_service::{CompactionConfig, CompactionService};
-use crate::domain::service::event_service::EventService;
-use crate::domain::service::instruction_service::InstructionService;
-use crate::domain::service::tool_executor::ToolExecutor;
 use async_recursion::async_recursion;
-use chrono::Utc;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -131,18 +129,9 @@ where
         task_id: Uuid,
         event_type: &str,
         payload: Value,
-    ) -> Result<Event, AgentRuntimeError> {
-        let event = Event {
-            id: Uuid::new_v4(),
-            task_id,
-            event_type: event_type.to_string(),
-            payload,
-            created_at: Utc::now(),
-        };
-
-        self.event_service.publish(event.clone());
-
-        Ok(event)
+    ) -> Result<(), AgentRuntimeError> {
+        self.event_service.publish(task_id, event_type, payload);
+        Ok(())
     }
 
     async fn build_llm_messages(
@@ -207,7 +196,7 @@ where
             .context_window(model)
             .await
             .try_into()
-            .unwrap_or(256_000);
+            .map_err(|_| AgentRuntimeError::Unsupported(format!("unsupported model: {model}")))?;
 
         let service = CompactionService::new(CompactionConfig::for_window(context_window));
 
@@ -273,7 +262,7 @@ where
 
             self.emit(task_id, "task_started", json!({})).await?;
 
-            if self.stop_cancelled(task_id).await? {
+            if self.is_cancelled(task_id).await? {
                 return Ok(());
             }
 
@@ -317,7 +306,7 @@ where
         state: &mut LoopState,
     ) -> Result<LoopOutcome, AgentRuntimeError> {
         for step in 0..MAX_LLM_STEPS {
-            if self.stop_cancelled(task_id).await? {
+            if self.is_cancelled(task_id).await? {
                 return Ok(LoopOutcome::Stopped);
             }
 
@@ -379,13 +368,7 @@ where
             )
             .await?;
 
-            let tool_calls = response
-                .message
-                .contents
-                .iter()
-                .filter_map(ToolCall::from_message_content)
-                .collect::<Vec<_>>();
-
+            // save assistant message if root agent
             let assistant_message_id = match state {
                 LoopState::Durable { .. } => {
                     let assistant_message = self
@@ -406,8 +389,16 @@ where
                 }
             };
 
+            // tool calls -> tool call outputs
+            let tool_calls = response
+                .message
+                .contents
+                .iter()
+                .filter_map(ToolCall::from_message_content)
+                .collect::<Vec<_>>();
+
             if tool_calls.is_empty() {
-                if self.stop_cancelled(task_id).await? {
+                if self.is_cancelled(task_id).await? {
                     return Ok(LoopOutcome::Stopped);
                 }
 
@@ -440,7 +431,7 @@ where
         let mut outputs = Vec::new();
 
         for call in tool_calls {
-            if self.stop_cancelled(task_id).await? {
+            if self.is_cancelled(task_id).await? {
                 self.append_tool_outputs(task_id, state, &mut outputs)
                     .await?;
                 return Ok(ToolRun::Stopped);
@@ -637,6 +628,7 @@ where
         Ok(ToolRun::Continue)
     }
 
+    // make tool call output if pending approval exists
     async fn apply_approvals(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
         let approvals = self
             .tool_approval_repository
@@ -650,16 +642,11 @@ where
         Ok(())
     }
 
+    // approval status: approved/rejected -> (tool call) -> tool call output
     async fn apply_approval(&self, approval: ToolApproval) -> Result<Uuid, AgentRuntimeError> {
         if approval.status == ToolApprovalStatus::Pending {
             return Err(AgentRuntimeError::ToolApprovalPending(approval.id));
         }
-
-        let message = self
-            .message_repository
-            .find_by_id(approval.message_id)
-            .await?
-            .ok_or(AgentRuntimeError::MessageNotFound(approval.message_id))?;
 
         let task = self
             .task_repository
@@ -667,9 +654,15 @@ where
             .await?
             .ok_or(AgentRuntimeError::TaskNotFound)?;
 
-        if self.stop_cancelled(task.id).await? {
+        if self.is_cancelled(task.id).await? {
             return Ok(task.id);
         }
+
+        let message = self
+            .message_repository
+            .find_by_id(approval.message_id)
+            .await?
+            .ok_or(AgentRuntimeError::MessageNotFound(approval.message_id))?;
 
         let call = message
             .contents
@@ -692,18 +685,6 @@ where
 
         self.emit(
             task.id,
-            "tool_approval_resolved",
-            json!({
-                "approval_id": approval.id.to_string(),
-                "call_id": call.call_id,
-                "tool_name": call.tool_name,
-                "status": approval.status.as_str(),
-            }),
-        )
-        .await?;
-
-        self.emit(
-            task.id,
             "tool_call_finished",
             json!({
                 "call_id": output.call_id,
@@ -720,33 +701,17 @@ where
         Ok(task.id)
     }
 
-    pub async fn recover_approvals(&self, limit: usize) -> Result<u64, AgentRuntimeError> {
-        if limit == 0 {
-            return Ok(0);
+    pub async fn recover_approvals(&self) -> Result<u64, AgentRuntimeError> {
+        let task_ids = self.tool_approval_repository.ready_task_ids().await?;
+        let count = task_ids.len() as u64;
+
+        for task_id in task_ids {
+            self.task_repository
+                .update_status(task_id, TaskStatus::Queued)
+                .await?;
         }
 
-        let mut total = 0;
-
-        loop {
-            let task_ids = self.tool_approval_repository.ready_task_ids(limit).await?;
-
-            if task_ids.is_empty() {
-                return Ok(total);
-            }
-
-            let count = task_ids.len();
-
-            for task_id in task_ids {
-                self.task_repository
-                    .update_status(task_id, TaskStatus::Queued)
-                    .await?;
-                total += 1;
-            }
-
-            if count < limit {
-                return Ok(total);
-            }
-        }
+        Ok(count)
     }
 
     async fn complete(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
@@ -758,12 +723,9 @@ where
 
     async fn fail(&self, task_id: Uuid, err: &AgentRuntimeError) -> Result<(), AgentRuntimeError> {
         let output = err.to_string();
-
         self.task_repository.fail(task_id, output.clone()).await?;
-
         self.emit(task_id, "task_failed", json!({ "error": output }))
             .await?;
-
         Ok(())
     }
 
@@ -828,7 +790,7 @@ where
         Ok(specs)
     }
 
-    async fn stop_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
+    async fn is_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
         let task = self
             .task_repository
             .find_by_id(task_id)

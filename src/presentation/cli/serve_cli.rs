@@ -1,14 +1,14 @@
 use crate::application::config::CommanderPaths;
 use crate::application::runtime::agent_runtime::AgentRuntime;
+use crate::application::service::event_service::EventService;
+use crate::application::service::instruction_service::InstructionService;
+use crate::application::service::tool_executor::ToolExecutor;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
-use crate::domain::service::event_service::EventService;
-use crate::domain::service::instruction_service::InstructionService;
-use crate::domain::service::tool_executor::ToolExecutor;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
@@ -168,10 +168,17 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         instruction_service.clone(),
         model,
     ));
+
+    // workers
     let task_runner = TaskRunner::new(
         task_repository.clone(),
         agent_runtime.clone(),
         Duration::from_secs(1),
+    );
+    let schedule_daemon = ScheduleDaemon::new(
+        schedule_usecase.clone(),
+        watch_repository,
+        instruction_service.clone(),
     );
 
     // app state
@@ -185,12 +192,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         schedule_usecase,
         tool_approval_usecase,
     };
-
-    let schedule_daemon = ScheduleDaemon::new(
-        app_state.schedule_usecase.clone(),
-        watch_repository,
-        instruction_service.clone(),
-    );
 
     tokio::spawn(async move {
         schedule_daemon.run().await;

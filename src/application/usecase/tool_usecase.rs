@@ -1,7 +1,7 @@
 use crate::application::error::tool_usecase_error::ToolUsecaseError;
+use crate::application::service::tool_executor::ToolExecutor;
 use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode, ToolSpec};
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
-use crate::domain::service::tool_executor::ToolExecutor;
 use std::sync::Arc;
 
 pub struct ToolUsecase<R> {

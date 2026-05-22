@@ -137,6 +137,12 @@ fn build_system_content_blocks(
         .filter(|message| message.role == Role::System)
     {
         for content in &message.contents {
+            if !content.fits_role(message.role) {
+                return Err(LlmProviderError::RequestBuild(
+                    "message content does not fit role".to_string(),
+                ));
+            }
+
             match content {
                 MessageContent::InputText { text } => {
                     blocks.push(SystemContentBlock::Text(text.clone()));
@@ -186,39 +192,23 @@ fn message_content_to_content_block(
     role: Role,
     content: &MessageContent,
 ) -> Result<ContentBlock, LlmProviderError> {
+    if !content.fits_role(role) {
+        return Err(LlmProviderError::RequestBuild(
+            "message content does not fit role".to_string(),
+        ));
+    }
+
     match content {
         MessageContent::InputText { text } | MessageContent::OutputText { text } => {
             Ok(ContentBlock::Text(text.clone()))
         }
-        MessageContent::InputImage { image_url } => {
-            if role != Role::User {
-                return Err(LlmProviderError::RequestBuild(
-                    "images must be in user messages for Bedrock Converse".to_string(),
-                ));
-            }
-
-            input_image_to_content_block(image_url)
-        }
-        MessageContent::InputFile { file_data, .. } => {
-            if role != Role::User {
-                return Err(LlmProviderError::RequestBuild(
-                    "documents must be in user messages for Bedrock Converse".to_string(),
-                ));
-            }
-
-            input_file_to_content_block(file_data)
-        }
+        MessageContent::InputImage { image_url } => input_image_to_content_block(image_url),
+        MessageContent::InputFile { file_data, .. } => input_file_to_content_block(file_data),
         MessageContent::ToolCall {
             call_id,
             tool_name,
             arguments,
         } => {
-            if role != Role::Assistant {
-                return Err(LlmProviderError::RequestBuild(
-                    "tool calls must be in assistant messages".to_string(),
-                ));
-            }
-
             let tool_use = ToolUseBlock::builder()
                 .tool_use_id(call_id.clone())
                 .name(tool_name.clone())
@@ -237,12 +227,6 @@ fn message_content_to_content_block(
             output,
             status,
         } => {
-            if role != Role::User {
-                return Err(LlmProviderError::RequestBuild(
-                    "tool call outputs must be in user messages".to_string(),
-                ));
-            }
-
             let status = match status {
                 ToolCallOutputStatus::Success => ToolResultStatus::Success,
                 ToolCallOutputStatus::Error => ToolResultStatus::Error,

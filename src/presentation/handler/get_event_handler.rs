@@ -10,7 +10,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use crate::domain::model::event::Event;
+use crate::application::service::event_service::Event;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]

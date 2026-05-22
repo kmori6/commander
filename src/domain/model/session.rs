@@ -32,3 +32,28 @@ impl Session {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_title_collapses_whitespace() {
+        assert_eq!(
+            Some("hello world".to_string()),
+            Session::normalize_title("  hello   world  ")
+        );
+    }
+
+    #[test]
+    fn normalize_title_returns_none_for_blank() {
+        assert_eq!(None, Session::normalize_title("   \n\t  "));
+    }
+
+    #[test]
+    fn normalize_title_truncates_to_max_chars() {
+        let title = "a".repeat(100);
+
+        assert_eq!(Some("a".repeat(80)), Session::normalize_title(title));
+    }
+}

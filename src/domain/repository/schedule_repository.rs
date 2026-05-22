@@ -35,6 +35,4 @@ pub trait ScheduleRepository: Send + Sync {
         id: Uuid,
         input: UpdateSchedule,
     ) -> Result<Schedule, ScheduleRepositoryError>;
-
-    async fn list_enabled(&self) -> Result<Vec<Schedule>, ScheduleRepositoryError>;
 }

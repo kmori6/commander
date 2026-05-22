@@ -19,8 +19,6 @@ type AppAgentRuntime = AgentRuntime<
     PostgresToolApprovalRepository,
 >;
 
-const APPROVAL_RECOVERY_LIMIT: usize = 20;
-
 pub struct TaskRunner {
     task_repository: PostgresTaskRepository,
     agent_runtime: Arc<AppAgentRuntime>,
@@ -45,11 +43,8 @@ impl TaskRunner {
             log::warn!("task runner recovery failed: {err}");
         }
 
-        if let Err(err) = self
-            .agent_runtime
-            .recover_approvals(APPROVAL_RECOVERY_LIMIT)
-            .await
-        {
+        // task: awaiting_approval & approved/rejected & no tool_call_output -> queued
+        if let Err(err) = self.agent_runtime.recover_approvals().await {
             log::warn!("approval recovery failed: {err}");
         }
 
@@ -83,6 +78,7 @@ impl TaskRunner {
         Ok(())
     }
 
+    // task statuses: running -> queued
     async fn recover_interrupted(&self) -> Result<(), TaskRepositoryError> {
         let count = self.task_repository.requeue_running().await?;
 

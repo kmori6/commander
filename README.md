@@ -180,6 +180,21 @@ Create `~/.commander/config/watch.json` to enable it:
 If `watch.json` is missing or `enabled` is `false`, Watch does not run.
 The example above runs every 20 minutes.
 
+### Subagent
+
+Subagents are focused child agent profiles that the main agent can call with the `subagent` tool.
+Add profiles as JSON files in `~/.commander/workspace/subagents`:
+
+```json
+{
+  "description": "Review code changes and point out risks.",
+  "instruction": "You are a careful code reviewer. Focus on bugs, regressions, and missing tests.",
+  "allowed_tools": ["shell"]
+}
+```
+
+The file name becomes the profile name, for example `reviewer.json` becomes `reviewer`.
+
 ## Development
 
 Run tests:

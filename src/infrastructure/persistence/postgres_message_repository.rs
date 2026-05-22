@@ -25,7 +25,7 @@ impl PostgresMessageRepository {
         model: Option<String>,
         usage: Option<MessageUsage>,
     ) -> Result<Message, MessageRepositoryError> {
-        validate_contents(&contents)?;
+        validate_contents(role, &contents)?;
 
         if let Some(model) = model.as_deref()
             && model.trim().is_empty()
@@ -35,8 +35,12 @@ impl PostgresMessageRepository {
             ));
         }
 
-        if let Some(usage) = usage {
-            validate_usage(usage)?;
+        if let Some(usage) = usage
+            && !usage.is_valid()
+        {
+            return Err(MessageRepositoryError::InvalidMessage(
+                "usage token counts must be greater than or equal to zero".to_string(),
+            ));
         }
 
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
@@ -121,36 +125,31 @@ fn row_to_message(row: MessageRow) -> Result<Message, MessageRepositoryError> {
     let role = Role::from_db(&row.role)
         .ok_or_else(|| MessageRepositoryError::Unexpected(format!("unknown role: {}", row.role)))?;
 
-    Ok(Message::new(
-        row.id,
-        row.task_id,
+    Ok(Message {
+        id: row.id,
+        task_id: row.task_id,
         role,
-        row.contents.0,
-        row.model,
-        row.usage.map(|usage| usage.0),
-        row.created_at,
-    ))
+        contents: row.contents.0,
+        model: row.model,
+        usage: row.usage.map(|usage| usage.0),
+        created_at: row.created_at,
+    })
 }
 
-fn validate_contents(contents: &[MessageContent]) -> Result<(), MessageRepositoryError> {
-    if contents.iter().any(|content| !content.is_persistable()) {
+fn validate_contents(
+    role: Role,
+    contents: &[MessageContent],
+) -> Result<(), MessageRepositoryError> {
+    if contents.iter().any(|content| !content.can_persist()) {
         return Err(MessageRepositoryError::InvalidMessage(
             "input_image and input_file are runtime-only contents and cannot be persisted"
                 .to_string(),
         ));
     }
 
-    Ok(())
-}
-
-fn validate_usage(usage: MessageUsage) -> Result<(), MessageRepositoryError> {
-    if usage.input_tokens < 0
-        || usage.output_tokens < 0
-        || usage.cache_read_tokens < 0
-        || usage.cache_write_tokens < 0
-    {
+    if contents.iter().any(|content| !content.fits_role(role)) {
         return Err(MessageRepositoryError::InvalidMessage(
-            "usage token counts must be greater than or equal to zero".to_string(),
+            "message content does not fit role".to_string(),
         ));
     }
 
