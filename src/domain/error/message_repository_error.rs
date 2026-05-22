@@ -1,5 +1,12 @@
+use crate::domain::error::message_domain_error::MessageDomainError;
 use thiserror::Error;
 use uuid::Uuid;
+
+impl From<MessageDomainError> for MessageRepositoryError {
+    fn from(error: MessageDomainError) -> Self {
+        Self::InvalidMessage(error.to_string())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum MessageRepositoryError {

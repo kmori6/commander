@@ -1,8 +1,9 @@
 use uuid::Uuid;
 
 use crate::application::error::task_usecase_error::TaskUsecaseError;
+use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::model::message::{MessageContent, Role, TaskUsage};
+use crate::domain::model::message::{Message, TaskUsage};
 use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::TaskRepository;
@@ -37,11 +38,7 @@ where
         let task = self.task_repository.create(TaskSource::Direct).await?;
 
         self.message_repository
-            .save(
-                task.id,
-                Role::User,
-                vec![MessageContent::input_text(request)],
-            )
+            .save(Message::new_user_text(task.id, request).map_err(MessageRepositoryError::from)?)
             .await?;
 
         Ok(task)

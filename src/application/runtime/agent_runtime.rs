@@ -6,6 +6,7 @@ use crate::application::service::compaction_service::{CompactionConfig, Compacti
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
 use crate::application::service::tool_executor::ToolExecutor;
+use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
@@ -208,7 +209,7 @@ where
         Ok(compacted)
     }
 
-    async fn append_tool_outputs(
+    async fn append_tool_call_outputs(
         &self,
         task_id: Uuid,
         state: &mut LoopState,
@@ -223,7 +224,10 @@ where
         match state {
             LoopState::Durable { .. } => {
                 self.message_repository
-                    .save(task_id, Role::User, contents)
+                    .save(
+                        Message::new_tool_call_outputs(task_id, contents)
+                            .map_err(MessageRepositoryError::from)?,
+                    )
                     .await?;
             }
             LoopState::Ephemeral { messages } => {
@@ -243,17 +247,17 @@ where
                 .await?
                 .ok_or(AgentRuntimeError::TaskNotFound)?;
 
-            if task.status == TaskStatus::Running {
-                return Err(AgentRuntimeError::TaskAlreadyRunning(task_id));
-            }
+            let task = if task.status == TaskStatus::Running {
+                task
+            } else {
+                self.task_repository.start(task_id).await?
+            };
 
             self.emit(task_id, "task_started", json!({})).await?;
 
             if self.is_cancelled(task_id).await? {
                 return Ok(());
             }
-
-            self.task_repository.start(task_id).await?;
 
             self.apply_approvals(task_id).await?;
 
@@ -358,11 +362,14 @@ where
                 LoopState::Durable { .. } => {
                     let assistant_message = self
                         .message_repository
-                        .save_response(
-                            task_id,
-                            response.message.contents.clone(),
-                            &model,
-                            response.usage,
+                        .save(
+                            Message::new_assistant_response(
+                                task_id,
+                                response.message.contents.clone(),
+                                &model,
+                                response.usage,
+                            )
+                            .map_err(MessageRepositoryError::from)?,
                         )
                         .await?;
 
@@ -417,7 +424,7 @@ where
 
         for call in tool_calls {
             if self.is_cancelled(task_id).await? {
-                self.append_tool_outputs(task_id, state, &mut outputs)
+                self.append_tool_call_outputs(task_id, state, &mut outputs)
                     .await?;
                 return Ok(ToolRun::Stopped);
             }
@@ -467,7 +474,7 @@ where
                         )
                     })?;
 
-                    self.append_tool_outputs(task_id, state, &mut outputs)
+                    self.append_tool_call_outputs(task_id, state, &mut outputs)
                         .await?;
 
                     let approval = self
@@ -605,7 +612,7 @@ where
             outputs.push(output.into_message_content());
         }
 
-        self.append_tool_outputs(task_id, state, &mut outputs)
+        self.append_tool_call_outputs(task_id, state, &mut outputs)
             .await?;
         Ok(ToolRun::Continue)
     }
@@ -677,7 +684,10 @@ where
         .await?;
 
         self.message_repository
-            .save(task.id, Role::User, vec![output.into_message_content()])
+            .save(
+                Message::new_tool_call_outputs(task.id, vec![output.into_message_content()])
+                    .map_err(MessageRepositoryError::from)?,
+            )
             .await?;
 
         Ok(task.id)

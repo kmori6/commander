@@ -1,4 +1,5 @@
 pub mod llm_provider_error;
+pub mod message_domain_error;
 pub mod message_repository_error;
 pub mod schedule_repository_error;
 pub mod session_repository_error;

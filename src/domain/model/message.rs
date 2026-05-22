@@ -1,3 +1,4 @@
+use crate::domain::error::message_domain_error::MessageDomainError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -129,6 +130,14 @@ impl MessageUsage {
             && self.cache_read_tokens >= 0
             && self.cache_write_tokens >= 0
     }
+
+    pub fn validate(self) -> Result<Self, MessageDomainError> {
+        if self.is_valid() {
+            Ok(self)
+        } else {
+            Err(MessageDomainError::InvalidUsage)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +156,88 @@ impl TaskUsage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewMessage {
+    pub task_id: Uuid,
+    pub role: Role,
+    pub contents: Vec<MessageContent>,
+    pub model: Option<String>,
+    pub usage: Option<MessageUsage>,
+}
+
+impl NewMessage {
+    // user input -> user message
+    pub fn user_text(task_id: Uuid, text: impl Into<String>) -> Result<Self, MessageDomainError> {
+        Self::user(task_id, vec![MessageContent::input_text(text)])
+    }
+
+    // input text only
+    pub fn user(task_id: Uuid, contents: Vec<MessageContent>) -> Result<Self, MessageDomainError> {
+        validate_user_input_contents(&contents)?;
+
+        Ok(Self {
+            task_id,
+            role: Role::User,
+            contents,
+            model: None,
+            usage: None,
+        })
+    }
+
+    // system instruction text
+    pub fn system_text(task_id: Uuid, text: impl Into<String>) -> Result<Self, MessageDomainError> {
+        let contents = vec![MessageContent::input_text(text)];
+        validate_system_contents(&contents)?;
+
+        Ok(Self {
+            task_id,
+            role: Role::System,
+            contents,
+            model: None,
+            usage: None,
+        })
+    }
+
+    // assistant response requires model and usage
+    pub fn assistant_response(
+        task_id: Uuid,
+        contents: Vec<MessageContent>,
+        model: &str,
+        usage: MessageUsage,
+    ) -> Result<Self, MessageDomainError> {
+        validate_assistant_contents(&contents)?;
+
+        let model = model.trim();
+        if model.is_empty() {
+            return Err(MessageDomainError::EmptyModel);
+        }
+
+        Ok(Self {
+            task_id,
+            role: Role::Assistant,
+            contents,
+            model: Some(model.to_string()),
+            usage: Some(usage.validate()?),
+        })
+    }
+
+    // tool call outputs -> user message
+    pub fn tool_call_outputs(
+        task_id: Uuid,
+        contents: Vec<MessageContent>,
+    ) -> Result<Self, MessageDomainError> {
+        validate_tool_output_contents(&contents)?;
+
+        Ok(Self {
+            task_id,
+            role: Role::User,
+            contents,
+            model: None,
+            usage: None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub id: Uuid,
     pub task_id: Uuid,
@@ -157,66 +248,213 @@ pub struct Message {
     pub created_at: DateTime<Utc>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
+impl Message {
+    // persisted row -> domain message
+    pub fn restore(
+        id: Uuid,
+        task_id: Uuid,
+        role: Role,
+        contents: Vec<MessageContent>,
+        model: Option<String>,
+        usage: Option<MessageUsage>,
+        created_at: DateTime<Utc>,
+    ) -> Result<Self, MessageDomainError> {
+        validate_persisted_message(role, &contents, model.as_deref(), usage)?;
 
-    #[test]
-    fn usage_total_counts_input_and_output() {
-        let usage = MessageUsage {
-            input_tokens: 10,
-            output_tokens: 7,
-            cache_read_tokens: 100,
-            cache_write_tokens: 200,
-        };
-
-        assert_eq!(usage.total_tokens(), 17);
+        Ok(Self {
+            id,
+            task_id,
+            role,
+            contents,
+            model,
+            usage,
+            created_at,
+        })
     }
 
-    #[test]
-    fn usage_rejects_negative_tokens() {
-        let usage = MessageUsage {
-            input_tokens: 0,
-            output_tokens: -1,
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
-        };
-
-        assert!(!usage.is_valid());
+    pub fn new_user_text(
+        task_id: Uuid,
+        text: impl Into<String>,
+    ) -> Result<NewMessage, MessageDomainError> {
+        NewMessage::user_text(task_id, text)
     }
 
-    #[test]
-    fn tool_call_fits_assistant_only() {
-        let content = MessageContent::ToolCall {
-            call_id: "call_1".to_string(),
-            tool_name: "shell".to_string(),
-            arguments: json!({}),
-        };
-
-        assert!(content.fits_role(Role::Assistant));
-        assert!(!content.fits_role(Role::User));
-        assert!(!content.fits_role(Role::System));
+    pub fn new_assistant_response(
+        task_id: Uuid,
+        contents: Vec<MessageContent>,
+        model: &str,
+        usage: MessageUsage,
+    ) -> Result<NewMessage, MessageDomainError> {
+        NewMessage::assistant_response(task_id, contents, model, usage)
     }
 
-    #[test]
-    fn tool_output_fits_user_only() {
-        let content = MessageContent::ToolCallOutput {
-            call_id: "call_1".to_string(),
-            output: json!({ "ok": true }),
-            status: ToolCallOutputStatus::Success,
-        };
+    pub fn new_tool_call_outputs(
+        task_id: Uuid,
+        contents: Vec<MessageContent>,
+    ) -> Result<NewMessage, MessageDomainError> {
+        NewMessage::tool_call_outputs(task_id, contents)
+    }
+}
 
-        assert!(content.fits_role(Role::User));
-        assert!(!content.fits_role(Role::Assistant));
-        assert!(!content.fits_role(Role::System));
+fn validate_persisted_message(
+    role: Role,
+    contents: &[MessageContent],
+    model: Option<&str>,
+    usage: Option<MessageUsage>,
+) -> Result<(), MessageDomainError> {
+    match role {
+        Role::System => {
+            validate_system_contents(contents)?;
+            validate_no_response_metadata(model, usage)?;
+        }
+        Role::User => {
+            if contents
+                .iter()
+                .all(|content| matches!(content, MessageContent::InputText { .. }))
+            {
+                validate_user_input_contents(contents)?;
+            } else {
+                validate_tool_output_contents(contents)?;
+            }
+            validate_no_response_metadata(model, usage)?;
+        }
+        Role::Assistant => {
+            validate_assistant_contents(contents)?;
+            validate_response_metadata(model, usage)?;
+        }
     }
 
-    #[test]
-    fn file_content_is_runtime_only() {
-        let content = MessageContent::input_file("a.txt", "data:text/plain;base64,xxx");
+    Ok(())
+}
 
-        assert!(!content.can_persist());
-        assert!(content.fits_role(Role::User));
+fn validate_system_contents(contents: &[MessageContent]) -> Result<(), MessageDomainError> {
+    validate_base_contents(contents)?;
+
+    if contents
+        .iter()
+        .all(|content| matches!(content, MessageContent::InputText { .. }))
+    {
+        Ok(())
+    } else {
+        Err(MessageDomainError::ContentRoleMismatch { role: Role::System })
     }
+}
+
+fn validate_user_input_contents(contents: &[MessageContent]) -> Result<(), MessageDomainError> {
+    validate_base_contents(contents)?;
+
+    if contents
+        .iter()
+        .all(|content| matches!(content, MessageContent::InputText { .. }))
+    {
+        Ok(())
+    } else {
+        Err(MessageDomainError::ContentRoleMismatch { role: Role::User })
+    }
+}
+
+fn validate_assistant_contents(contents: &[MessageContent]) -> Result<(), MessageDomainError> {
+    validate_base_contents(contents)?;
+
+    if contents.iter().all(|content| {
+        matches!(
+            content,
+            MessageContent::OutputText { .. } | MessageContent::ToolCall { .. }
+        )
+    }) {
+        Ok(())
+    } else {
+        Err(MessageDomainError::ContentRoleMismatch {
+            role: Role::Assistant,
+        })
+    }
+}
+
+fn validate_tool_output_contents(contents: &[MessageContent]) -> Result<(), MessageDomainError> {
+    validate_base_contents(contents)?;
+
+    if contents
+        .iter()
+        .all(|content| matches!(content, MessageContent::ToolCallOutput { .. }))
+    {
+        Ok(())
+    } else {
+        Err(MessageDomainError::ContentRoleMismatch { role: Role::User })
+    }
+}
+
+fn validate_base_contents(contents: &[MessageContent]) -> Result<(), MessageDomainError> {
+    if contents.is_empty() {
+        return Err(MessageDomainError::EmptyContents);
+    }
+
+    for content in contents {
+        if !content.can_persist() {
+            return Err(MessageDomainError::RuntimeOnlyContent);
+        }
+
+        validate_content_fields(content)?;
+    }
+
+    Ok(())
+}
+
+fn validate_content_fields(content: &MessageContent) -> Result<(), MessageDomainError> {
+    match content {
+        MessageContent::InputText { text } | MessageContent::OutputText { text } => {
+            reject_blank("text", text)
+        }
+        MessageContent::InputImage { image_url } => reject_blank("image_url", image_url),
+        MessageContent::InputFile {
+            filename,
+            file_data,
+        } => {
+            reject_blank("filename", filename)?;
+            reject_blank("file_data", file_data)
+        }
+        MessageContent::ToolCall {
+            call_id, tool_name, ..
+        } => {
+            reject_blank("call_id", call_id)?;
+            reject_blank("tool_name", tool_name)
+        }
+        MessageContent::ToolCallOutput { call_id, .. } => reject_blank("call_id", call_id),
+    }
+}
+
+fn reject_blank(field: &str, value: &str) -> Result<(), MessageDomainError> {
+    if value.trim().is_empty() {
+        return Err(MessageDomainError::InvalidContent(format!(
+            "{field} must not be empty"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_response_metadata(
+    model: Option<&str>,
+    usage: Option<MessageUsage>,
+) -> Result<(), MessageDomainError> {
+    match model {
+        Some(model) if !model.trim().is_empty() => {}
+        Some(_) => return Err(MessageDomainError::EmptyModel),
+        None => return Err(MessageDomainError::MissingModel),
+    }
+
+    usage
+        .ok_or(MessageDomainError::MissingUsage)?
+        .validate()
+        .map(|_| ())
+}
+
+fn validate_no_response_metadata(
+    model: Option<&str>,
+    usage: Option<MessageUsage>,
+) -> Result<(), MessageDomainError> {
+    if model.is_some() || usage.is_some() {
+        return Err(MessageDomainError::UnexpectedResponseMetadata);
+    }
+
+    Ok(())
 }

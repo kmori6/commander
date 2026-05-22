@@ -4,7 +4,9 @@ use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 
 use crate::domain::error::message_repository_error::MessageRepositoryError;
-use crate::domain::model::message::{Message, MessageContent, MessageUsage, Role, TaskUsage};
+use crate::domain::model::message::{
+    Message, MessageContent, MessageUsage, NewMessage, Role, TaskUsage,
+};
 use crate::domain::repository::message_repository::MessageRepository;
 
 #[derive(Clone)]
@@ -17,31 +19,14 @@ impl PostgresMessageRepository {
         Self { pool }
     }
 
-    async fn save_message(
-        &self,
-        task_id: Uuid,
-        role: Role,
-        contents: Vec<MessageContent>,
-        model: Option<String>,
-        usage: Option<MessageUsage>,
-    ) -> Result<Message, MessageRepositoryError> {
-        validate_contents(role, &contents)?;
-
-        if let Some(model) = model.as_deref()
-            && model.trim().is_empty()
-        {
-            return Err(MessageRepositoryError::InvalidMessage(
-                "model must not be empty".to_string(),
-            ));
-        }
-
-        if let Some(usage) = usage
-            && !usage.is_valid()
-        {
-            return Err(MessageRepositoryError::InvalidMessage(
-                "usage token counts must be greater than or equal to zero".to_string(),
-            ));
-        }
+    async fn save_message(&self, message: NewMessage) -> Result<Message, MessageRepositoryError> {
+        let NewMessage {
+            task_id,
+            role,
+            contents,
+            model,
+            usage,
+        } = message;
 
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
 
@@ -125,63 +110,22 @@ fn row_to_message(row: MessageRow) -> Result<Message, MessageRepositoryError> {
     let role = Role::from_db(&row.role)
         .ok_or_else(|| MessageRepositoryError::Unexpected(format!("unknown role: {}", row.role)))?;
 
-    Ok(Message {
-        id: row.id,
-        task_id: row.task_id,
+    Message::restore(
+        row.id,
+        row.task_id,
         role,
-        contents: row.contents.0,
-        model: row.model,
-        usage: row.usage.map(|usage| usage.0),
-        created_at: row.created_at,
-    })
-}
-
-fn validate_contents(
-    role: Role,
-    contents: &[MessageContent],
-) -> Result<(), MessageRepositoryError> {
-    if contents.iter().any(|content| !content.can_persist()) {
-        return Err(MessageRepositoryError::InvalidMessage(
-            "input_image and input_file are runtime-only contents and cannot be persisted"
-                .to_string(),
-        ));
-    }
-
-    if contents.iter().any(|content| !content.fits_role(role)) {
-        return Err(MessageRepositoryError::InvalidMessage(
-            "message content does not fit role".to_string(),
-        ));
-    }
-
-    Ok(())
+        row.contents.0,
+        row.model,
+        row.usage.map(|usage| usage.0),
+        row.created_at,
+    )
+    .map_err(Into::into)
 }
 
 #[async_trait]
 impl MessageRepository for PostgresMessageRepository {
-    async fn save(
-        &self,
-        task_id: Uuid,
-        role: Role,
-        contents: Vec<MessageContent>,
-    ) -> Result<Message, MessageRepositoryError> {
-        self.save_message(task_id, role, contents, None, None).await
-    }
-
-    async fn save_response(
-        &self,
-        task_id: Uuid,
-        contents: Vec<MessageContent>,
-        model: &str,
-        usage: MessageUsage,
-    ) -> Result<Message, MessageRepositoryError> {
-        self.save_message(
-            task_id,
-            Role::Assistant,
-            contents,
-            Some(model.trim().to_string()),
-            Some(usage),
-        )
-        .await
+    async fn save(&self, message: NewMessage) -> Result<Message, MessageRepositoryError> {
+        self.save_message(message).await
     }
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>, MessageRepositoryError> {
