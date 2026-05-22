@@ -171,23 +171,6 @@ impl TaskRepository for PostgresTaskRepository {
         row.map(TryInto::try_into).transpose()
     }
 
-    async fn list_by_session_id(&self, session_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError> {
-        let rows = sqlx::query_as::<_, TaskRow>(&format!(
-            r#"
-            SELECT {TASK_COLUMNS}
-            FROM tasks
-            WHERE session_id = $1
-            ORDER BY created_at ASC, id ASC
-            "#
-        ))
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-
-        rows.into_iter().map(TryInto::try_into).collect()
-    }
-
     async fn list_recent(
         &self,
         status: Option<TaskStatus>,
@@ -301,10 +284,7 @@ impl TaskRepository for PostgresTaskRepository {
         row.ok_or(TaskRepositoryError::NotFound(id))?.try_into()
     }
 
-    async fn list_by_schedule_id(
-        &self,
-        schedule_id: Uuid,
-    ) -> Result<Vec<Task>, TaskRepositoryError> {
+    async fn list_runs(&self, schedule_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError> {
         let rows = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             SELECT {TASK_COLUMNS}
@@ -321,7 +301,7 @@ impl TaskRepository for PostgresTaskRepository {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
-    async fn find_by_schedule_id_and_scheduled_at(
+    async fn find_run(
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,

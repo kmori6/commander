@@ -20,8 +20,6 @@ pub trait TaskRepository: Send + Sync {
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError>;
 
-    async fn list_by_session_id(&self, session_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError>;
-
     async fn list_recent(
         &self,
         status: Option<TaskStatus>,
@@ -38,12 +36,9 @@ pub trait TaskRepository: Send + Sync {
         status: TaskStatus,
     ) -> Result<Task, TaskRepositoryError>;
 
-    async fn list_by_schedule_id(
-        &self,
-        schedule_id: Uuid,
-    ) -> Result<Vec<Task>, TaskRepositoryError>;
+    async fn list_runs(&self, schedule_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError>;
 
-    async fn find_by_schedule_id_and_scheduled_at(
+    async fn find_run(
         &self,
         schedule_id: Uuid,
         scheduled_at: DateTime<Utc>,

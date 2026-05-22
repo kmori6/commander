@@ -25,5 +25,11 @@ pub trait MessageRepository: Send + Sync {
 
     async fn list_for_task(&self, task_id: Uuid) -> Result<Vec<Message>, MessageRepositoryError>;
 
+    async fn list_for_session(
+        &self,
+        session_id: Uuid,
+        until_task_id: Option<Uuid>,
+    ) -> Result<Vec<Message>, MessageRepositoryError>;
+
     async fn task_usage(&self, task_id: Uuid) -> Result<TaskUsage, MessageRepositoryError>;
 }

@@ -13,7 +13,7 @@ pub trait ToolPermissionRepository: Send + Sync {
         mode: ToolPermissionMode,
     ) -> Result<ToolPermission, ToolPermissionRepositoryError>;
 
-    async fn find_by_tool_name(
+    async fn find(
         &self,
         tool_name: &str,
     ) -> Result<Option<ToolPermission>, ToolPermissionRepositoryError>;

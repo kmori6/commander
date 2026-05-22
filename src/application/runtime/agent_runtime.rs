@@ -155,29 +155,12 @@ where
     }
 
     async fn context_messages(&self, task: &Task) -> Result<Vec<Message>, AgentRuntimeError> {
-        let mut messages = Vec::new();
-
         if let Some(session_id) = task.session_id {
-            let mut included_current_task = false;
-
-            for session_task in self.task_repository.list_by_session_id(session_id).await? {
-                messages.extend(
-                    self.message_repository
-                        .list_for_task(session_task.id)
-                        .await?,
-                );
-
-                if session_task.id == task.id {
-                    included_current_task = true;
-                    break;
-                }
-            }
-
-            if !included_current_task {
-                messages.extend(self.message_repository.list_for_task(task.id).await?);
-            }
-
-            return Ok(messages);
+            return self
+                .message_repository
+                .list_for_session(session_id, Some(task.id))
+                .await
+                .map_err(Into::into);
         }
 
         self.message_repository
@@ -739,27 +722,20 @@ where
                 return Ok(ToolPermissionMode::Deny);
             }
 
-            let mode = if let Some(permission) = self
-                .tool_permission_repository
-                .find_by_tool_name(tool_name)
-                .await?
-            {
-                permission.mode
-            } else {
-                self.tool_executor
-                    .default_permission(tool_name)
-                    .unwrap_or(ToolPermissionMode::Deny)
-            };
+            let mode =
+                if let Some(permission) = self.tool_permission_repository.find(tool_name).await? {
+                    permission.mode
+                } else {
+                    self.tool_executor
+                        .default_permission(tool_name)
+                        .unwrap_or(ToolPermissionMode::Deny)
+                };
 
             return Ok(mode.without_approval());
         }
 
         // check for root agent tools
-        if let Some(permission) = self
-            .tool_permission_repository
-            .find_by_tool_name(tool_name)
-            .await?
-        {
+        if let Some(permission) = self.tool_permission_repository.find(tool_name).await? {
             return Ok(permission.mode);
         }
 

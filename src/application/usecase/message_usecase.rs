@@ -79,15 +79,10 @@ where
     ) -> Result<Vec<Message>, MessageUsecaseError> {
         self.ensure_existing_session(session_id).await?;
 
-        let tasks = self.task_repository.list_by_session_id(session_id).await?;
-
-        let mut messages = Vec::new();
-        for task in tasks {
-            messages.extend(self.message_repository.list_for_task(task.id).await?);
-        }
-
-        messages.sort_by_key(|message| (message.created_at, message.id));
-        Ok(messages)
+        self.message_repository
+            .list_for_session(session_id, None)
+            .await
+            .map_err(Into::into)
     }
 
     async fn ensure_existing_session(&self, session_id: Uuid) -> Result<(), MessageUsecaseError> {

@@ -127,7 +127,7 @@ where
         }
 
         self.task_repository
-            .list_by_schedule_id(schedule_id)
+            .list_runs(schedule_id)
             .await
             .map_err(Into::into)
     }
@@ -171,7 +171,7 @@ where
         if let Some(schedule_id) = schedule_id
             && let Some(task) = self
                 .task_repository
-                .find_by_schedule_id_and_scheduled_at(schedule_id, scheduled_at)
+                .find_run(schedule_id, scheduled_at)
                 .await?
         {
             return Ok(DueTaskOutcome::AlreadyRecorded(task));

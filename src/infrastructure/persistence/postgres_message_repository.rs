@@ -217,6 +217,43 @@ impl MessageRepository for PostgresMessageRepository {
         rows.into_iter().map(row_to_message).collect()
     }
 
+    async fn list_for_session(
+        &self,
+        session_id: Uuid,
+        until_task_id: Option<Uuid>,
+    ) -> Result<Vec<Message>, MessageRepositoryError> {
+        let rows = sqlx::query_as::<_, MessageRow>(
+            r#"
+            SELECT m.id, m.task_id, m.role, m.contents, m.model, m.usage, m.created_at
+            FROM messages m
+            INNER JOIN tasks t
+              ON t.id = m.task_id
+            LEFT JOIN tasks until_task
+              ON until_task.id = $2
+              AND until_task.session_id = $1
+            WHERE t.session_id = $1
+              AND (
+                $2::UUID IS NULL
+                OR (
+                  until_task.id IS NOT NULL
+                  AND (
+                    t.created_at < until_task.created_at
+                    OR (t.created_at = until_task.created_at AND t.id <= until_task.id)
+                  )
+                )
+              )
+            ORDER BY t.created_at ASC, t.id ASC, m.created_at ASC, m.id ASC
+            "#,
+        )
+        .bind(session_id)
+        .bind(until_task_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(row_to_message).collect()
+    }
+
     async fn task_usage(&self, task_id: Uuid) -> Result<TaskUsage, MessageRepositoryError> {
         let row = sqlx::query_as::<_, TaskUsageRow>(
             r#"
