@@ -41,11 +41,6 @@ pub enum SubagentResultStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct SubagentCallOutput {
-    results: Vec<SubagentResult>,
-}
-
 impl SubagentCall {
     pub const TOOL_NAME: &'static str = "subagent";
 
@@ -70,8 +65,8 @@ impl SubagentCall {
         Ok(input)
     }
 
-    pub fn output(results: Vec<SubagentResult>) -> Result<Value, serde_json::Error> {
-        serde_json::to_value(SubagentCallOutput { results })
+    pub fn output(results: Vec<SubagentResult>) -> Value {
+        json!({ "results": results })
     }
 
     pub fn tool_spec(&self) -> Option<ToolSpec> {

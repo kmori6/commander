@@ -583,8 +583,7 @@ where
                                 });
                             }
 
-                            let output = SubagentCall::output(results)
-                                .map_err(|err| AgentRuntimeError::Unsupported(err.to_string()))?;
+                            let output = SubagentCall::output(results);
 
                             Ok::<_, AgentRuntimeError>(ToolCallOutput::success(
                                 call.call_id.clone(),
