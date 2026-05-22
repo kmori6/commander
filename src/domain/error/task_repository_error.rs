@@ -9,12 +9,6 @@ pub enum TaskRepositoryError {
     #[error("session not found: {0}")]
     SessionNotFound(Uuid),
 
-    #[error("message not found: {0}")]
-    MessageNotFound(Uuid),
-
-    #[error("parent task not found: {0}")]
-    ParentTaskNotFound(Uuid),
-
     #[error("invalid task: {0}")]
     InvalidTask(String),
 

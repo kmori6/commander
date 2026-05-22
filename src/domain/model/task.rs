@@ -40,6 +40,10 @@ impl TaskStatus {
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
     }
+
+    pub fn can_cancel(self) -> bool {
+        !self.is_terminal()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,4 +58,31 @@ pub struct Task {
     pub updated_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_statuses_are_completed_failed_and_cancelled() {
+        assert!(TaskStatus::Completed.is_terminal());
+        assert!(TaskStatus::Failed.is_terminal());
+        assert!(TaskStatus::Cancelled.is_terminal());
+
+        assert!(!TaskStatus::Queued.is_terminal());
+        assert!(!TaskStatus::Running.is_terminal());
+        assert!(!TaskStatus::AwaitingApproval.is_terminal());
+    }
+
+    #[test]
+    fn active_statuses_can_be_cancelled() {
+        assert!(TaskStatus::Queued.can_cancel());
+        assert!(TaskStatus::Running.can_cancel());
+        assert!(TaskStatus::AwaitingApproval.can_cancel());
+
+        assert!(!TaskStatus::Completed.can_cancel());
+        assert!(!TaskStatus::Failed.can_cancel());
+        assert!(!TaskStatus::Cancelled.can_cancel());
+    }
 }

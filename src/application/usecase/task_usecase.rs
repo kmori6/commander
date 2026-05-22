@@ -72,12 +72,15 @@ where
             .await?
             .ok_or(TaskRepositoryError::NotFound(id))?;
 
-        match task.status {
-            TaskStatus::Queued | TaskStatus::Running | TaskStatus::AwaitingApproval => {
-                self.task_repository.cancel(id).await.map_err(Into::into)
-            }
-            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled => Ok(task),
+        if task.status.can_cancel() {
+            return self
+                .task_repository
+                .update_status(id, TaskStatus::Cancelled)
+                .await
+                .map_err(Into::into);
         }
+
+        Ok(task)
     }
 
     pub async fn find_usage(&self, task_id: Uuid) -> Result<TaskUsage, TaskUsecaseError> {
