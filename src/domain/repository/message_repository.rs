@@ -2,11 +2,24 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::domain::error::message_repository_error::MessageRepositoryError;
-use crate::domain::model::message::{Message, NewMessage, TaskUsage};
+use crate::domain::model::message::{Message, MessageContent, MessageUsage, Role, TaskUsage};
 
 #[async_trait]
 pub trait MessageRepository: Send + Sync {
-    async fn save(&self, message: NewMessage) -> Result<Message, MessageRepositoryError>;
+    async fn save(
+        &self,
+        task_id: Uuid,
+        role: Role,
+        contents: Vec<MessageContent>,
+    ) -> Result<Message, MessageRepositoryError>;
+
+    async fn save_response(
+        &self,
+        task_id: Uuid,
+        contents: Vec<MessageContent>,
+        model: &str,
+        usage: MessageUsage,
+    ) -> Result<Message, MessageRepositoryError>;
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Message>, MessageRepositoryError>;
 

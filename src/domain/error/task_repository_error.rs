@@ -1,10 +1,9 @@
-use crate::domain::error::task_domain_error::TaskDomainError;
 use thiserror::Error;
 use uuid::Uuid;
 
-impl From<TaskDomainError> for TaskRepositoryError {
-    fn from(error: TaskDomainError) -> Self {
-        Self::InvalidTask(error.to_string())
+impl From<String> for TaskRepositoryError {
+    fn from(error: String) -> Self {
+        Self::InvalidTask(error)
     }
 }
 

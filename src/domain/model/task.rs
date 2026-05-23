@@ -1,4 +1,3 @@
-use crate::domain::error::task_domain_error::TaskDomainError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -24,7 +23,7 @@ impl TaskSource {
         session_id: Option<Uuid>,
         schedule_id: Option<Uuid>,
         scheduled_at: Option<DateTime<Utc>>,
-    ) -> Result<Self, TaskDomainError> {
+    ) -> Result<Self, String> {
         match (session_id, schedule_id, scheduled_at) {
             (None, None, None) => Ok(Self::Direct),
             (Some(session_id), None, None) => Ok(Self::Session { session_id }),
@@ -33,9 +32,7 @@ impl TaskSource {
                 scheduled_at,
             }),
             (None, None, Some(scheduled_at)) => Ok(Self::Watch { scheduled_at }),
-            _ => Err(TaskDomainError::InvalidSource(
-                "session_id, schedule_id, and scheduled_at combination is invalid".to_string(),
-            )),
+            _ => Err("invalid task source: session_id, schedule_id, and scheduled_at combination is invalid".to_string()),
         }
     }
 
@@ -151,9 +148,7 @@ impl Task {
         updated_at: DateTime<Utc>,
         started_at: Option<DateTime<Utc>>,
         finished_at: Option<DateTime<Utc>>,
-    ) -> Result<Self, TaskDomainError> {
-        validate_restored_state(status, error.as_deref(), started_at, finished_at)?;
-
+    ) -> Result<Self, String> {
         Ok(Self {
             id,
             source: TaskSource::restore(session_id, schedule_id, scheduled_at)?,
@@ -164,20 +159,6 @@ impl Task {
             started_at,
             finished_at,
         })
-    }
-
-    // new task starts queued
-    pub fn create(id: Uuid, source: TaskSource, now: DateTime<Utc>) -> Self {
-        Self {
-            id,
-            source,
-            status: TaskStatus::Queued,
-            error: None,
-            created_at: now,
-            updated_at: now,
-            started_at: None,
-            finished_at: None,
-        }
     }
 
     pub fn session_id(&self) -> Option<Uuid> {
@@ -197,7 +178,7 @@ impl Task {
     }
 
     // status: queued -> running
-    pub fn start(&mut self, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    pub fn start(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         self.transition(TaskStatus::Running, now)?;
         self.started_at = Some(self.started_at.unwrap_or(now));
         self.finished_at = None;
@@ -206,19 +187,19 @@ impl Task {
     }
 
     // status: running -> awaiting_approval
-    pub fn await_approval(&mut self, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    pub fn await_approval(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         self.transition(TaskStatus::AwaitingApproval, now)
     }
 
     // status: awaiting_approval -> queued
-    pub fn resume_after_approval(&mut self, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    pub fn resume_after_approval(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         self.transition(TaskStatus::Queued, now)?;
         self.finished_at = None;
         Ok(())
     }
 
     // status: running -> completed
-    pub fn complete(&mut self, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    pub fn complete(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         self.transition(TaskStatus::Completed, now)?;
         self.started_at = Some(self.started_at.unwrap_or(now));
         self.finished_at = Some(now);
@@ -227,14 +208,10 @@ impl Task {
     }
 
     // status: queued/running/awaiting_approval -> failed
-    pub fn fail(
-        &mut self,
-        error: impl Into<String>,
-        now: DateTime<Utc>,
-    ) -> Result<(), TaskDomainError> {
+    pub fn fail(&mut self, error: impl Into<String>, now: DateTime<Utc>) -> Result<(), String> {
         let error = error.into().trim().to_string();
         if error.is_empty() {
-            return Err(TaskDomainError::EmptyError);
+            return Err("task error must not be empty".to_string());
         }
 
         self.transition(TaskStatus::Failed, now)?;
@@ -245,7 +222,7 @@ impl Task {
     }
 
     // status: queued/running/awaiting_approval -> cancelled
-    pub fn cancel(&mut self, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    pub fn cancel(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         self.transition(TaskStatus::Cancelled, now)?;
         self.finished_at = Some(now);
         self.error = None;
@@ -253,16 +230,13 @@ impl Task {
     }
 
     // guard lifecycle transition
-    fn transition(&mut self, to: TaskStatus, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    fn transition(&mut self, to: TaskStatus, now: DateTime<Utc>) -> Result<(), String> {
         if self.status.is_terminal() {
-            return Err(TaskDomainError::AlreadyTerminal(self.status));
+            return Err(format!("task is already terminal: {:?}", self.status));
         }
 
         if self.status == to || !self.status.can_transition_to(to) {
-            return Err(TaskDomainError::InvalidTransition {
-                from: self.status,
-                to,
-            });
+            return Err(invalid_transition(self.status, to));
         }
 
         self.status = to;
@@ -271,12 +245,9 @@ impl Task {
     }
 
     // reset status: running -> queued
-    pub fn recover_interrupted(&mut self, now: DateTime<Utc>) -> Result<(), TaskDomainError> {
+    pub fn recover_interrupted(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         if self.status != TaskStatus::Running {
-            return Err(TaskDomainError::InvalidTransition {
-                from: self.status,
-                to: TaskStatus::Queued,
-            });
+            return Err(invalid_transition(self.status, TaskStatus::Queued));
         }
 
         self.status = TaskStatus::Queued;
@@ -288,47 +259,6 @@ impl Task {
     }
 }
 
-// persisted state invariants
-fn validate_restored_state(
-    status: TaskStatus,
-    error: Option<&str>,
-    started_at: Option<DateTime<Utc>>,
-    finished_at: Option<DateTime<Utc>>,
-) -> Result<(), TaskDomainError> {
-    if status == TaskStatus::Failed {
-        if error.map(str::trim).unwrap_or_default().is_empty() {
-            return Err(TaskDomainError::EmptyError);
-        }
-    } else if error.is_some() {
-        return Err(TaskDomainError::InvalidState(
-            "only failed tasks may have an error".to_string(),
-        ));
-    }
-
-    if status.is_terminal() && finished_at.is_none() {
-        return Err(TaskDomainError::InvalidState(
-            "terminal tasks must have finished_at".to_string(),
-        ));
-    }
-
-    if !status.is_terminal() && finished_at.is_some() {
-        return Err(TaskDomainError::InvalidState(
-            "active tasks must not have finished_at".to_string(),
-        ));
-    }
-
-    if matches!(
-        status,
-        TaskStatus::Running
-            | TaskStatus::AwaitingApproval
-            | TaskStatus::Completed
-            | TaskStatus::Failed
-    ) && started_at.is_none()
-    {
-        return Err(TaskDomainError::InvalidState(
-            "started tasks must have started_at".to_string(),
-        ));
-    }
-
-    Ok(())
+fn invalid_transition(from: TaskStatus, to: TaskStatus) -> String {
+    format!("invalid task transition: {from:?} -> {to:?}")
 }

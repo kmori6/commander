@@ -2,9 +2,8 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
-use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::message::Message;
+use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::schedule::Schedule;
 use crate::domain::model::task::{Task, TaskSource};
 use crate::domain::repository::message_repository::MessageRepository;
@@ -189,7 +188,11 @@ where
         let task = self.task_repository.create(source).await?;
 
         self.message_repository
-            .save(Message::new_user_text(task.id, request).map_err(MessageRepositoryError::from)?)
+            .save(
+                task.id,
+                Role::User,
+                vec![MessageContent::input_text(request)],
+            )
             .await?;
 
         Ok(DueTaskOutcome::Started(task))

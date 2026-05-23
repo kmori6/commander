@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::domain::error::task_domain_error::TaskDomainError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 use crate::domain::repository::task_repository::TaskRepository;
@@ -137,7 +136,7 @@ async fn persist_task(
 impl PostgresTaskRepository {
     async fn update_task<F>(&self, id: Uuid, mutate: F) -> Result<Task, TaskRepositoryError>
     where
-        F: FnOnce(&mut Task, DateTime<Utc>) -> Result<(), TaskDomainError>,
+        F: FnOnce(&mut Task, DateTime<Utc>) -> Result<(), String>,
     {
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
         let mut task = lock_task(&mut tx, id).await?;

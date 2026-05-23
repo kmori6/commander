@@ -6,7 +6,6 @@ use crate::application::service::compaction_service::{CompactionConfig, Compacti
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
 use crate::application::service::tool_executor::ToolExecutor;
-use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
@@ -224,10 +223,7 @@ where
         match state {
             LoopState::Durable { .. } => {
                 self.message_repository
-                    .save(
-                        Message::new_tool_call_outputs(task_id, contents)
-                            .map_err(MessageRepositoryError::from)?,
-                    )
+                    .save(task_id, Role::User, contents)
                     .await?;
             }
             LoopState::Ephemeral { messages } => {
@@ -362,14 +358,11 @@ where
                 LoopState::Durable { .. } => {
                     let assistant_message = self
                         .message_repository
-                        .save(
-                            Message::new_assistant_response(
-                                task_id,
-                                response.message.contents.clone(),
-                                &model,
-                                response.usage,
-                            )
-                            .map_err(MessageRepositoryError::from)?,
+                        .save_response(
+                            task_id,
+                            response.message.contents.clone(),
+                            &model,
+                            response.usage,
                         )
                         .await?;
 
@@ -684,10 +677,7 @@ where
         .await?;
 
         self.message_repository
-            .save(
-                Message::new_tool_call_outputs(task.id, vec![output.into_message_content()])
-                    .map_err(MessageRepositoryError::from)?,
-            )
+            .save(task.id, Role::User, vec![output.into_message_content()])
             .await?;
 
         Ok(task.id)
