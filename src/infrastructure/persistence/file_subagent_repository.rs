@@ -64,13 +64,14 @@ impl SubagentRepository for FileSubagentRepository {
                 }
             };
 
-            if let Some(subagent) = Subagent::restore(
+            match Subagent::restore(
                 name,
                 stored.description,
                 stored.instruction,
                 stored.allowed_tools,
             ) {
-                subagents.push(subagent);
+                Ok(subagent) => subagents.push(subagent),
+                Err(err) => log::warn!("invalid subagent profile {}: {err}", path.display()),
             }
         }
 

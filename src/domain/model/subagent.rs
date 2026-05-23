@@ -12,7 +12,7 @@ impl Subagent {
         description: impl Into<String>,
         instruction: impl Into<String>,
         allowed_tools: Vec<String>,
-    ) -> Option<Self> {
+    ) -> Result<Self, String> {
         let name = name.into().trim().to_string();
         let instruction = instruction.into().trim().to_string();
         let mut tools = Vec::new();
@@ -25,11 +25,15 @@ impl Subagent {
             }
         }
 
-        if name.is_empty() || instruction.is_empty() || tools.is_empty() {
-            return None;
+        if name.is_empty() {
+            return Err("name must not be empty".to_string());
         }
 
-        Some(Self {
+        if instruction.is_empty() {
+            return Err("instruction must not be empty".to_string());
+        }
+
+        Ok(Self {
             name,
             description: description.into().trim().to_string(),
             instruction,
@@ -80,9 +84,22 @@ mod tests {
 
     #[test]
     fn restore_rejects_empty_required_fields() {
-        assert!(Subagent::restore("", "desc", "instruction", vec!["shell".to_string()]).is_none());
-        assert!(Subagent::restore("name", "desc", "", vec!["shell".to_string()]).is_none());
-        assert!(Subagent::restore("name", "desc", "instruction", vec![" ".to_string()]).is_none());
+        assert_eq!(
+            "name must not be empty",
+            Subagent::restore("", "desc", "instruction", vec!["shell".to_string()]).unwrap_err()
+        );
+        assert_eq!(
+            "instruction must not be empty",
+            Subagent::restore("name", "desc", "", vec!["shell".to_string()]).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn restore_allows_no_tools() {
+        let subagent =
+            Subagent::restore("planner", "", "plan only", vec![" ".to_string()]).unwrap();
+
+        assert!(subagent.allowed_tools.is_empty());
     }
 
     #[test]
