@@ -2,12 +2,6 @@ use crate::domain::model::schedule::{CronExpression, ScheduleTimezone};
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone)]
-pub struct WatchConfig {
-    pub enabled: bool,
-    pub schedules: Vec<WatchSchedule>,
-}
-
-#[derive(Debug, Clone)]
 pub struct WatchSchedule {
     pub cron: CronExpression,
     pub timezone: ScheduleTimezone,
@@ -26,7 +20,13 @@ impl WatchSchedule {
     }
 }
 
-impl WatchConfig {
+#[derive(Debug, Clone)]
+pub struct Watch {
+    pub enabled: bool,
+    pub schedules: Vec<WatchSchedule>,
+}
+
+impl Watch {
     pub fn due_time(&self, now: DateTime<Utc>, window: chrono::Duration) -> Option<DateTime<Utc>> {
         if !self.enabled {
             return None;

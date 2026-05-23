@@ -88,15 +88,15 @@ impl ScheduleDaemon {
         now: DateTime<Utc>,
         window: chrono::Duration,
     ) -> Result<(), ScheduleDaemonError> {
-        let Some(config) = self.watch_repository.get().await? else {
+        let Some(watch) = self.watch_repository.get().await? else {
             return Ok(());
         };
 
-        if !config.enabled {
+        if !watch.enabled {
             return Ok(());
         }
 
-        let Some(scheduled_at) = config.due_time(now, window) else {
+        let Some(scheduled_at) = watch.due_time(now, window) else {
             return Ok(());
         };
 

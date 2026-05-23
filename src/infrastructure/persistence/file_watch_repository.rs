@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::domain::error::watch_repository_error::WatchRepositoryError;
-use crate::domain::model::watch::{WatchConfig, WatchSchedule};
+use crate::domain::model::watch::{Watch, WatchSchedule};
 use crate::domain::repository::watch_repository::WatchRepository;
 
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl FileWatchRepository {
 
 #[async_trait]
 impl WatchRepository for FileWatchRepository {
-    async fn get(&self) -> Result<Option<WatchConfig>, WatchRepositoryError> {
+    async fn get(&self) -> Result<Option<Watch>, WatchRepositoryError> {
         let content = match tokio::fs::read_to_string(&self.path).await {
             Ok(content) => content,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -50,7 +50,7 @@ impl WatchRepository for FileWatchRepository {
             .collect::<Result<Vec<_>, _>>()
             .map_err(WatchRepositoryError::InvalidConfig)?;
 
-        Ok(Some(WatchConfig {
+        Ok(Some(Watch {
             enabled: stored.enabled,
             schedules,
         }))
