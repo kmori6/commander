@@ -155,14 +155,14 @@ impl TaskRepository for PostgresTaskRepository {
     async fn create(&self, source: TaskSource) -> Result<Task, TaskRepositoryError> {
         let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
-        INSERT INTO tasks (
-          session_id,
-          schedule_id,
-          scheduled_at
-        )
-        VALUES ($1, $2, $3)
-        RETURNING {TASK_COLUMNS}
-        "#
+            INSERT INTO tasks (
+              session_id,
+              schedule_id,
+              scheduled_at
+            )
+            VALUES ($1, $2, $3)
+            RETURNING {TASK_COLUMNS}
+            "#
         ))
         .bind(source.session_id())
         .bind(source.schedule_id())
