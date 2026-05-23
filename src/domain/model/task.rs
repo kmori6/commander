@@ -102,25 +102,6 @@ impl TaskStatus {
     pub fn can_cancel(self) -> bool {
         !self.is_terminal()
     }
-
-    // allowed lifecycle transitions
-    pub fn can_transition_to(self, to: Self) -> bool {
-        use TaskStatus::*;
-
-        matches!(
-            (self, to),
-            (Queued, Running)
-                | (Queued, Failed)
-                | (Queued, Cancelled)
-                | (Running, AwaitingApproval)
-                | (Running, Completed)
-                | (Running, Failed)
-                | (Running, Cancelled)
-                | (AwaitingApproval, Queued)
-                | (AwaitingApproval, Failed)
-                | (AwaitingApproval, Cancelled)
-        )
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,7 +160,12 @@ impl Task {
 
     // status: queued -> running
     pub fn start(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        self.transition(TaskStatus::Running, now)?;
+        if self.status != TaskStatus::Queued {
+            return Err(invalid_transition(self.status, TaskStatus::Running));
+        }
+
+        self.status = TaskStatus::Running;
+        self.updated_at = now;
         self.started_at = Some(self.started_at.unwrap_or(now));
         self.finished_at = None;
         self.error = None;
@@ -188,19 +174,38 @@ impl Task {
 
     // status: running -> awaiting_approval
     pub fn await_approval(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        self.transition(TaskStatus::AwaitingApproval, now)
+        if self.status != TaskStatus::Running {
+            return Err(invalid_transition(
+                self.status,
+                TaskStatus::AwaitingApproval,
+            ));
+        }
+
+        self.status = TaskStatus::AwaitingApproval;
+        self.updated_at = now;
+        Ok(())
     }
 
     // status: awaiting_approval -> queued
     pub fn resume_after_approval(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        self.transition(TaskStatus::Queued, now)?;
+        if self.status != TaskStatus::AwaitingApproval {
+            return Err(invalid_transition(self.status, TaskStatus::Queued));
+        }
+
+        self.status = TaskStatus::Queued;
+        self.updated_at = now;
         self.finished_at = None;
         Ok(())
     }
 
     // status: running -> completed
     pub fn complete(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        self.transition(TaskStatus::Completed, now)?;
+        if self.status != TaskStatus::Running {
+            return Err(invalid_transition(self.status, TaskStatus::Completed));
+        }
+
+        self.status = TaskStatus::Completed;
+        self.updated_at = now;
         self.started_at = Some(self.started_at.unwrap_or(now));
         self.finished_at = Some(now);
         self.error = None;
@@ -214,7 +219,12 @@ impl Task {
             return Err("task error must not be empty".to_string());
         }
 
-        self.transition(TaskStatus::Failed, now)?;
+        if self.status.is_terminal() {
+            return Err(invalid_transition(self.status, TaskStatus::Failed));
+        }
+
+        self.status = TaskStatus::Failed;
+        self.updated_at = now;
         self.started_at = Some(self.started_at.unwrap_or(now));
         self.finished_at = Some(now);
         self.error = Some(error);
@@ -223,24 +233,14 @@ impl Task {
 
     // status: queued/running/awaiting_approval -> cancelled
     pub fn cancel(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        self.transition(TaskStatus::Cancelled, now)?;
+        if self.status.is_terminal() {
+            return Err(invalid_transition(self.status, TaskStatus::Cancelled));
+        }
+
+        self.status = TaskStatus::Cancelled;
+        self.updated_at = now;
         self.finished_at = Some(now);
         self.error = None;
-        Ok(())
-    }
-
-    // guard lifecycle transition
-    fn transition(&mut self, to: TaskStatus, now: DateTime<Utc>) -> Result<(), String> {
-        if self.status.is_terminal() {
-            return Err(format!("task is already terminal: {:?}", self.status));
-        }
-
-        if self.status == to || !self.status.can_transition_to(to) {
-            return Err(invalid_transition(self.status, to));
-        }
-
-        self.status = to;
-        self.updated_at = now;
         Ok(())
     }
 

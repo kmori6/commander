@@ -167,23 +167,30 @@ impl ToolApprovalRepository for PostgresToolApprovalRepository {
         id: Uuid,
         status: ToolApprovalStatus,
     ) -> Result<ToolApproval, ToolApprovalRepositoryError> {
-        if !status.is_resolved() {
-            return Err(ToolApprovalRepositoryError::InvalidApproval(
-                "approval cannot be resolved to pending".to_string(),
-            ));
-        }
+        let mut approval = self
+            .find_by_id(id)
+            .await?
+            .ok_or(ToolApprovalRepositoryError::NotFound(id))?;
+
+        let resolved_at = Utc::now();
+
+        approval
+            .resolve(status, resolved_at)
+            .map_err(ToolApprovalRepositoryError::InvalidApproval)?;
 
         let row = sqlx::query_as::<_, ToolApprovalRow>(
             r#"
             UPDATE tool_approvals
             SET status = $2,
-                resolved_at = NOW()
+                resolved_at = $3
             WHERE id = $1
+            AND status = 'pending'
             RETURNING id, task_id, message_id, call_id, status, requested_at, resolved_at
             "#,
         )
         .bind(id)
-        .bind(status.as_str())
+        .bind(approval.status.as_str())
+        .bind(resolved_at)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;

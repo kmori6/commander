@@ -77,6 +77,27 @@ pub struct ToolApproval {
     pub resolved_at: Option<DateTime<Utc>>,
 }
 
+impl ToolApproval {
+    // tool approval status: pending -> approved/rejected
+    pub fn resolve(
+        &mut self,
+        status: ToolApprovalStatus,
+        resolved_at: DateTime<Utc>,
+    ) -> Result<(), String> {
+        if !status.is_resolved() {
+            return Err("approval cannot be resolved to pending".to_string());
+        }
+
+        if self.status.is_resolved() {
+            return Err("approval is already resolved".to_string());
+        }
+
+        self.status = status;
+        self.resolved_at = Some(resolved_at);
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub name: String,
