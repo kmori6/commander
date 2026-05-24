@@ -89,4 +89,23 @@ where
             .await
             .map_err(Into::into)
     }
+
+    // task statuses: running -> queued
+    pub async fn recover_interrupted(&self) -> Result<(), TaskUsecaseError> {
+        let count = self.task_repository.requeue_running().await?;
+
+        if count > 0 {
+            log::warn!("requeued {count} interrupted running task(s)");
+        }
+
+        Ok(())
+    }
+
+    // claim queued tasks and update their status to `running`
+    pub async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskUsecaseError> {
+        self.task_repository
+            .claim_queued(limit)
+            .await
+            .map_err(Into::into)
+    }
 }

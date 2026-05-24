@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{self, MissedTickBehavior};
 
+use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::application::runtime::agent_runtime::AgentRuntime;
-use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::repository::task_repository::TaskRepository;
+use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
@@ -20,26 +20,26 @@ type AppAgentRuntime = AgentRuntime<
 >;
 
 pub struct TaskRunner {
-    task_repository: PostgresTaskRepository,
+    task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
     agent_runtime: Arc<AppAgentRuntime>,
     poll_interval: Duration,
 }
 
 impl TaskRunner {
     pub fn new(
-        task_repository: PostgresTaskRepository,
+        task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
         agent_runtime: Arc<AppAgentRuntime>,
         poll_interval: Duration,
     ) -> Self {
         Self {
-            task_repository,
+            task_usecase,
             agent_runtime,
             poll_interval,
         }
     }
 
     pub async fn run(self) {
-        if let Err(err) = self.recover_interrupted().await {
+        if let Err(err) = self.task_usecase.recover_interrupted().await {
             log::warn!("task runner recovery failed: {err}");
         }
 
@@ -60,30 +60,13 @@ impl TaskRunner {
         }
     }
 
-    async fn tick(&self) -> Result<(), TaskRepositoryError> {
-        let Some(task) = self
-            .task_repository
-            .claim_queued(1)
-            .await?
-            .into_iter()
-            .next()
-        else {
+    async fn tick(&self) -> Result<(), TaskUsecaseError> {
+        let Some(task) = self.task_usecase.claim_queued(1).await?.into_iter().next() else {
             return Ok(());
         };
 
         if let Err(err) = self.agent_runtime.clone().run(task.id).await {
             log::warn!("failed to run claimed task {}: {err}", task.id);
-        }
-
-        Ok(())
-    }
-
-    // task statuses: running -> queued
-    async fn recover_interrupted(&self) -> Result<(), TaskRepositoryError> {
-        let count = self.task_repository.requeue_running().await?;
-
-        if count > 0 {
-            log::warn!("requeued {count} interrupted running task(s)");
         }
 
         Ok(())

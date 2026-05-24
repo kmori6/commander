@@ -212,13 +212,13 @@ impl TaskRepository for PostgresTaskRepository {
 
         let rows = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
-        SELECT {TASK_COLUMNS}
-        FROM tasks
-        WHERE status = 'queued'
-        ORDER BY created_at ASC, id ASC
-        LIMIT $1
-        FOR UPDATE SKIP LOCKED
-        "#
+            SELECT {TASK_COLUMNS}
+            FROM tasks
+            WHERE status = 'queued'
+            ORDER BY created_at ASC, id ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+            "#
         ))
         .bind(limit)
         .fetch_all(&mut *tx)
