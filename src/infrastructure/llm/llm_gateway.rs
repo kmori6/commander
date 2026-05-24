@@ -1,11 +1,12 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::RwLock;
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
-use crate::domain::model::llm::{Catalog, ModelSpec, ProviderKind};
+use crate::domain::model::llm::{Llm, LlmProviderKind};
 use crate::domain::port::llm_provider::{LlmProvider, LlmRequest, LlmResponse};
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
@@ -63,8 +64,86 @@ impl ModelConfigPaths {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LlmConfig {
+    default_model: String,
+    providers: HashMap<String, ProviderConfig>,
+    models: Vec<ModelConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ModelConfig {
+    id: String,
+    provider: String,
+    model: String,
+    context_window: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProviderConfig {
+    #[serde(rename = "type")]
+    kind: LlmProviderKind,
+    base_url: Option<String>,
+    api_key_env: Option<String>,
+}
+
+impl LlmConfig {
+    fn resolve(&self, id: &str) -> Result<Llm, String> {
+        let id = id.trim();
+
+        if id.is_empty() {
+            return Err("llm id must not be empty".to_string());
+        }
+
+        let model = self
+            .models
+            .iter()
+            .find(|model| model.id == id)
+            .ok_or_else(|| format!("unknown model id: {id}"))?;
+
+        let provider = self.providers.get(&model.provider).ok_or_else(|| {
+            format!(
+                "model {} references unknown provider {}",
+                model.id, model.provider
+            )
+        })?;
+
+        Llm::restore(
+            model.id.clone(),
+            provider.kind,
+            model.model.clone(),
+            model.context_window,
+            provider.base_url.clone(),
+            provider.api_key_env.clone(),
+        )
+    }
+
+    fn list_llms(&self) -> Result<Vec<Llm>, String> {
+        self.models
+            .iter()
+            .map(|model| self.resolve(&model.id))
+            .collect()
+    }
+
+    fn select_default_model(&mut self, id: &str) -> Result<Llm, String> {
+        let llm = self.resolve(id)?;
+        self.default_model = llm.id.clone();
+        Ok(llm)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        self.resolve(&self.default_model)?;
+
+        for model in &self.models {
+            self.resolve(&model.id)?;
+        }
+
+        Ok(())
+    }
+}
+
 pub struct LlmGateway {
-    catalog: RwLock<Catalog>,
+    config: RwLock<LlmConfig>,
     paths: ModelConfigPaths,
     bedrock: BedrockLlmProvider,
     openai: OpenaiLlmProvider,
@@ -75,104 +154,78 @@ impl LlmGateway {
         let paths = ModelConfigPaths::new(user_path.into());
         paths.ensure_user_config().await?;
 
-        let catalog = load_catalog(&paths).await?;
-        validate_catalog(&catalog)?;
+        let config = load_config(&paths).await?;
+        config.validate().map_err(LlmProviderError::Unexpected)?;
 
         Ok(Self {
-            catalog: RwLock::new(catalog),
+            config: RwLock::new(config),
             paths,
             bedrock: BedrockLlmProvider::from_default_config().await,
             openai: OpenaiLlmProvider::from_default_client(),
         })
     }
 
-    pub async fn list_models(&self) -> Vec<ModelSpec> {
-        self.catalog.read().await.models.clone()
+    pub async fn list_models(&self) -> Vec<Llm> {
+        self.config
+            .read()
+            .await
+            .list_llms()
+            .expect("llm config is validated at load time")
     }
 
     pub async fn default_model_id(&self) -> String {
-        self.catalog.read().await.default_model.clone()
+        self.config.read().await.default_model.clone()
     }
 
-    pub async fn select_model(&self, id: &str) -> Result<ModelSpec, LlmProviderError> {
-        let (next_catalog, selected_model) = {
-            let catalog = self.catalog.read().await;
-            let mut next_catalog = catalog.clone();
+    pub async fn select_model(&self, id: &str) -> Result<Llm, LlmProviderError> {
+        let (next_config, selected_model) = {
+            let config = self.config.read().await;
+            let mut next_config = config.clone();
 
-            if !next_catalog.set_default_model(id.to_string()) {
-                return Err(LlmProviderError::RequestBuild(format!(
-                    "unknown model id: {id}"
-                )));
-            }
+            let selected_model = next_config
+                .select_default_model(id)
+                .map_err(LlmProviderError::RequestBuild)?;
 
-            let selected_model = next_catalog.find_model(id).cloned().ok_or_else(|| {
-                LlmProviderError::Unexpected(format!("selected model disappeared: {id}"))
-            })?;
-
-            (next_catalog, selected_model)
+            (next_config, selected_model)
         };
 
-        save_catalog(&self.paths, &next_catalog).await?;
-        *self.catalog.write().await = next_catalog;
+        save_config(&self.paths, &next_config).await?;
+        *self.config.write().await = next_config;
 
         Ok(selected_model)
-    }
-
-    pub async fn context_window(&self, id: &str) -> Option<i64> {
-        self.catalog
-            .read()
-            .await
-            .find_model(id)
-            .map(|model| model.context_window)
     }
 }
 
 #[async_trait]
 impl LlmProvider for LlmGateway {
     async fn respond(&self, mut request: LlmRequest) -> Result<LlmResponse, LlmProviderError> {
-        let (model, provider) = {
-            let catalog = self.catalog.read().await;
+        let llm = {
+            let config = self.config.read().await;
 
-            let model = catalog.find_model(&request.model).cloned().ok_or_else(|| {
-                LlmProviderError::RequestBuild(format!("unknown model id: {}", request.model))
-            })?;
-
-            let provider = catalog
-                .find_provider(&model.provider)
-                .cloned()
-                .ok_or_else(|| {
-                    LlmProviderError::RequestBuild(format!(
-                        "unknown provider id: {}",
-                        model.provider
-                    ))
-                })?;
-
-            (model, provider)
+            config
+                .resolve(&request.model)
+                .map_err(LlmProviderError::RequestBuild)?
         };
 
-        request.model = model.model.clone();
+        request.model = llm.model.clone();
 
-        match provider.provider_type {
-            ProviderKind::Bedrock => self.bedrock.respond(request).await,
-            ProviderKind::Openai => {
-                self.openai
-                    .respond_with_provider(&provider, &model, request)
-                    .await
-            }
+        match llm.provider {
+            LlmProviderKind::Bedrock => self.bedrock.respond(request).await,
+            LlmProviderKind::Openai => self.openai.respond_with_llm(&llm, request).await,
         }
     }
 
     async fn context_window(&self, model: &str) -> i64 {
-        self.catalog
+        self.config
             .read()
             .await
-            .find_model(model)
-            .map(|model| model.context_window)
+            .resolve(model)
+            .map(|llm| llm.context_window)
             .unwrap_or(256_000)
     }
 }
 
-async fn load_catalog(paths: &ModelConfigPaths) -> Result<Catalog, LlmProviderError> {
+async fn load_config(paths: &ModelConfigPaths) -> Result<LlmConfig, LlmProviderError> {
     let path = paths.path();
     let content = fs::read_to_string(&path).await.map_err(|err| {
         LlmProviderError::Unexpected(format!(
@@ -189,7 +242,7 @@ async fn load_catalog(paths: &ModelConfigPaths) -> Result<Catalog, LlmProviderEr
     })
 }
 
-async fn save_catalog(paths: &ModelConfigPaths, catalog: &Catalog) -> Result<(), LlmProviderError> {
+async fn save_config(paths: &ModelConfigPaths, config: &LlmConfig) -> Result<(), LlmProviderError> {
     let path = paths.path();
 
     if let Some(parent) = path.parent() {
@@ -201,7 +254,7 @@ async fn save_catalog(paths: &ModelConfigPaths, catalog: &Catalog) -> Result<(),
         })?;
     }
 
-    let content = serde_json::to_string_pretty(catalog).map_err(|err| {
+    let content = serde_json::to_string_pretty(config).map_err(|err| {
         LlmProviderError::Unexpected(format!("failed to serialize model config: {err}"))
     })?;
 
@@ -213,24 +266,4 @@ async fn save_catalog(paths: &ModelConfigPaths, catalog: &Catalog) -> Result<(),
                 path.display()
             ))
         })
-}
-
-fn validate_catalog(catalog: &Catalog) -> Result<(), LlmProviderError> {
-    if catalog.find_model(&catalog.default_model).is_none() {
-        return Err(LlmProviderError::Unexpected(format!(
-            "default_model is not defined in models: {}",
-            catalog.default_model
-        )));
-    }
-
-    for model in &catalog.models {
-        if catalog.find_provider(&model.provider).is_none() {
-            return Err(LlmProviderError::Unexpected(format!(
-                "model {} references unknown provider {}",
-                model.id, model.provider
-            )));
-        }
-    }
-
-    Ok(())
 }

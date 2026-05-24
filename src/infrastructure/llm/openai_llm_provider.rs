@@ -1,10 +1,8 @@
-use std::env;
-
 use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
-use crate::domain::model::llm::{ModelSpec, ProviderSpec};
+use crate::domain::model::llm::Llm;
 use crate::domain::model::message::{MessageContent, MessageUsage, Role};
 use crate::domain::port::llm_provider::{LlmMessage, LlmRequest, LlmResponse};
 
@@ -22,18 +20,17 @@ impl OpenaiLlmProvider {
         Self::new(Client::new())
     }
 
-    pub async fn respond_with_provider(
+    pub async fn respond_with_llm(
         &self,
-        provider: &ProviderSpec,
-        model: &ModelSpec,
+        llm: &Llm,
         request: LlmRequest,
     ) -> Result<LlmResponse, LlmProviderError> {
-        let base_url = provider.base_url.as_deref().ok_or_else(|| {
+        let base_url = llm.base_url.as_deref().ok_or_else(|| {
             LlmProviderError::RequestBuild("OpenAI provider requires base_url".to_string())
         })?;
 
-        let body = build_responses_body(model, &request)?;
-        let api_key = api_key(provider);
+        let body = build_responses_body(llm, &request)?;
+        let api_key = api_key(llm);
         let url = format!("{}/responses", base_url.trim_end_matches('/'));
 
         let response = self
@@ -64,20 +61,16 @@ impl OpenaiLlmProvider {
     }
 }
 
-fn api_key(provider: &ProviderSpec) -> String {
-    provider
-        .api_key_env
+fn api_key(llm: &Llm) -> String {
+    llm.api_key_env
         .as_deref()
-        .and_then(|name| env::var(name).ok())
+        .and_then(|name| std::env::var(name).ok())
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn build_responses_body(
-    model: &ModelSpec,
-    request: &LlmRequest,
-) -> Result<Value, LlmProviderError> {
+fn build_responses_body(llm: &Llm, request: &LlmRequest) -> Result<Value, LlmProviderError> {
     let mut body = json!({
-        "model": model.model,
+        "model": llm.model,
         "input": build_input(&request.messages)?,
     });
 

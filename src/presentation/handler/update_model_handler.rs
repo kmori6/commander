@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::domain::model::llm::ModelSpec;
+use crate::domain::model::llm::Llm;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -16,7 +16,7 @@ pub struct UpdateModelRequest {
 
 #[derive(Debug, Serialize)]
 pub struct UpdateModelResponse {
-    pub model: ModelSpec,
+    pub model: Llm,
 }
 
 pub async fn update_model_handler(
