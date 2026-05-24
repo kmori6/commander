@@ -197,10 +197,17 @@ The file name becomes the profile name, for example `reviewer.json` becomes `rev
 
 ## Development
 
-Run tests:
+Run unit tests:
 
 ```bash
-cargo test
+cargo test --lib
+```
+
+Set `TEST_DATABASE_URL` in `.env`, then reset the local test database before running E2E tests:
+
+```bash
+scripts/reset_test_db.sh
+cargo test --test e2e
 ```
 
 Run lints:
