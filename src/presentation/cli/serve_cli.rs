@@ -201,6 +201,13 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_runner.run().await;
     });
 
+    let app = build_router(app_state);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await
+}
+
+pub fn build_router(app_state: AppState) -> Router {
     let api_routes = Router::new()
         .route("/health", get(health_handler))
         .route("/events", get(get_event_handler))
@@ -249,8 +256,5 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .route("/model", get(get_model_handler).put(update_model_handler))
         .with_state(app_state);
 
-    let app = Router::new().nest("/v1", api_routes);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await
+    Router::new().nest("/v1", api_routes)
 }

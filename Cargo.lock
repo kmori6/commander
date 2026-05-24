@@ -857,6 +857,7 @@ dependencies = [
  "termimad",
  "thiserror 2.0.18",
  "tokio",
+ "tower",
  "tree-sitter",
  "tree-sitter-bash",
  "uuid",
