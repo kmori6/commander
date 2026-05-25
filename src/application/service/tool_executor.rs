@@ -43,4 +43,19 @@ impl ToolExecutor {
 
         Ok(ToolCallOutput::success(call.call_id, output))
     }
+
+    pub fn specs_for(
+        &self,
+        allowed_tools: Option<&[String]>,
+        extra_specs: impl IntoIterator<Item = ToolSpec>,
+    ) -> Vec<ToolSpec> {
+        let mut specs = self.specs();
+        specs.extend(extra_specs);
+
+        if let Some(allowed_tools) = allowed_tools {
+            specs.retain(|spec| allowed_tools.iter().any(|tool| tool == &spec.name));
+        }
+
+        specs
+    }
 }

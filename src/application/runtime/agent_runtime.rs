@@ -721,20 +721,19 @@ where
     }
 
     async fn tool_specs(&self, scope: &AgentScope) -> Result<Vec<ToolSpec>, AgentRuntimeError> {
-        let mut specs = self.tool_executor.specs();
+        let allowed_tools = scope
+            .subagent
+            .as_ref()
+            .map(|subagent| subagent.allowed_tools.as_slice());
 
-        if let Some(subagent) = scope.subagent.as_ref() {
-            specs.retain(|spec| subagent.allows_tool(&spec.name));
-            return Ok(specs);
-        }
+        let extra_specs = if scope.is_root() {
+            let subagent_call = SubagentCall::new(self.subagent_repository.list().await?);
+            subagent_call.tool_spec().into_iter().collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
 
-        let subagent_call = SubagentCall::new(self.subagent_repository.list().await?);
-
-        if let Some(spec) = subagent_call.tool_spec() {
-            specs.push(spec);
-        }
-
-        Ok(specs)
+        Ok(self.tool_executor.specs_for(allowed_tools, extra_specs))
     }
 
     async fn is_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
