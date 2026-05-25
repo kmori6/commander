@@ -1,9 +1,8 @@
+use crate::application::error::tool_permitter_error::ToolPermitterError;
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::error::subagent_repository_error::SubagentRepositoryError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
-use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -27,14 +26,11 @@ pub enum AgentRuntimeError {
     #[error("unsupported agent runtime operation: {0}")]
     Unsupported(String),
 
-    #[error("failed to access tool permission repository: {0}")]
-    ToolPermissionRepository(#[from] ToolPermissionRepositoryError),
-
-    #[error("failed to access tool approval repository: {0}")]
-    ToolApprovalRepository(#[from] ToolApprovalRepositoryError),
-
     #[error("tool approval not found")]
     ToolApprovalNotFound,
+
+    #[error("failed to permit tool: {0}")]
+    ToolPermitter(#[from] ToolPermitterError),
 
     #[error("message not found: {0}")]
     MessageNotFound(Uuid),

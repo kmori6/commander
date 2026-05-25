@@ -1,11 +1,8 @@
-use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
+use crate::application::error::tool_permitter_error::ToolPermitterError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ToolUsecaseError {
-    #[error("tool not found: {0}")]
-    ToolNotFound(String),
-
-    #[error("failed to access tool permission repository: {0}")]
-    ToolPermissionRepository(#[from] ToolPermissionRepositoryError),
+    #[error("failed to permit tool: {0}")]
+    ToolPermitter(#[from] ToolPermitterError),
 }

@@ -3,6 +3,7 @@ use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
 use crate::application::service::tool_executor::ToolExecutor;
+use crate::application::service::tool_permitter::ToolPermitter;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
@@ -140,9 +141,14 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_usecase = Arc::new(ToolUsecase::new(
+    let tool_permitter = Arc::new(ToolPermitter::new(
         tool_executor.clone(),
         tool_permission_repository.clone(),
+        tool_approval_repository.clone(),
+    ));
+    let tool_usecase = Arc::new(ToolUsecase::new(
+        tool_executor.clone(),
+        tool_permitter.clone(),
     ));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
@@ -159,12 +165,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
         tool_executor.clone(),
+        tool_permitter.clone(),
         task_repository.clone(),
         message_repository.clone(),
         subagent_repository,
         event_service.clone(),
-        tool_permission_repository.clone(),
-        tool_approval_repository.clone(),
         instruction_service.clone(),
         model,
     ));

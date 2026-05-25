@@ -6,6 +6,7 @@ use crate::application::service::compaction_service::{CompactionConfig, Compacti
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
 use crate::application::service::tool_executor::ToolExecutor;
+use crate::application::service::tool_permitter::ToolPermitter;
 use crate::domain::model::message::{Message, MessageContent, Role};
 use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
@@ -67,11 +68,10 @@ impl AgentScope {
 pub struct AgentRuntime<L, T, M, P, A> {
     llm_provider: L,
     tool_executor: Arc<ToolExecutor>,
+    tool_permitter: Arc<ToolPermitter<P, A>>,
     task_repository: T,
     message_repository: M,
     subagent_repository: Arc<dyn SubagentRepository>,
-    tool_permission_repository: P,
-    tool_approval_repository: A,
     event_service: Arc<EventService>,
     instruction_service: Arc<InstructionService>,
     model: RwLock<String>,
@@ -88,24 +88,22 @@ where
     pub fn new(
         llm_provider: L,
         tool_executor: Arc<ToolExecutor>,
+        tool_permitter: Arc<ToolPermitter<P, A>>,
         task_repository: T,
         message_repository: M,
         subagent_repository: Arc<dyn SubagentRepository>,
         event_service: Arc<EventService>,
-        tool_permission_repository: P,
-        tool_approval_repository: A,
         instruction_service: Arc<InstructionService>,
         model: String,
     ) -> Self {
         Self {
             llm_provider,
             tool_executor,
+            tool_permitter,
             task_repository,
             message_repository,
             subagent_repository,
             event_service,
-            tool_permission_repository,
-            tool_approval_repository,
             instruction_service,
             model: RwLock::new(model),
         }
@@ -471,8 +469,8 @@ where
                         .await?;
 
                     let approval = self
-                        .tool_approval_repository
-                        .create_pending(task_id, assistant_message_id, &call.call_id)
+                        .tool_permitter
+                        .request(task_id, assistant_message_id, &call.call_id)
                         .await?;
 
                     self.task_repository.await_approval(task_id).await?;
@@ -612,10 +610,7 @@ where
 
     // make tool call output if pending approval exists
     async fn apply_approvals(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
-        let approvals = self
-            .tool_approval_repository
-            .ready_for_task(task_id)
-            .await?;
+        let approvals = self.tool_permitter.ready(task_id).await?;
 
         for approval in approvals {
             self.apply_approval(approval).await?;
@@ -684,7 +679,7 @@ where
     }
 
     pub async fn recover_approvals(&self) -> Result<u64, AgentRuntimeError> {
-        let task_ids = self.tool_approval_repository.ready_task_ids().await?;
+        let task_ids = self.tool_permitter.ready_tasks().await?;
         let count = task_ids.len() as u64;
 
         for task_id in task_ids {
@@ -714,33 +709,15 @@ where
         tool_name: &str,
         scope: &AgentScope,
     ) -> Result<ToolPermissionMode, AgentRuntimeError> {
-        // check for subagent allowed tools
-        if let Some(subagent) = scope.subagent.as_ref() {
-            if !subagent.allows_tool(tool_name) {
-                return Ok(ToolPermissionMode::Deny);
-            }
+        let (allowed_tools, allow_approval) = match scope.subagent.as_ref() {
+            Some(subagent) => (Some(subagent.allowed_tools.as_slice()), false),
+            None => (None, true),
+        };
 
-            let mode =
-                if let Some(permission) = self.tool_permission_repository.find(tool_name).await? {
-                    permission.mode
-                } else {
-                    self.tool_executor
-                        .default_permission(tool_name)
-                        .unwrap_or(ToolPermissionMode::Deny)
-                };
-
-            return Ok(mode.without_approval());
-        }
-
-        // check for root agent tools
-        if let Some(permission) = self.tool_permission_repository.find(tool_name).await? {
-            return Ok(permission.mode);
-        }
-
-        Ok(self
-            .tool_executor
-            .default_permission(tool_name)
-            .unwrap_or(ToolPermissionMode::Deny))
+        self.tool_permitter
+            .mode(tool_name, allowed_tools, allow_approval)
+            .await
+            .map_err(Into::into)
     }
 
     async fn tool_specs(&self, scope: &AgentScope) -> Result<Vec<ToolSpec>, AgentRuntimeError> {

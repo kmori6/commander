@@ -7,6 +7,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::application::error::tool_permitter_error::ToolPermitterError;
 use crate::application::error::tool_usecase_error::ToolUsecaseError;
 use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
 use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode};
@@ -35,7 +36,7 @@ pub async fn update_tool_permission_handler(
         .await
     {
         Ok(permission) => (StatusCode::OK, Json(permission_json(permission))).into_response(),
-        Err(ToolUsecaseError::ToolNotFound(_)) => (
+        Err(ToolUsecaseError::ToolPermitter(ToolPermitterError::ToolNotFound(_))) => (
             StatusCode::NOT_FOUND,
             Json(json!({
                 "error": {
@@ -45,9 +46,9 @@ pub async fn update_tool_permission_handler(
             })),
         )
             .into_response(),
-        Err(ToolUsecaseError::ToolPermissionRepository(
+        Err(ToolUsecaseError::ToolPermitter(ToolPermitterError::ToolPermissionRepository(
             ToolPermissionRepositoryError::InvalidPermission(message),
-        )) => (
+        ))) => (
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": {

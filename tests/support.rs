@@ -5,6 +5,7 @@ use commander::application::runtime::agent_runtime::AgentRuntime;
 use commander::application::service::event_service::EventService;
 use commander::application::service::instruction_service::InstructionService;
 use commander::application::service::tool_executor::ToolExecutor;
+use commander::application::service::tool_permitter::ToolPermitter;
 use commander::application::usecase::message_usecase::MessageUsecase;
 use commander::application::usecase::schedule_usecase::ScheduleUsecase;
 use commander::application::usecase::session_usecase::SessionUsecase;
@@ -61,9 +62,14 @@ pub async fn test_app() -> Router {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_usecase = Arc::new(ToolUsecase::new(
+    let tool_permitter = Arc::new(ToolPermitter::new(
         tool_executor.clone(),
         tool_permission_repository.clone(),
+        tool_approval_repository.clone(),
+    ));
+    let tool_usecase = Arc::new(ToolUsecase::new(
+        tool_executor.clone(),
+        tool_permitter.clone(),
     ));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
@@ -78,12 +84,11 @@ pub async fn test_app() -> Router {
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
         tool_executor,
+        tool_permitter,
         task_repository,
         message_repository,
         subagent_repository,
         event_service.clone(),
-        tool_permission_repository,
-        tool_approval_repository,
         instruction_service,
         model,
     ));
