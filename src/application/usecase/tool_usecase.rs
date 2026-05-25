@@ -21,7 +21,7 @@ where
     }
 
     pub fn list_tools(&self) -> Vec<ToolSpec> {
-        self.tool_executor.list_tools()
+        self.tool_executor.specs()
     }
 
     pub async fn list_permissions(&self) -> Result<Vec<ToolPermission>, ToolUsecaseError> {

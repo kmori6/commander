@@ -19,10 +19,6 @@ impl ToolExecutor {
         Self { tools }
     }
 
-    pub fn list_tools(&self) -> Vec<ToolSpec> {
-        self.specs()
-    }
-
     pub fn exists(&self, tool_name: &str) -> bool {
         self.tools.contains_key(tool_name)
     }
