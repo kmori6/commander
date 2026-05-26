@@ -30,7 +30,5 @@ pub async fn update_model_handler(
         .await
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
 
-    state.agent_runtime.set_model(model.id.clone()).await;
-
     Ok(Json(UpdateModelResponse { model }))
 }

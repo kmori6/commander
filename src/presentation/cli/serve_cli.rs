@@ -160,8 +160,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_repository.clone(),
     ));
 
-    let model = llm_gateway.default_model_id().await;
-
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
         tool_executor.clone(),
@@ -171,7 +169,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         subagent_repository,
         event_service.clone(),
         instruction_service.clone(),
-        model,
     ));
 
     // workers

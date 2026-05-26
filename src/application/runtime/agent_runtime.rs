@@ -22,7 +22,6 @@ use crate::domain::repository::tool_permission_repository::ToolPermissionReposit
 use async_recursion::async_recursion;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 const MAX_LLM_STEPS: usize = 30;
@@ -74,7 +73,6 @@ pub struct AgentRuntime<L, T, M, P, A> {
     subagent_repository: Arc<dyn SubagentRepository>,
     event_service: Arc<EventService>,
     instruction_service: Arc<InstructionService>,
-    model: RwLock<String>,
 }
 
 impl<L, T, M, P, A> AgentRuntime<L, T, M, P, A>
@@ -94,7 +92,6 @@ where
         subagent_repository: Arc<dyn SubagentRepository>,
         event_service: Arc<EventService>,
         instruction_service: Arc<InstructionService>,
-        model: String,
     ) -> Self {
         Self {
             llm_provider,
@@ -105,20 +102,11 @@ where
             subagent_repository,
             event_service,
             instruction_service,
-            model: RwLock::new(model),
         }
     }
 
     pub fn llm_provider(&self) -> &L {
         &self.llm_provider
-    }
-
-    pub async fn model(&self) -> String {
-        self.model.read().await.clone()
-    }
-
-    pub async fn set_model(&self, model: impl Into<String>) {
-        *self.model.write().await = model.into();
     }
 
     // agent runtime -> event service -> event handler -> sse event
@@ -293,7 +281,7 @@ where
                 return Ok(LoopOutcome::Stopped);
             }
 
-            let model = self.model().await;
+            let model = self.llm_provider.current_model_id().await?;
 
             let messages = match state {
                 LoopState::Durable { task } => {

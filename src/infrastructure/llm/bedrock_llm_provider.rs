@@ -125,6 +125,12 @@ impl LlmProvider for BedrockLlmProvider {
     async fn context_window(&self, _model: &str) -> i64 {
         256_000
     }
+
+    async fn current_model_id(&self) -> Result<String, LlmProviderError> {
+        Err(LlmProviderError::Unexpected(
+            "current model is managed by LlmGateway".to_string(),
+        ))
+    }
 }
 
 fn build_system_content_blocks(

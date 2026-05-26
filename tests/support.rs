@@ -50,7 +50,6 @@ pub async fn test_app() -> Router {
     let llm_gateway = LlmGateway::from_config_path(root.join("models.json"))
         .await
         .unwrap();
-    let model = llm_gateway.default_model_id().await;
 
     let session_usecase = Arc::new(SessionUsecase::new(session_repository.clone()));
     let message_usecase = Arc::new(MessageUsecase::new(
@@ -90,7 +89,6 @@ pub async fn test_app() -> Router {
         subagent_repository,
         event_service.clone(),
         instruction_service,
-        model,
     ));
 
     build_router(AppState {

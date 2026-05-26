@@ -173,10 +173,6 @@ impl LlmGateway {
             .expect("llm config is validated at load time")
     }
 
-    pub async fn default_model_id(&self) -> String {
-        self.config.read().await.default_model.clone()
-    }
-
     pub async fn select_model(&self, id: &str) -> Result<Llm, LlmProviderError> {
         let (next_config, selected_model) = {
             let config = self.config.read().await;
@@ -222,6 +218,10 @@ impl LlmProvider for LlmGateway {
             .resolve(model)
             .map(|llm| llm.context_window)
             .unwrap_or(256_000)
+    }
+
+    async fn current_model_id(&self) -> Result<String, LlmProviderError> {
+        Ok(self.config.read().await.default_model.clone())
     }
 }
 

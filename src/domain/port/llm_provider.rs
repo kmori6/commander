@@ -109,4 +109,6 @@ pub trait LlmProvider: Send + Sync {
     async fn respond(&self, request: LlmRequest) -> Result<LlmResponse, LlmProviderError>;
 
     async fn context_window(&self, model: &str) -> i64;
+
+    async fn current_model_id(&self) -> Result<String, LlmProviderError>;
 }
