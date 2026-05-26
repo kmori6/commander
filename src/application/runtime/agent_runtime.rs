@@ -43,27 +43,6 @@ enum ToolRun {
     Stopped,
 }
 
-#[derive(Clone)]
-struct AgentScope {
-    subagent: Option<Subagent>,
-}
-
-impl AgentScope {
-    fn root() -> Self {
-        Self { subagent: None }
-    }
-
-    fn child(subagent: Subagent) -> Self {
-        Self {
-            subagent: Some(subagent),
-        }
-    }
-
-    fn is_root(&self) -> bool {
-        self.subagent.is_none()
-    }
-}
-
 pub struct AgentRuntime<L, T, M, P, A> {
     llm_provider: L,
     tool_executor: Arc<ToolExecutor>,
@@ -123,12 +102,12 @@ where
     async fn build_llm_messages(
         &self,
         task: &Task,
-        scope: &AgentScope,
+        subagent: Option<&Subagent>,
         model: &str,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let mut instruction = self.instruction_service.build_agent_instruction();
 
-        if let Some(subagent) = &scope.subagent {
+        if let Some(subagent) = subagent {
             instruction.push_str("\n\n# Child Agent Profile\n");
             instruction.push_str(&subagent.instruction);
         }
@@ -245,10 +224,7 @@ where
 
             let mut state = LoopState::Durable { task };
 
-            match self
-                .run_loop(task_id, AgentScope::root(), &mut state)
-                .await?
-            {
+            match self.run_loop(task_id, None, &mut state).await? {
                 LoopOutcome::Completed(output) => self.complete(task_id, output).await?,
                 LoopOutcome::AwaitingApproval | LoopOutcome::Stopped => {}
             }
@@ -273,7 +249,7 @@ where
     async fn run_loop(
         &self,
         task_id: Uuid,
-        scope: AgentScope,
+        subagent: Option<Subagent>,
         state: &mut LoopState,
     ) -> Result<LoopOutcome, AgentRuntimeError> {
         for step in 0..MAX_LLM_STEPS {
@@ -282,10 +258,12 @@ where
             }
 
             let model = self.llm_provider.current_model_id().await?;
+            let current_subagent = subagent.as_ref();
 
             let messages = match state {
                 LoopState::Durable { task } => {
-                    self.build_llm_messages(task, &scope, &model).await?
+                    self.build_llm_messages(task, current_subagent, &model)
+                        .await?
                 }
                 LoopState::Ephemeral { messages } => messages.clone(),
             };
@@ -304,7 +282,7 @@ where
                 .llm_provider
                 .respond(
                     LlmRequest::new(model.clone(), messages)
-                        .with_tools(self.tool_specs(&scope).await?),
+                        .with_tools(self.tool_specs(current_subagent).await?),
                 )
                 .await
             {
@@ -377,7 +355,13 @@ where
             }
 
             match self
-                .run_tools(task_id, assistant_message_id, tool_calls, &scope, state)
+                .run_tools(
+                    task_id,
+                    assistant_message_id,
+                    tool_calls,
+                    current_subagent,
+                    state,
+                )
                 .await?
             {
                 ToolRun::Continue => {}
@@ -396,7 +380,7 @@ where
         task_id: Uuid,
         assistant_message_id: Option<Uuid>,
         tool_calls: Vec<ToolCall>,
-        scope: &AgentScope,
+        subagent: Option<&Subagent>,
         state: &mut LoopState,
     ) -> Result<ToolRun, AgentRuntimeError> {
         let mut outputs = Vec::new();
@@ -421,13 +405,13 @@ where
 
             // Subagent is a runtime call, so it is permitted only for the root agent.
             let mode = if call.tool_name == SubagentCall::TOOL_NAME {
-                if scope.is_root() {
+                if subagent.is_none() {
                     ToolPermissionMode::Allow
                 } else {
                     ToolPermissionMode::Deny
                 }
             } else {
-                self.tool_permission(&call.tool_name, scope).await?
+                self.tool_permission(&call.tool_name, subagent).await?
             };
 
             self.emit(
@@ -519,7 +503,7 @@ where
                                 let outcome = self
                                     .run_loop(
                                         task_id,
-                                        AgentScope::child(subagent),
+                                        Some(subagent),
                                         &mut child_state,
                                     )
                                     .await;
@@ -695,9 +679,9 @@ where
     async fn tool_permission(
         &self,
         tool_name: &str,
-        scope: &AgentScope,
+        subagent: Option<&Subagent>,
     ) -> Result<ToolPermissionMode, AgentRuntimeError> {
-        let (allowed_tools, allow_approval) = match scope.subagent.as_ref() {
+        let (allowed_tools, allow_approval) = match subagent {
             Some(subagent) => (Some(subagent.allowed_tools.as_slice()), false),
             None => (None, true),
         };
@@ -708,13 +692,13 @@ where
             .map_err(Into::into)
     }
 
-    async fn tool_specs(&self, scope: &AgentScope) -> Result<Vec<ToolSpec>, AgentRuntimeError> {
-        let allowed_tools = scope
-            .subagent
-            .as_ref()
-            .map(|subagent| subagent.allowed_tools.as_slice());
+    async fn tool_specs(
+        &self,
+        subagent: Option<&Subagent>,
+    ) -> Result<Vec<ToolSpec>, AgentRuntimeError> {
+        let allowed_tools = subagent.map(|subagent| subagent.allowed_tools.as_slice());
 
-        let extra_specs = if scope.is_root() {
+        let extra_specs = if subagent.is_none() {
             let subagent_call = SubagentCall::new(self.subagent_repository.list().await?);
             subagent_call.tool_spec().into_iter().collect::<Vec<_>>()
         } else {
