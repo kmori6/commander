@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::net::IpAddr;
 use std::time::Duration;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -22,13 +22,13 @@ pub struct WebFetchTool {
 }
 
 impl WebFetchTool {
-    pub fn new() -> Result<Self, ToolExecutorError> {
+    pub fn new() -> Result<Self, ToolServiceError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
             .redirect(Policy::limited(MAX_REDIRECTS))
             .user_agent(USER_AGENT)
             .build()
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         Ok(Self { client })
     }
@@ -76,29 +76,29 @@ impl Tool for WebFetchTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: WebFetchArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let url = validate_url(&args.url)?;
         let max_chars = args.max_chars.unwrap_or(DEFAULT_MAX_CHARS);
 
         if max_chars == 0 || max_chars > MAX_CHARS {
-            return Err(ToolExecutorError::InvalidArguments(format!(
+            return Err(ToolServiceError::InvalidArguments(format!(
                 "max_chars must be between 1 and {MAX_CHARS}"
             )));
         }
 
         let response = self.client.get(url.clone()).send().await.map_err(|err| {
             if err.is_timeout() {
-                ToolExecutorError::ExecutionFailed("web fetch timed out".to_string())
+                ToolServiceError::ExecutionFailed("web fetch timed out".to_string())
             } else {
-                ToolExecutorError::ExecutionFailed(err.to_string())
+                ToolServiceError::ExecutionFailed(err.to_string())
             }
         })?;
 
         if !response.status().is_success() {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "web fetch failed: HTTP {}",
                 response.status()
             )));
@@ -111,7 +111,7 @@ impl Tool for WebFetchTool {
                 .and_then(|value| value.parse::<usize>().ok());
 
             if matches!(length, Some(length) if length > MAX_RESPONSE_BYTES) {
-                return Err(ToolExecutorError::ExecutionFailed(format!(
+                return Err(ToolServiceError::ExecutionFailed(format!(
                     "response is too large; limit is {MAX_RESPONSE_BYTES} bytes"
                 )));
             }
@@ -127,10 +127,10 @@ impl Tool for WebFetchTool {
         let bytes = response
             .bytes()
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if bytes.len() > MAX_RESPONSE_BYTES {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "response is too large; limit is {MAX_RESPONSE_BYTES} bytes"
             )));
         }
@@ -147,32 +147,32 @@ impl Tool for WebFetchTool {
     }
 }
 
-fn validate_url(raw_url: &str) -> Result<reqwest::Url, ToolExecutorError> {
+fn validate_url(raw_url: &str) -> Result<reqwest::Url, ToolServiceError> {
     let raw_url = raw_url.trim();
 
     if raw_url.is_empty() {
-        return Err(ToolExecutorError::InvalidArguments(
+        return Err(ToolServiceError::InvalidArguments(
             "url must not be empty".to_string(),
         ));
     }
 
     let url = reqwest::Url::parse(raw_url)
-        .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+        .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
     if !matches!(url.scheme(), "http" | "https") {
-        return Err(ToolExecutorError::InvalidArguments(
+        return Err(ToolServiceError::InvalidArguments(
             "url must start with http:// or https://".to_string(),
         ));
     }
 
     let Some(host) = url.host_str() else {
-        return Err(ToolExecutorError::InvalidArguments(
+        return Err(ToolServiceError::InvalidArguments(
             "url must include a host".to_string(),
         ));
     };
 
     if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return Err(ToolExecutorError::InvalidArguments(
+        return Err(ToolServiceError::InvalidArguments(
             "localhost URLs are not allowed".to_string(),
         ));
     }
@@ -180,7 +180,7 @@ fn validate_url(raw_url: &str) -> Result<reqwest::Url, ToolExecutorError> {
     if let Ok(ip) = host.parse::<IpAddr>()
         && is_blocked_ip(ip)
     {
-        return Err(ToolExecutorError::InvalidArguments(
+        return Err(ToolServiceError::InvalidArguments(
             "private or local IP URLs are not allowed".to_string(),
         ));
     }
@@ -207,7 +207,7 @@ fn is_blocked_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn extract_text(content_type: &str, body: &str) -> Result<String, ToolExecutorError> {
+fn extract_text(content_type: &str, body: &str) -> Result<String, ToolServiceError> {
     let is_html = content_type.is_empty() || content_type.contains("text/html");
     let is_json = content_type.contains("application/json") || content_type.contains("+json");
     let is_text = content_type.starts_with("text/")
@@ -217,7 +217,7 @@ fn extract_text(content_type: &str, body: &str) -> Result<String, ToolExecutorEr
     if is_html {
         html2text::from_read(body.as_bytes(), 80)
             .map(|text| text.trim().to_string())
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))
     } else if is_json {
         let pretty = serde_json::from_str::<Value>(body)
             .ok()
@@ -228,7 +228,7 @@ fn extract_text(content_type: &str, body: &str) -> Result<String, ToolExecutorEr
     } else if is_text {
         Ok(body.to_string())
     } else {
-        Err(ToolExecutorError::ExecutionFailed(format!(
+        Err(ToolServiceError::ExecutionFailed(format!(
             "unsupported content type: {content_type}"
         )))
     }

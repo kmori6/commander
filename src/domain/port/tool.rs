@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::{ToolPermissionMode, ToolSpec};
 
 #[async_trait]
@@ -22,5 +22,5 @@ pub trait Tool: Send + Sync {
         }
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError>;
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError>;
 }

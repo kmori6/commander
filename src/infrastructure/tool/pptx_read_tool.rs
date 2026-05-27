@@ -9,7 +9,7 @@ use tokio::fs;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -27,11 +27,11 @@ impl PptxReadTool {
         Self { workspace_root }
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolExecutorError> {
+    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolServiceError> {
         let path = path.trim();
 
         if path.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "path must not be empty".to_string(),
             ));
         }
@@ -45,14 +45,14 @@ impl PptxReadTool {
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let resolved = fs::canonicalize(joined)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&workspace_root) {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
@@ -94,37 +94,37 @@ impl Tool for PptxReadTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: PptxReadArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let path = self.resolve_path(&args.path).await?;
 
         if path.extension().and_then(|ext| ext.to_str()) != Some("pptx") {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "path must point to a .pptx file".to_string(),
             ));
         }
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !metadata.is_file() {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is not a file: {}",
                 args.path
             )));
         }
 
         if metadata.len() == 0 {
-            return Err(ToolExecutorError::ExecutionFailed(
+            return Err(ToolServiceError::ExecutionFailed(
                 "pptx file is empty".to_string(),
             ));
         }
 
         if metadata.len() > MAX_SOURCE_BYTES {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "pptx file is too large; limit is {MAX_SOURCE_BYTES} bytes"
             )));
         }
@@ -141,22 +141,22 @@ impl Tool for PptxReadTool {
         )
         .await
         .map_err(|_| {
-            ToolExecutorError::ExecutionFailed(format!(
+            ToolServiceError::ExecutionFailed(format!(
                 "markitdown timed out after {TIMEOUT_SECONDS} seconds"
             ))
         })?
-        .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+        .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "markitdown failed: {stderr}"
             )));
         }
 
         let raw_content = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if raw_content.is_empty() {
-            return Err(ToolExecutorError::ExecutionFailed(
+            return Err(ToolServiceError::ExecutionFailed(
                 "pptx contained no extractable text".to_string(),
             ));
         }

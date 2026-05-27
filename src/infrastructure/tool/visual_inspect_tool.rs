@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
@@ -29,10 +29,10 @@ impl VisualInspectTool {
         }
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolExecutorError> {
+    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolServiceError> {
         let path = path.trim();
         if path.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "path must not be empty".to_string(),
             ));
         }
@@ -46,13 +46,13 @@ impl VisualInspectTool {
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
         let resolved = fs::canonicalize(joined)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&workspace_root) {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
@@ -99,39 +99,39 @@ impl Tool for VisualInspectTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: VisualInspectArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let path = self.resolve_path(&args.path).await?;
         let (mime_type, source_kind) = infer_source(&path)?;
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !metadata.is_file() {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is not a file: {}",
                 args.path
             )));
         }
 
         if metadata.len() == 0 {
-            return Err(ToolExecutorError::ExecutionFailed(
+            return Err(ToolServiceError::ExecutionFailed(
                 "visual source file is empty".to_string(),
             ));
         }
 
         if metadata.len() > MAX_SOURCE_BYTES {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "visual source file is too large; limit is {MAX_SOURCE_BYTES} bytes"
             )));
         }
 
         let bytes = fs::read(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
         let data_uri = encode_data_uri(mime_type, &bytes);
 
         let visual_content = match source_kind {
@@ -159,11 +159,11 @@ impl Tool for VisualInspectTool {
             .llm_provider
             .respond(request)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let content = response.output_text("\n").trim().to_string();
         if content.is_empty() {
-            return Err(ToolExecutorError::ExecutionFailed(
+            return Err(ToolServiceError::ExecutionFailed(
                 "visual inspection returned empty content".to_string(),
             ));
         }
@@ -181,7 +181,7 @@ enum SourceKind {
     Pdf,
 }
 
-fn infer_source(path: &Path) -> Result<(&'static str, SourceKind), ToolExecutorError> {
+fn infer_source(path: &Path) -> Result<(&'static str, SourceKind), ToolServiceError> {
     match path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -193,10 +193,10 @@ fn infer_source(path: &Path) -> Result<(&'static str, SourceKind), ToolExecutorE
         Some("gif") => Ok(("image/gif", SourceKind::Image)),
         Some("webp") => Ok(("image/webp", SourceKind::Image)),
         Some("pdf") => Ok(("application/pdf", SourceKind::Pdf)),
-        Some(other) => Err(ToolExecutorError::InvalidArguments(format!(
+        Some(other) => Err(ToolServiceError::InvalidArguments(format!(
             "unsupported visual source format: {other}"
         ))),
-        None => Err(ToolExecutorError::InvalidArguments(
+        None => Err(ToolServiceError::InvalidArguments(
             "file extension is required".to_string(),
         )),
     }

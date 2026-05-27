@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -22,11 +22,11 @@ impl FileReadTool {
         Self { workspace_root }
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolExecutorError> {
+    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolServiceError> {
         let path = path.trim();
 
         if path.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "path must not be empty".to_string(),
             ));
         }
@@ -40,14 +40,14 @@ impl FileReadTool {
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let resolved = fs::canonicalize(joined)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&workspace_root) {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
@@ -101,18 +101,18 @@ impl Tool for FileReadTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: FileReadArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let path = self.resolve_path(&args.path).await?;
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !metadata.is_file() {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is not a file: {}",
                 args.path
             )));
@@ -120,17 +120,17 @@ impl Tool for FileReadTool {
 
         let bytes = fs::read(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let text = String::from_utf8(bytes).map_err(|_| {
-            ToolExecutorError::ExecutionFailed("file is not valid UTF-8".to_string())
+            ToolServiceError::ExecutionFailed("file is not valid UTF-8".to_string())
         })?;
 
         let start_line = args.start_line.unwrap_or(1).max(1);
         let requested_end_line = args.end_line.unwrap_or(start_line + MAX_LINES - 1);
 
         if requested_end_line < start_line {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "end_line must be greater than or equal to start_line".to_string(),
             ));
         }

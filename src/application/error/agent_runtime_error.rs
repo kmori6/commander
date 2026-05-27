@@ -1,4 +1,4 @@
-use crate::application::error::tool_permitter_error::ToolPermitterError;
+use crate::application::error::tool_service_error::ToolServiceError;
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::error::subagent_repository_error::SubagentRepositoryError;
@@ -29,8 +29,8 @@ pub enum AgentRuntimeError {
     #[error("tool approval not found")]
     ToolApprovalNotFound,
 
-    #[error("failed to permit tool: {0}")]
-    ToolPermitter(#[from] ToolPermitterError),
+    #[error("failed to use tool service: {0}")]
+    ToolService(#[from] ToolServiceError),
 
     #[error("message not found: {0}")]
     MessageNotFound(Uuid),

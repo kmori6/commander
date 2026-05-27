@@ -10,6 +10,7 @@ use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
+use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
@@ -43,6 +44,7 @@ pub struct AppState {
             LlmGateway,
             PostgresTaskRepository,
             PostgresMessageRepository,
+            FileSubagentRepository,
             FileToolPermissionRepository,
             PostgresToolApprovalRepository,
         >,

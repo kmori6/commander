@@ -7,7 +7,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -24,7 +24,7 @@ impl TextSearchTool {
         Self { workspace_root }
     }
 
-    fn resolve_path(&self, path: &str) -> Result<(PathBuf, PathBuf), ToolExecutorError> {
+    fn resolve_path(&self, path: &str) -> Result<(PathBuf, PathBuf), ToolServiceError> {
         let path = path.trim();
         let requested = if path.is_empty() {
             Path::new(".")
@@ -33,7 +33,7 @@ impl TextSearchTool {
         };
 
         let workspace_root = std::fs::canonicalize(&self.workspace_root)
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let joined = if requested.is_absolute() {
             requested.to_path_buf()
@@ -42,10 +42,10 @@ impl TextSearchTool {
         };
 
         let resolved = std::fs::canonicalize(joined)
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&workspace_root) {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
@@ -104,20 +104,20 @@ impl Tool for TextSearchTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: TextSearchArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let query = args.query.trim();
 
         if query.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "query must not be empty".to_string(),
             ));
         }
 
-        let regex = Regex::new(query)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+        let regex =
+            Regex::new(query).map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let requested_path = args.path.unwrap_or_else(|| ".".to_string());
         let (workspace_root, search_path) = self.resolve_path(&requested_path)?;
@@ -132,7 +132,7 @@ impl Tool for TextSearchTool {
                 let pattern_path = Path::new(pattern);
 
                 if pattern_path.is_absolute() {
-                    return Err(ToolExecutorError::InvalidArguments(
+                    return Err(ToolServiceError::InvalidArguments(
                         "include must be relative".to_string(),
                     ));
                 }
@@ -141,14 +141,14 @@ impl Tool for TextSearchTool {
                     .components()
                     .any(|component| matches!(component, std::path::Component::ParentDir))
                 {
-                    return Err(ToolExecutorError::InvalidArguments(
+                    return Err(ToolServiceError::InvalidArguments(
                         "include must not contain '..'".to_string(),
                     ));
                 }
 
                 Some(
                     Pattern::new(pattern)
-                        .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?,
+                        .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?,
                 )
             }
             None => None,
@@ -256,9 +256,9 @@ impl Tool for TextSearchTool {
     }
 }
 
-fn relative_path(workspace_root: &Path, path: &Path) -> Result<String, ToolExecutorError> {
+fn relative_path(workspace_root: &Path, path: &Path) -> Result<String, ToolServiceError> {
     let relative = path.strip_prefix(workspace_root).map_err(|err| {
-        ToolExecutorError::ExecutionFailed(format!("failed to build relative path: {err}"))
+        ToolServiceError::ExecutionFailed(format!("failed to build relative path: {err}"))
     })?;
 
     if relative.as_os_str().is_empty() {

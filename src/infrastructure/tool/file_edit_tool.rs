@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -19,11 +19,11 @@ impl FileEditTool {
         Self { workspace_root }
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolExecutorError> {
+    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolServiceError> {
         let path = path.trim();
 
         if path.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "path must not be empty".to_string(),
             ));
         }
@@ -37,14 +37,14 @@ impl FileEditTool {
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let resolved = fs::canonicalize(joined)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&workspace_root) {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
@@ -113,12 +113,12 @@ impl Tool for FileEditTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: FileEditArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         if args.edits.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "edits must not be empty".to_string(),
             ));
         }
@@ -127,10 +127,10 @@ impl Tool for FileEditTool {
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         if !metadata.is_file() {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "path is not a file: {}",
                 args.path
             )));
@@ -139,7 +139,7 @@ impl Tool for FileEditTool {
         if let Ok(metadata) = fs::symlink_metadata(&path).await
             && metadata.file_type().is_symlink()
         {
-            return Err(ToolExecutorError::ExecutionFailed(format!(
+            return Err(ToolServiceError::ExecutionFailed(format!(
                 "refusing to edit symlink: {}",
                 args.path
             )));
@@ -147,21 +147,21 @@ impl Tool for FileEditTool {
 
         let bytes = fs::read(&path)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let mut content = String::from_utf8(bytes).map_err(|_| {
-            ToolExecutorError::ExecutionFailed("file is not valid UTF-8".to_string())
+            ToolServiceError::ExecutionFailed("file is not valid UTF-8".to_string())
         })?;
 
         for (index, edit) in args.edits.iter().enumerate() {
             if edit.old_text.is_empty() {
-                return Err(ToolExecutorError::InvalidArguments(format!(
+                return Err(ToolServiceError::InvalidArguments(format!(
                     "edits[{index}].old_text must not be empty"
                 )));
             }
 
             if edit.old_text == edit.new_text {
-                return Err(ToolExecutorError::InvalidArguments(format!(
+                return Err(ToolServiceError::InvalidArguments(format!(
                     "edits[{index}].old_text and new_text must be different"
                 )));
             }
@@ -169,13 +169,13 @@ impl Tool for FileEditTool {
             let count = content.matches(&edit.old_text).count();
 
             if count == 0 {
-                return Err(ToolExecutorError::ExecutionFailed(format!(
+                return Err(ToolServiceError::ExecutionFailed(format!(
                     "edits[{index}].old_text was not found"
                 )));
             }
 
             if count > 1 {
-                return Err(ToolExecutorError::ExecutionFailed(format!(
+                return Err(ToolServiceError::ExecutionFailed(format!(
                     "edits[{index}].old_text matched {count} times; provide more surrounding context"
                 )));
             }
@@ -185,7 +185,7 @@ impl Tool for FileEditTool {
 
         fs::write(&path, content.as_bytes())
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         Ok(json!({
             "path": args.path,

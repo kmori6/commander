@@ -2,8 +2,7 @@ use crate::application::config::CommanderPaths;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
-use crate::application::service::tool_executor::ToolExecutor;
-use crate::application::service::tool_permitter::ToolPermitter;
+use crate::application::service::tool_service::ToolService;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
@@ -95,9 +94,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
-    let subagent_repository = Arc::new(FileSubagentRepository::new(
-        workspace_root.join("subagents"),
-    ));
+    let subagent_repository = FileSubagentRepository::new(workspace_root.join("subagents"));
 
     let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
 
@@ -107,28 +104,32 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .map_err(std::io::Error::other)?;
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(workspace_root.clone()));
-    let tool_executor = Arc::new(ToolExecutor::new(vec![
-        Arc::new(FileReadTool::new(workspace_root.clone())),
-        Arc::new(PptxReadTool::new(workspace_root.clone())),
-        Arc::new(FileWriteTool::new(workspace_root.clone())),
-        Arc::new(FileEditTool::new(workspace_root.clone())),
-        Arc::new(FileListTool::new(workspace_root.clone())),
-        Arc::new(FileSearchTool::new(workspace_root.clone())),
-        Arc::new(TextSearchTool::new(workspace_root.clone())),
-        Arc::new(TranscribeTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
-        Arc::new(ShellTool::new(
-            workspace_root.clone(),
-            paths.sandbox_env_path(),
-            sandbox_image,
-        )),
-        Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
-        Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
-        Arc::new(VisualInspectTool::new(
-            workspace_root.clone(),
-            visual_inspect_provider,
-        )),
-        Arc::new(MemoryWriteTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
-    ]));
+    let tool_service = Arc::new(ToolService::new(
+        vec![
+            Arc::new(FileReadTool::new(workspace_root.clone())),
+            Arc::new(PptxReadTool::new(workspace_root.clone())),
+            Arc::new(FileWriteTool::new(workspace_root.clone())),
+            Arc::new(FileEditTool::new(workspace_root.clone())),
+            Arc::new(FileListTool::new(workspace_root.clone())),
+            Arc::new(FileSearchTool::new(workspace_root.clone())),
+            Arc::new(TextSearchTool::new(workspace_root.clone())),
+            Arc::new(TranscribeTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
+            Arc::new(ShellTool::new(
+                workspace_root.clone(),
+                paths.sandbox_env_path(),
+                sandbox_image,
+            )),
+            Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
+            Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
+            Arc::new(VisualInspectTool::new(
+                workspace_root.clone(),
+                visual_inspect_provider,
+            )),
+            Arc::new(MemoryWriteTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
+        ],
+        tool_permission_repository.clone(),
+        tool_approval_repository.clone(),
+    ));
 
     // usecases
     let session_usecase = Arc::new(SessionUsecase::new(session_repository.clone()));
@@ -141,15 +142,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_permitter = Arc::new(ToolPermitter::new(
-        tool_executor.clone(),
-        tool_permission_repository.clone(),
-        tool_approval_repository.clone(),
-    ));
-    let tool_usecase = Arc::new(ToolUsecase::new(
-        tool_executor.clone(),
-        tool_permitter.clone(),
-    ));
+    let tool_usecase = Arc::new(ToolUsecase::new(tool_service.clone()));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
         task_repository.clone(),
@@ -162,8 +155,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
 
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
-        tool_executor.clone(),
-        tool_permitter.clone(),
+        tool_service.clone(),
         task_repository.clone(),
         message_repository.clone(),
         subagent_repository,

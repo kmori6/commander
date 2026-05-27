@@ -6,6 +6,7 @@ use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
+use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -15,6 +16,7 @@ type AppAgentRuntime = AgentRuntime<
     LlmGateway,
     PostgresTaskRepository,
     PostgresMessageRepository,
+    FileSubagentRepository,
     FileToolPermissionRepository,
     PostgresToolApprovalRepository,
 >;

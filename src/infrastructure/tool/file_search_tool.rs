@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use crate::domain::error::tool_executor_error::ToolExecutorError;
+use crate::domain::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -62,14 +62,14 @@ impl Tool for FileSearchTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolExecutorError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
         let args: FileSearchArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let pattern = args.pattern.trim();
 
         if pattern.is_empty() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "pattern must not be empty".to_string(),
             ));
         }
@@ -77,7 +77,7 @@ impl Tool for FileSearchTool {
         let pattern_path = Path::new(pattern);
 
         if pattern_path.is_absolute() {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "pattern must be relative to the workspace root".to_string(),
             ));
         }
@@ -86,14 +86,14 @@ impl Tool for FileSearchTool {
             .components()
             .any(|component| matches!(component, std::path::Component::ParentDir))
         {
-            return Err(ToolExecutorError::InvalidArguments(
+            return Err(ToolServiceError::InvalidArguments(
                 "pattern must not contain '..'".to_string(),
             ));
         }
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolExecutorError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
 
         let full_pattern = workspace_root.join(pattern).to_string_lossy().to_string();
 
@@ -104,7 +104,7 @@ impl Tool for FileSearchTool {
         };
 
         let entries = glob_with(&full_pattern, options)
-            .map_err(|err| ToolExecutorError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
 
         let mut matches = Vec::new();
 
@@ -164,9 +164,9 @@ impl Tool for FileSearchTool {
     }
 }
 
-fn relative_path(workspace_root: &Path, path: &Path) -> Result<String, ToolExecutorError> {
+fn relative_path(workspace_root: &Path, path: &Path) -> Result<String, ToolServiceError> {
     let relative = path.strip_prefix(workspace_root).map_err(|err| {
-        ToolExecutorError::ExecutionFailed(format!("failed to build relative path: {err}"))
+        ToolServiceError::ExecutionFailed(format!("failed to build relative path: {err}"))
     })?;
 
     if relative.as_os_str().is_empty() {
