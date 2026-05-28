@@ -39,15 +39,15 @@ pub struct CompactionService {
     config: CompactionConfig,
 }
 
-pub struct CompactionPlan {
-    pub compact: Vec<MessageUnit>,
-    pub until: Uuid,
+struct CompactionPlan {
+    compact: Vec<MessageUnit>,
+    until: Uuid,
 }
 
 #[derive(Clone, Debug)]
-pub struct MessageUnit {
-    pub messages: Vec<Message>,
-    pub complete: bool,
+struct MessageUnit {
+    messages: Vec<Message>,
+    complete: bool,
 }
 
 impl CompactionService {
@@ -80,7 +80,7 @@ impl CompactionService {
         }))
     }
 
-    pub fn plan(&self, messages: Vec<Message>) -> Option<CompactionPlan> {
+    fn plan(&self, messages: Vec<Message>) -> Option<CompactionPlan> {
         if estimate(&messages) < self.config.trigger_tokens {
             return None;
         }
@@ -106,7 +106,7 @@ impl CompactionService {
         Some(CompactionPlan { compact, until })
     }
 
-    pub fn prompt(&self, plan: &CompactionPlan) -> String {
+    fn prompt(&self, plan: &CompactionPlan) -> String {
         let mut text = String::new();
 
         text.push_str("Summarize the omitted conversation for the current LLM request.\n");
