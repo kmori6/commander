@@ -166,6 +166,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // workers
     let task_runner = TaskRunner::new(
         task_usecase.clone(),
+        tool_approval_usecase.clone(),
         agent_runtime.clone(),
         Duration::from_secs(1),
     );

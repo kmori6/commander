@@ -4,15 +4,13 @@ use axum::Router;
 use commander::application::runtime::agent_runtime::AgentRuntime;
 use commander::application::service::event_service::EventService;
 use commander::application::service::instruction_service::InstructionService;
-use commander::application::service::tool_executor::ToolExecutor;
-use commander::application::service::tool_permitter::ToolPermitter;
+use commander::application::service::tool_service::ToolService;
 use commander::application::usecase::message_usecase::MessageUsecase;
 use commander::application::usecase::schedule_usecase::ScheduleUsecase;
 use commander::application::usecase::session_usecase::SessionUsecase;
 use commander::application::usecase::task_usecase::TaskUsecase;
 use commander::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use commander::application::usecase::tool_usecase::ToolUsecase;
-use commander::domain::repository::subagent_repository::SubagentRepository;
 use commander::infrastructure::llm::llm_gateway::LlmGateway;
 use commander::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use commander::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
@@ -40,12 +38,15 @@ pub async fn test_app() -> Router {
     let tool_permission_repository =
         FileToolPermissionRepository::new(root.join("tool_permissions.json"));
     let schedule_repository = FileScheduleRepository::new(root.join("schedules.json"));
-    let subagent_repository: Arc<dyn SubagentRepository> =
-        Arc::new(FileSubagentRepository::new(root.join("subagents")));
+    let subagent_repository = FileSubagentRepository::new(root.join("subagents"));
 
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(root.clone()));
-    let tool_executor = Arc::new(ToolExecutor::default());
+    let tool_service = Arc::new(ToolService::new(
+        vec![],
+        tool_permission_repository.clone(),
+        tool_approval_repository.clone(),
+    ));
 
     let llm_gateway = LlmGateway::from_config_path(root.join("models.json"))
         .await
@@ -61,15 +62,7 @@ pub async fn test_app() -> Router {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_permitter = Arc::new(ToolPermitter::new(
-        tool_executor.clone(),
-        tool_permission_repository.clone(),
-        tool_approval_repository.clone(),
-    ));
-    let tool_usecase = Arc::new(ToolUsecase::new(
-        tool_executor.clone(),
-        tool_permitter.clone(),
-    ));
+    let tool_usecase = Arc::new(ToolUsecase::new(tool_service.clone()));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
         task_repository.clone(),
@@ -82,8 +75,7 @@ pub async fn test_app() -> Router {
 
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
-        tool_executor,
-        tool_permitter,
+        tool_service,
         task_repository,
         message_repository,
         subagent_repository,

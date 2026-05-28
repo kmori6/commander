@@ -44,6 +44,18 @@ where
             .await
     }
 
+    // recovery: task: awaiting_approval + approval: approved/rejected + no tool_call_output -> task: queued
+    pub async fn recover_resolved_approvals(&self) -> Result<u64, ToolApprovalUsecaseError> {
+        let task_ids = self.tool_approval_repository.ready_task_ids().await?;
+        let count = task_ids.len() as u64;
+
+        for task_id in task_ids {
+            self.task_repository.resume_after_approval(task_id).await?;
+        }
+
+        Ok(count)
+    }
+
     // task status: awaiting approval -> queued
     async fn resolve_approval(
         &self,

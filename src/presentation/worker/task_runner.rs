@@ -5,6 +5,7 @@ use tokio::time::{self, MissedTickBehavior};
 use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::task_usecase::TaskUsecase;
+use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
@@ -20,9 +21,12 @@ type AppAgentRuntime = AgentRuntime<
     FileToolPermissionRepository,
     PostgresToolApprovalRepository,
 >;
+type AppToolApprovalUsecase =
+    ToolApprovalUsecase<PostgresToolApprovalRepository, PostgresTaskRepository>;
 
 pub struct TaskRunner {
     task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
+    tool_approval_usecase: Arc<AppToolApprovalUsecase>,
     agent_runtime: Arc<AppAgentRuntime>,
     poll_interval: Duration,
 }
@@ -30,11 +34,13 @@ pub struct TaskRunner {
 impl TaskRunner {
     pub fn new(
         task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
+        tool_approval_usecase: Arc<AppToolApprovalUsecase>,
         agent_runtime: Arc<AppAgentRuntime>,
         poll_interval: Duration,
     ) -> Self {
         Self {
             task_usecase,
+            tool_approval_usecase,
             agent_runtime,
             poll_interval,
         }
@@ -45,8 +51,11 @@ impl TaskRunner {
             log::warn!("task runner recovery failed: {err}");
         }
 
-        // task: awaiting_approval & approved/rejected & no tool_call_output -> queued
-        if let Err(err) = self.agent_runtime.recover_approvals().await {
+        if let Err(err) = self
+            .tool_approval_usecase
+            .recover_resolved_approvals()
+            .await
+        {
             log::warn!("approval recovery failed: {err}");
         }
 

@@ -130,11 +130,4 @@ where
             .await
             .map_err(Into::into)
     }
-
-    pub async fn ready_approval_tasks(&self) -> Result<Vec<Uuid>, ToolServiceError> {
-        self.approval_repository
-            .ready_task_ids()
-            .await
-            .map_err(Into::into)
-    }
 }
