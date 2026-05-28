@@ -3,8 +3,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_bedrockruntime::Client;
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ConversationRole, DocumentBlock, DocumentFormat, DocumentSource, ImageBlock,
-    ImageFormat, ImageSource, JsonSchemaDefinition, Message as BedrockMessage, OutputConfig,
-    OutputFormat, OutputFormatStructure, OutputFormatType, SystemContentBlock, TokenUsage, Tool,
+    ImageFormat, ImageSource, Message as BedrockMessage, SystemContentBlock, TokenUsage, Tool,
     ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus,
     ToolSpecification, ToolUseBlock,
 };
@@ -17,9 +16,7 @@ use uuid::Uuid;
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::message::{MessageContent, MessageUsage, Role, ToolCallOutputStatus};
 use crate::domain::model::tool_call::ToolSpec;
-use crate::domain::port::llm_provider::{
-    LlmMessage, LlmProvider, LlmRequest, LlmResponse, StructuredOutputSchema,
-};
+use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest, LlmResponse};
 use crate::domain::util::data_uri::decode_data_uri;
 
 #[derive(Clone, Debug)]
@@ -42,12 +39,6 @@ impl BedrockLlmProvider {
 #[async_trait]
 impl LlmProvider for BedrockLlmProvider {
     async fn respond(&self, request: LlmRequest) -> Result<LlmResponse, LlmProviderError> {
-        if !request.tools.is_empty() && request.structured_output.is_some() {
-            return Err(LlmProviderError::RequestBuild(
-                "combining tools and structured output is not supported yet".to_string(),
-            ));
-        }
-
         let system_blocks = build_system_content_blocks(&request.messages)?;
         let message_blocks = build_content_blocks(&request.messages)?;
 
@@ -63,10 +54,6 @@ impl LlmProvider for BedrockLlmProvider {
 
         if !request.tools.is_empty() {
             req = req.tool_config(tool_configuration(&request.tools)?);
-        }
-
-        if let Some(schema) = request.structured_output.as_ref() {
-            req = req.output_config(structured_output_config(schema)?);
         }
 
         let output = req.send().await.map_err(|err| {
@@ -312,32 +299,6 @@ fn tool_configuration(tools: &[ToolSpec]) -> Result<ToolConfiguration, LlmProvid
     builder.build().map_err(|err| {
         LlmProviderError::RequestBuild(format!("failed to build Bedrock tool configuration: {err}"))
     })
-}
-
-fn structured_output_config(
-    schema: &StructuredOutputSchema,
-) -> Result<OutputConfig, LlmProviderError> {
-    let schema_string = serde_json::to_string(&schema.schema)
-        .map_err(|err| LlmProviderError::RequestBuild(format!("invalid JSON schema: {err}")))?;
-
-    let json_schema = JsonSchemaDefinition::builder()
-        .name(schema.name.clone())
-        .set_description(schema.description.clone())
-        .schema(schema_string)
-        .build()
-        .map_err(|err| {
-            LlmProviderError::RequestBuild(format!("failed to build JSON schema: {err}"))
-        })?;
-
-    let text_format = OutputFormat::builder()
-        .r#type(OutputFormatType::JsonSchema)
-        .structure(OutputFormatStructure::JsonSchema(json_schema))
-        .build()
-        .map_err(|err| {
-            LlmProviderError::RequestBuild(format!("failed to build output format: {err}"))
-        })?;
-
-    Ok(OutputConfig::builder().text_format(text_format).build())
 }
 
 fn document_to_json(document: &Document) -> Result<Value, LlmProviderError> {

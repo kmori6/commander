@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::domain::error::llm_provider_error::LlmProviderError;
 use crate::domain::model::message::{MessageContent, MessageUsage, Role};
@@ -31,13 +30,6 @@ impl LlmMessage {
         }
     }
 
-    pub fn assistant_text(text: impl Into<String>) -> Self {
-        Self {
-            role: Role::Assistant,
-            contents: vec![MessageContent::output_text(text)],
-        }
-    }
-
     pub fn output_text(&self, separator: &str) -> String {
         self.contents
             .iter()
@@ -48,19 +40,6 @@ impl LlmMessage {
             .collect::<Vec<_>>()
             .join(separator)
     }
-
-    pub fn has_tool_calls(&self) -> bool {
-        self.contents
-            .iter()
-            .any(|content| matches!(content, MessageContent::ToolCall { .. }))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StructuredOutputSchema {
-    pub name: String,
-    pub description: Option<String>,
-    pub schema: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,7 +47,6 @@ pub struct LlmRequest {
     pub model: String,
     pub messages: Vec<LlmMessage>,
     pub tools: Vec<ToolSpec>,
-    pub structured_output: Option<StructuredOutputSchema>,
 }
 
 impl LlmRequest {
@@ -77,17 +55,11 @@ impl LlmRequest {
             model: model.into(),
             messages,
             tools: Vec::new(),
-            structured_output: None,
         }
     }
 
     pub fn with_tools(mut self, tools: Vec<ToolSpec>) -> Self {
         self.tools = tools;
-        self
-    }
-
-    pub fn with_structured_output(mut self, schema: StructuredOutputSchema) -> Self {
-        self.structured_output = Some(schema);
         self
     }
 }

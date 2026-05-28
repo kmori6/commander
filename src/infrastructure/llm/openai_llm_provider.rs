@@ -91,21 +91,6 @@ fn build_responses_body(llm: &Llm, request: &LlmRequest) -> Result<Value, LlmPro
         );
     }
 
-    if let Some(schema) = request.structured_output.as_ref() {
-        let mut format = json!({
-            "type": "json_schema",
-            "name": schema.name,
-            "schema": schema.schema,
-            "strict": true,
-        });
-
-        if let Some(description) = schema.description.as_ref() {
-            format["description"] = json!(description);
-        }
-
-        body["text"] = json!({ "format": format });
-    }
-
     Ok(body)
 }
 
