@@ -6,36 +6,33 @@ use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
-use crate::infrastructure::llm::llm_gateway::LlmGateway;
-use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
-use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
-use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
-use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
+use crate::domain::port::llm_provider::LlmProvider;
+use crate::domain::repository::message_repository::MessageRepository;
+use crate::domain::repository::subagent_repository::SubagentRepository;
+use crate::domain::repository::task_repository::TaskRepository;
+use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
+use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 
-type AppAgentRuntime = AgentRuntime<
-    LlmGateway,
-    PostgresTaskRepository,
-    PostgresMessageRepository,
-    FileSubagentRepository,
-    FileToolPermissionRepository,
-    PostgresToolApprovalRepository,
->;
-type AppToolApprovalUsecase =
-    ToolApprovalUsecase<PostgresToolApprovalRepository, PostgresTaskRepository>;
-
-pub struct TaskRunner {
-    task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
-    tool_approval_usecase: Arc<AppToolApprovalUsecase>,
-    agent_runtime: Arc<AppAgentRuntime>,
+pub struct TaskRunner<L, T, M, S, P, A> {
+    task_usecase: Arc<TaskUsecase<T, M>>,
+    tool_approval_usecase: Arc<ToolApprovalUsecase<A, T>>,
+    agent_runtime: Arc<AgentRuntime<L, T, M, S, P, A>>,
     poll_interval: Duration,
 }
 
-impl TaskRunner {
+impl<L, T, M, S, P, A> TaskRunner<L, T, M, S, P, A>
+where
+    L: LlmProvider,
+    T: TaskRepository,
+    M: MessageRepository,
+    S: SubagentRepository,
+    P: ToolPermissionRepository,
+    A: ToolApprovalRepository,
+{
     pub fn new(
-        task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
-        tool_approval_usecase: Arc<AppToolApprovalUsecase>,
-        agent_runtime: Arc<AppAgentRuntime>,
+        task_usecase: Arc<TaskUsecase<T, M>>,
+        tool_approval_usecase: Arc<ToolApprovalUsecase<A, T>>,
+        agent_runtime: Arc<AgentRuntime<L, T, M, S, P, A>>,
         poll_interval: Duration,
     ) -> Self {
         Self {
