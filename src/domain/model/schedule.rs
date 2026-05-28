@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use cron::Schedule as CronSchedule;
-use std::str::FromStr;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +32,8 @@ impl CronExpression {
             }
         };
 
-        let schedule = CronSchedule::from_str(&parser_expression)
+        let schedule = parser_expression
+            .parse::<CronSchedule>()
             .map_err(|err| format!("invalid cron expression: {err}"))?;
 
         Ok(Self {
@@ -65,7 +65,6 @@ impl CronExpression {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScheduleTimezone {
-    source: &'static str,
     timezone: Tz,
 }
 
@@ -81,14 +80,11 @@ impl ScheduleTimezone {
             .parse::<Tz>()
             .map_err(|err| format!("invalid timezone: {err}"))?;
 
-        Ok(Self {
-            source: timezone.name(),
-            timezone,
-        })
+        Ok(Self { timezone })
     }
 
     pub fn as_str(&self) -> &str {
-        self.source
+        self.timezone.name()
     }
 }
 

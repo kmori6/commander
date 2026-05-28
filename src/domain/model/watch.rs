@@ -8,7 +8,7 @@ pub struct WatchSchedule {
 }
 
 impl WatchSchedule {
-    pub fn restore(cron: String, timezone: String) -> Result<Self, String> {
+    pub fn try_new(cron: String, timezone: String) -> Result<Self, String> {
         Ok(Self {
             cron: CronExpression::parse(&cron)?,
             timezone: ScheduleTimezone::parse(&timezone)?,

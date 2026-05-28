@@ -46,7 +46,7 @@ impl WatchRepository for FileWatchRepository {
         let schedules = stored
             .schedules
             .into_iter()
-            .map(|schedule| WatchSchedule::restore(schedule.cron, schedule.timezone))
+            .map(|schedule| WatchSchedule::try_new(schedule.cron, schedule.timezone))
             .collect::<Result<Vec<_>, _>>()
             .map_err(WatchRepositoryError::InvalidConfig)?;
 

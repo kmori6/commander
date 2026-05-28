@@ -33,7 +33,7 @@ impl TryFrom<ToolApprovalRow> for ToolApproval {
     type Error = ToolApprovalRepositoryError;
 
     fn try_from(row: ToolApprovalRow) -> Result<Self, Self::Error> {
-        let status = ToolApprovalStatus::from_db(&row.status).ok_or_else(|| {
+        let status = tool_approval_status_from_db(&row.status).ok_or_else(|| {
             ToolApprovalRepositoryError::Unexpected(format!(
                 "unknown tool approval status: {}",
                 row.status
@@ -49,6 +49,15 @@ impl TryFrom<ToolApprovalRow> for ToolApproval {
             requested_at: row.requested_at,
             resolved_at: row.resolved_at,
         })
+    }
+}
+
+fn tool_approval_status_from_db(value: &str) -> Option<ToolApprovalStatus> {
+    match value {
+        "pending" => Some(ToolApprovalStatus::Pending),
+        "approved" => Some(ToolApprovalStatus::Approved),
+        "rejected" => Some(ToolApprovalStatus::Rejected),
+        _ => None,
     }
 }
 

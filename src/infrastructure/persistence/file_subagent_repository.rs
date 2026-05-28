@@ -64,7 +64,7 @@ impl SubagentRepository for FileSubagentRepository {
                 }
             };
 
-            match Subagent::restore(
+            match Subagent::try_new(
                 name,
                 stored.description,
                 stored.instruction,

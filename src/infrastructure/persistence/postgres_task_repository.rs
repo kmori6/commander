@@ -36,12 +36,11 @@ impl TryFrom<TaskRow> for Task {
     type Error = TaskRepositoryError;
 
     fn try_from(row: TaskRow) -> Result<Self, Self::Error> {
-        let status = TaskStatus::from_db(&row.status).ok_or_else(|| {
+        let status = task_status_from_db(&row.status).ok_or_else(|| {
             TaskRepositoryError::Unexpected(format!("unknown task status: {}", row.status))
         })?;
 
-        let source = TaskSource::restore(row.session_id, row.schedule_id, row.scheduled_at)
-            .map_err(TaskRepositoryError::Unexpected)?;
+        let source = task_source_from_columns(row.session_id, row.schedule_id, row.scheduled_at)?;
 
         Ok(Task {
             id: row.id,
@@ -53,6 +52,38 @@ impl TryFrom<TaskRow> for Task {
             started_at: row.started_at,
             finished_at: row.finished_at,
         })
+    }
+}
+
+fn task_status_from_db(value: &str) -> Option<TaskStatus> {
+    match value {
+        "queued" => Some(TaskStatus::Queued),
+        "running" => Some(TaskStatus::Running),
+        "awaiting_approval" => Some(TaskStatus::AwaitingApproval),
+        "completed" => Some(TaskStatus::Completed),
+        "failed" => Some(TaskStatus::Failed),
+        "cancelled" => Some(TaskStatus::Cancelled),
+        _ => None,
+    }
+}
+
+fn task_source_from_columns(
+    session_id: Option<Uuid>,
+    schedule_id: Option<Uuid>,
+    scheduled_at: Option<DateTime<Utc>>,
+) -> Result<TaskSource, TaskRepositoryError> {
+    match (session_id, schedule_id, scheduled_at) {
+        (None, None, None) => Ok(TaskSource::Direct),
+        (Some(session_id), None, None) => Ok(TaskSource::Session { session_id }),
+        (None, Some(schedule_id), Some(scheduled_at)) => Ok(TaskSource::Schedule {
+            schedule_id,
+            scheduled_at,
+        }),
+        (None, None, Some(scheduled_at)) => Ok(TaskSource::Watch { scheduled_at }),
+        _ => Err(TaskRepositoryError::Unexpected(
+            "invalid task source: session_id, schedule_id, and scheduled_at combination is invalid"
+                .to_string(),
+        )),
     }
 }
 

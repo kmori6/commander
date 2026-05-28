@@ -7,7 +7,7 @@ pub struct Subagent {
 }
 
 impl Subagent {
-    pub fn restore(
+    pub fn try_new(
         name: impl Into<String>,
         description: impl Into<String>,
         instruction: impl Into<String>,
@@ -40,18 +40,6 @@ impl Subagent {
             allowed_tools: tools,
         })
     }
-
-    pub fn allows_tool(&self, tool_name: &str) -> bool {
-        self.allowed_tools.iter().any(|tool| tool == tool_name)
-    }
-
-    pub fn summary(&self) -> String {
-        if self.description.is_empty() {
-            self.name.clone()
-        } else {
-            format!("{}: {}", self.name, self.description)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -59,8 +47,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn restore_trims_fields_and_tools() {
-        let subagent = Subagent::restore(
+    fn try_new_trims_fields_and_tools() {
+        let subagent = Subagent::try_new(
             " reviewer ",
             " code review ",
             " review carefully ",
@@ -83,52 +71,22 @@ mod tests {
     }
 
     #[test]
-    fn restore_rejects_empty_required_fields() {
+    fn try_new_rejects_empty_required_fields() {
         assert_eq!(
             "name must not be empty",
-            Subagent::restore("", "desc", "instruction", vec!["shell".to_string()]).unwrap_err()
+            Subagent::try_new("", "desc", "instruction", vec!["shell".to_string()]).unwrap_err()
         );
         assert_eq!(
             "instruction must not be empty",
-            Subagent::restore("name", "desc", "", vec!["shell".to_string()]).unwrap_err()
+            Subagent::try_new("name", "desc", "", vec!["shell".to_string()]).unwrap_err()
         );
     }
 
     #[test]
-    fn restore_allows_no_tools() {
+    fn try_new_allows_no_tools() {
         let subagent =
-            Subagent::restore("planner", "", "plan only", vec![" ".to_string()]).unwrap();
+            Subagent::try_new("planner", "", "plan only", vec![" ".to_string()]).unwrap();
 
         assert!(subagent.allowed_tools.is_empty());
-    }
-
-    #[test]
-    fn allows_configured_tool_only() {
-        let subagent =
-            Subagent::restore("reviewer", "", "review", vec!["shell".to_string()]).unwrap();
-
-        assert!(subagent.allows_tool("shell"));
-        assert!(!subagent.allows_tool("write"));
-    }
-
-    #[test]
-    fn summary_uses_description_when_present() {
-        let subagent = Subagent::restore(
-            "reviewer",
-            "code review",
-            "review",
-            vec!["shell".to_string()],
-        )
-        .unwrap();
-
-        assert_eq!("reviewer: code review", subagent.summary());
-    }
-
-    #[test]
-    fn summary_uses_name_without_description() {
-        let subagent =
-            Subagent::restore("reviewer", "", "review", vec!["shell".to_string()]).unwrap();
-
-        assert_eq!("reviewer", subagent.summary());
     }
 }

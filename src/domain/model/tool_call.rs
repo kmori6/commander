@@ -55,15 +55,6 @@ impl ToolApprovalStatus {
             Self::Rejected => "rejected",
         }
     }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "pending" => Some(Self::Pending),
-            "approved" => Some(Self::Approved),
-            "rejected" => Some(Self::Rejected),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

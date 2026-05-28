@@ -83,7 +83,7 @@ impl SubagentCall {
         let descriptions = self
             .subagents
             .iter()
-            .map(Subagent::summary)
+            .map(subagent_summary)
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -150,5 +150,13 @@ impl SubagentCall {
         }
 
         Ok(())
+    }
+}
+
+fn subagent_summary(subagent: &Subagent) -> String {
+    if subagent.description.is_empty() {
+        subagent.name.clone()
+    } else {
+        format!("{}: {}", subagent.name, subagent.description)
     }
 }

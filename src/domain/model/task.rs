@@ -18,24 +18,6 @@ pub enum TaskSource {
 }
 
 impl TaskSource {
-    // source columns -> task source
-    pub fn restore(
-        session_id: Option<Uuid>,
-        schedule_id: Option<Uuid>,
-        scheduled_at: Option<DateTime<Utc>>,
-    ) -> Result<Self, String> {
-        match (session_id, schedule_id, scheduled_at) {
-            (None, None, None) => Ok(Self::Direct),
-            (Some(session_id), None, None) => Ok(Self::Session { session_id }),
-            (None, Some(schedule_id), Some(scheduled_at)) => Ok(Self::Schedule {
-                schedule_id,
-                scheduled_at,
-            }),
-            (None, None, Some(scheduled_at)) => Ok(Self::Watch { scheduled_at }),
-            _ => Err("invalid task source: session_id, schedule_id, and scheduled_at combination is invalid".to_string()),
-        }
-    }
-
     pub fn session_id(&self) -> Option<Uuid> {
         match self {
             Self::Session { session_id } => Some(*session_id),
@@ -80,18 +62,6 @@ impl TaskStatus {
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
-        }
-    }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "queued" => Some(Self::Queued),
-            "running" => Some(Self::Running),
-            "awaiting_approval" => Some(Self::AwaitingApproval),
-            "completed" => Some(Self::Completed),
-            "failed" => Some(Self::Failed),
-            "cancelled" => Some(Self::Cancelled),
-            _ => None,
         }
     }
 
