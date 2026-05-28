@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 
-use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -15,9 +15,9 @@ pub struct MemoryWriteTool {
 }
 
 impl MemoryWriteTool {
-    pub fn new(workspace_root: impl Into<PathBuf>) -> Result<Self, ToolServiceError> {
+    pub fn new(workspace_root: impl Into<PathBuf>) -> Result<Self, ToolError> {
         let workspace_root = std::fs::canonicalize(workspace_root.into())
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         Ok(Self { workspace_root })
     }
@@ -30,7 +30,7 @@ impl MemoryWriteTool {
         &self,
         target: MemoryTarget,
         journal_date: Option<&str>,
-    ) -> Result<PathBuf, ToolServiceError> {
+    ) -> Result<PathBuf, ToolError> {
         match target {
             MemoryTarget::Memory => Ok(self.memory_root().join("MEMORY.md")),
             MemoryTarget::Journal => {
@@ -38,7 +38,7 @@ impl MemoryWriteTool {
                     Some(value) if !value.trim().is_empty() => {
                         let value = value.trim();
                         NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
-                            ToolServiceError::InvalidArguments(
+                            ToolError::InvalidArguments(
                                 "journal_date must use YYYY-MM-DD format".to_string(),
                             )
                         })?;
@@ -107,32 +107,30 @@ impl Tool for MemoryWriteTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolError> {
         let args: MemoryWriteArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let content = args.content.trim();
         if content.is_empty() {
-            return Err(ToolServiceError::InvalidArguments(
+            return Err(ToolError::InvalidArguments(
                 "content must not be empty".to_string(),
             ));
         }
 
         let path = self.resolve_path(args.target, args.journal_date.as_deref())?;
         let parent = path.parent().ok_or_else(|| {
-            ToolServiceError::ExecutionFailed(
-                "memory path must include a parent directory".to_string(),
-            )
+            ToolError::ExecutionFailed("memory path must include a parent directory".to_string())
         })?;
 
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let existing = match tokio::fs::read_to_string(&path).await {
             Ok(value) => value,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(err) => return Err(ToolServiceError::ExecutionFailed(err.to_string())),
+            Err(err) => return Err(ToolError::ExecutionFailed(err.to_string())),
         };
 
         let separator = if existing.trim().is_empty() || existing.ends_with("\n\n") {
@@ -150,11 +148,11 @@ impl Tool for MemoryWriteTool {
             .append(true)
             .open(&path)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         file.write_all(entry.as_bytes())
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let relative_path = path
             .strip_prefix(&self.workspace_root)

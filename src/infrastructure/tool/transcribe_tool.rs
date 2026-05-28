@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -23,14 +23,14 @@ pub struct TranscribeTool {
 }
 
 impl TranscribeTool {
-    pub fn new(workspace_root: impl Into<PathBuf>) -> Result<Self, ToolServiceError> {
+    pub fn new(workspace_root: impl Into<PathBuf>) -> Result<Self, ToolError> {
         let workspace_root = std::fs::canonicalize(workspace_root.into())
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(TIMEOUT_SECONDS))
             .build()
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         Ok(Self {
             workspace_root,
@@ -39,11 +39,11 @@ impl TranscribeTool {
         })
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolServiceError> {
+    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         let path = path.trim();
 
         if path.is_empty() {
-            return Err(ToolServiceError::InvalidArguments(
+            return Err(ToolError::InvalidArguments(
                 "audio_path must not be empty".to_string(),
             ));
         }
@@ -57,10 +57,10 @@ impl TranscribeTool {
 
         let resolved = fs::canonicalize(joined)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&self.workspace_root) {
-            return Err(ToolServiceError::ExecutionFailed(format!(
+            return Err(ToolError::ExecutionFailed(format!(
                 "audio_path is outside workspace: {path}"
             )));
         }
@@ -120,9 +120,9 @@ impl Tool for TranscribeTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolError> {
         let args = serde_json::from_value::<TranscribeArguments>(arguments)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let language = args.language.and_then(|value| {
             let value = value.trim().to_string();
@@ -132,10 +132,10 @@ impl Tool for TranscribeTool {
         let path = self.resolve_path(&args.audio_path).await?;
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         if !metadata.is_file() {
-            return Err(ToolServiceError::ExecutionFailed(format!(
+            return Err(ToolError::ExecutionFailed(format!(
                 "audio_path is not a file: {}",
                 args.audio_path
             )));
@@ -143,7 +143,7 @@ impl Tool for TranscribeTool {
 
         let bytes = fs::read(&path)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let file_name = path
             .file_name()
@@ -171,22 +171,22 @@ impl Tool for TranscribeTool {
             .multipart(form)
             .send()
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         if !status.is_success() {
-            return Err(ToolServiceError::ExecutionFailed(format!(
+            return Err(ToolError::ExecutionFailed(format!(
                 "transcription failed: HTTP {status}: {body}"
             )));
         }
 
         let transcription = serde_json::from_str::<TranscriptionResponse>(&body)
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let segments = transcription
             .segments

@@ -5,7 +5,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -19,11 +19,11 @@ impl FileWriteTool {
         Self { workspace_root }
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolServiceError> {
+    async fn resolve_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         let path = path.trim();
 
         if path.is_empty() {
-            return Err(ToolServiceError::InvalidArguments(
+            return Err(ToolError::InvalidArguments(
                 "path must not be empty".to_string(),
             ));
         }
@@ -34,14 +34,14 @@ impl FileWriteTool {
             .components()
             .any(|component| matches!(component, std::path::Component::ParentDir))
         {
-            return Err(ToolServiceError::InvalidArguments(
+            return Err(ToolError::InvalidArguments(
                 "path must not contain '..'".to_string(),
             ));
         }
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let resolved = if requested.is_absolute() {
             requested.to_path_buf()
@@ -50,29 +50,29 @@ impl FileWriteTool {
         };
 
         let parent = resolved.parent().ok_or_else(|| {
-            ToolServiceError::InvalidArguments("path must have a parent directory".to_string())
+            ToolError::InvalidArguments("path must have a parent directory".to_string())
         })?;
 
         let existing_ancestor = deepest_existing_ancestor(parent).await?;
         let existing_ancestor = fs::canonicalize(existing_ancestor)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         if !existing_ancestor.starts_with(&workspace_root) {
-            return Err(ToolServiceError::ExecutionFailed(format!(
+            return Err(ToolError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
 
         if let Ok(metadata) = fs::symlink_metadata(&resolved).await {
             if metadata.file_type().is_symlink() {
-                return Err(ToolServiceError::ExecutionFailed(format!(
+                return Err(ToolError::ExecutionFailed(format!(
                     "refusing to write through symlink: {path}"
                 )));
             }
 
             if metadata.is_dir() {
-                return Err(ToolServiceError::ExecutionFailed(format!(
+                return Err(ToolError::ExecutionFailed(format!(
                     "path is a directory: {path}"
                 )));
             }
@@ -120,23 +120,23 @@ impl Tool for FileWriteTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolError> {
         let args: FileWriteArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let path = self.resolve_path(&args.path).await?;
 
         let parent = path.parent().ok_or_else(|| {
-            ToolServiceError::InvalidArguments("path must have a parent directory".to_string())
+            ToolError::InvalidArguments("path must have a parent directory".to_string())
         })?;
 
         fs::create_dir_all(parent)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         fs::write(&path, args.content.as_bytes())
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         Ok(json!({
             "path": args.path,
@@ -145,7 +145,7 @@ impl Tool for FileWriteTool {
     }
 }
 
-async fn deepest_existing_ancestor(path: &Path) -> Result<PathBuf, ToolServiceError> {
+async fn deepest_existing_ancestor(path: &Path) -> Result<PathBuf, ToolError> {
     let mut current = path.to_path_buf();
 
     loop {
@@ -153,19 +153,19 @@ async fn deepest_existing_ancestor(path: &Path) -> Result<PathBuf, ToolServiceEr
             Ok(true) => return Ok(current),
             Ok(false) => {
                 current = current.parent().map(Path::to_path_buf).ok_or_else(|| {
-                    ToolServiceError::ExecutionFailed(
+                    ToolError::ExecutionFailed(
                         "failed to find existing parent directory".to_string(),
                     )
                 })?;
             }
             Err(err) if err.kind() == ErrorKind::NotFound => {
                 current = current.parent().map(Path::to_path_buf).ok_or_else(|| {
-                    ToolServiceError::ExecutionFailed(
+                    ToolError::ExecutionFailed(
                         "failed to find existing parent directory".to_string(),
                     )
                 })?;
             }
-            Err(err) => return Err(ToolServiceError::ExecutionFailed(err.to_string())),
+            Err(err) => return Err(ToolError::ExecutionFailed(err.to_string())),
         }
     }
 }

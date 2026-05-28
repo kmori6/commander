@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -21,19 +21,18 @@ pub struct WebSearchTool {
 }
 
 impl WebSearchTool {
-    pub fn from_env() -> Result<Self, ToolServiceError> {
-        let api_key = std::env::var("TAVILY_API_KEY").map_err(|_| {
-            ToolServiceError::ExecutionFailed("TAVILY_API_KEY is not set".to_string())
-        })?;
+    pub fn from_env() -> Result<Self, ToolError> {
+        let api_key = std::env::var("TAVILY_API_KEY")
+            .map_err(|_| ToolError::ExecutionFailed("TAVILY_API_KEY is not set".to_string()))?;
 
         Self::new(api_key)
     }
 
-    pub fn new(api_key: impl Into<String>) -> Result<Self, ToolServiceError> {
+    pub fn new(api_key: impl Into<String>) -> Result<Self, ToolError> {
         let api_key = api_key.into().trim().to_string();
 
         if api_key.is_empty() {
-            return Err(ToolServiceError::ExecutionFailed(
+            return Err(ToolError::ExecutionFailed(
                 "TAVILY_API_KEY must not be empty".to_string(),
             ));
         }
@@ -41,7 +40,7 @@ impl WebSearchTool {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
             .build()
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         Ok(Self { api_key, client })
     }
@@ -139,14 +138,14 @@ impl Tool for WebSearchTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolError> {
         let args: WebSearchArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let query = args.query.trim();
 
         if query.is_empty() {
-            return Err(ToolServiceError::InvalidArguments(
+            return Err(ToolError::InvalidArguments(
                 "query must not be empty".to_string(),
             ));
         }
@@ -154,7 +153,7 @@ impl Tool for WebSearchTool {
         let max_results = args.max_results.unwrap_or(DEFAULT_MAX_RESULTS);
 
         if max_results == 0 || max_results > MAX_RESULTS {
-            return Err(ToolServiceError::InvalidArguments(format!(
+            return Err(ToolError::InvalidArguments(format!(
                 "max_results must be between 1 and {MAX_RESULTS}"
             )));
         }
@@ -187,9 +186,9 @@ impl Tool for WebSearchTool {
             .await
             .map_err(|err| {
                 if err.is_timeout() {
-                    ToolServiceError::ExecutionFailed("Tavily search timed out".to_string())
+                    ToolError::ExecutionFailed("Tavily search timed out".to_string())
                 } else {
-                    ToolServiceError::ExecutionFailed(err.to_string())
+                    ToolError::ExecutionFailed(err.to_string())
                 }
             })?;
 
@@ -200,7 +199,7 @@ impl Tool for WebSearchTool {
         let payload: TavilySearchResponse = response
             .json()
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let results = payload
             .results
@@ -225,7 +224,7 @@ fn validate_enum(
     value: Option<String>,
     name: &str,
     allowed: &[&str],
-) -> Result<Option<String>, ToolServiceError> {
+) -> Result<Option<String>, ToolError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -239,14 +238,14 @@ fn validate_enum(
     if allowed.contains(&value.as_str()) {
         Ok(Some(value))
     } else {
-        Err(ToolServiceError::InvalidArguments(format!(
+        Err(ToolError::InvalidArguments(format!(
             "{name} must be one of: {}",
             allowed.join(", ")
         )))
     }
 }
 
-fn normalize_domains(value: Option<Vec<String>>) -> Result<Vec<String>, ToolServiceError> {
+fn normalize_domains(value: Option<Vec<String>>) -> Result<Vec<String>, ToolError> {
     let mut domains = Vec::new();
 
     for raw in value.unwrap_or_default() {
@@ -263,10 +262,10 @@ fn normalize_domains(value: Option<Vec<String>>) -> Result<Vec<String>, ToolServ
         };
 
         let parsed = reqwest::Url::parse(&candidate)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let Some(host) = parsed.host_str() else {
-            return Err(ToolServiceError::InvalidArguments(format!(
+            return Err(ToolError::InvalidArguments(format!(
                 "invalid domain: {raw}"
             )));
         };
@@ -274,7 +273,7 @@ fn normalize_domains(value: Option<Vec<String>>) -> Result<Vec<String>, ToolServ
         let domain = host.trim().to_ascii_lowercase();
 
         if !is_valid_domain(&domain) {
-            return Err(ToolServiceError::InvalidArguments(format!(
+            return Err(ToolError::InvalidArguments(format!(
                 "invalid domain: {raw}"
             )));
         }
@@ -284,7 +283,7 @@ fn normalize_domains(value: Option<Vec<String>>) -> Result<Vec<String>, ToolServ
         }
 
         if domains.len() > MAX_DOMAINS {
-            return Err(ToolServiceError::InvalidArguments(format!(
+            return Err(ToolError::InvalidArguments(format!(
                 "domains must contain at most {MAX_DOMAINS} entries"
             )));
         }
@@ -302,12 +301,12 @@ fn is_valid_domain(domain: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '.')
 }
 
-async fn tavily_error(response: reqwest::Response) -> ToolServiceError {
+async fn tavily_error(response: reqwest::Response) -> ToolError {
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     let body = truncate_text(&body, MAX_ERROR_BODY_BYTES);
 
-    ToolServiceError::ExecutionFailed(format!("Tavily search failed: HTTP {status}: {body}"))
+    ToolError::ExecutionFailed(format!("Tavily search failed: HTTP {status}: {body}"))
 }
 
 fn truncate_text(text: &str, max_bytes: usize) -> String {

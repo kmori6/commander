@@ -1,1 +1,19 @@
-pub use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
+use crate::domain::error::tool_error::ToolError;
+use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ToolServiceError {
+    #[error("tool not found: {0}")]
+    ToolNotFound(String),
+
+    #[error(transparent)]
+    Tool(#[from] ToolError),
+
+    #[error("failed to access permission repository: {0}")]
+    PermissionRepository(#[from] ToolPermissionRepositoryError),
+
+    #[error("failed to access approval repository: {0}")]
+    ApprovalRepository(#[from] ToolApprovalRepositoryError),
+}

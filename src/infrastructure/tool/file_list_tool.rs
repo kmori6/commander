@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
@@ -21,7 +21,7 @@ impl FileListTool {
         Self { workspace_root }
     }
 
-    async fn resolve_path(&self, path: &str) -> Result<(PathBuf, PathBuf), ToolServiceError> {
+    async fn resolve_path(&self, path: &str) -> Result<(PathBuf, PathBuf), ToolError> {
         let path = path.trim();
         let requested = if path.is_empty() {
             Path::new(".")
@@ -31,7 +31,7 @@ impl FileListTool {
 
         let workspace_root = fs::canonicalize(&self.workspace_root)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let joined = if requested.is_absolute() {
             requested.to_path_buf()
@@ -41,10 +41,10 @@ impl FileListTool {
 
         let resolved = fs::canonicalize(joined)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         if !resolved.starts_with(&workspace_root) {
-            return Err(ToolServiceError::ExecutionFailed(format!(
+            return Err(ToolError::ExecutionFailed(format!(
                 "path is outside workspace: {path}"
             )));
         }
@@ -92,33 +92,33 @@ impl Tool for FileListTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolError> {
         let args: FileListArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let requested_path = args.path.unwrap_or_else(|| ".".to_string());
         let (workspace_root, path) = self.resolve_path(&requested_path).await?;
 
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         if !metadata.is_dir() {
-            return Err(ToolServiceError::ExecutionFailed(format!(
+            return Err(ToolError::ExecutionFailed(format!(
                 "path is not a directory: {requested_path}"
             )));
         }
 
         let mut read_dir = fs::read_dir(&path)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         let mut entries = Vec::new();
 
         while let Some(entry) = read_dir
             .next_entry()
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
         {
             let entry_path = entry.path();
             let Ok(resolved_entry_path) = fs::canonicalize(&entry_path).await else {
@@ -132,7 +132,7 @@ impl Tool for FileListTool {
             let metadata = entry
                 .metadata()
                 .await
-                .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+                .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
             let kind = if metadata.is_dir() {
                 "directory"
@@ -178,9 +178,9 @@ impl Tool for FileListTool {
     }
 }
 
-fn relative_path(workspace_root: &Path, path: &Path) -> Result<String, ToolServiceError> {
+fn relative_path(workspace_root: &Path, path: &Path) -> Result<String, ToolError> {
     let relative = path.strip_prefix(workspace_root).map_err(|err| {
-        ToolServiceError::ExecutionFailed(format!("failed to build relative path: {err}"))
+        ToolError::ExecutionFailed(format!("failed to build relative path: {err}"))
     })?;
 
     if relative.as_os_str().is_empty() {

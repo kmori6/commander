@@ -5,6 +5,6 @@ pub mod session_repository_error;
 pub mod subagent_repository_error;
 pub mod task_repository_error;
 pub mod tool_approval_repository_error;
+pub mod tool_error;
 pub mod tool_permission_repository_error;
-pub mod tool_service_error;
 pub mod watch_repository_error;

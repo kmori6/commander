@@ -1,4 +1,4 @@
-use crate::domain::error::tool_service_error::ToolServiceError;
+use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 use crate::infrastructure::process::docker_sandbox_runner::DockerSandboxRunner;
@@ -78,13 +78,13 @@ impl Tool for ShellTool {
         })
     }
 
-    async fn execute(&self, arguments: Value) -> Result<Value, ToolServiceError> {
+    async fn execute(&self, arguments: Value) -> Result<Value, ToolError> {
         let args: ShellArguments = serde_json::from_value(arguments)
-            .map_err(|err| ToolServiceError::InvalidArguments(err.to_string()))?;
+            .map_err(|err| ToolError::InvalidArguments(err.to_string()))?;
 
         let command = args.command.trim();
         if command.is_empty() {
-            return Err(ToolServiceError::InvalidArguments(
+            return Err(ToolError::InvalidArguments(
                 "command must not be empty".to_string(),
             ));
         }
@@ -93,7 +93,7 @@ impl Tool for ShellTool {
 
         let timeout_seconds = args.timeout.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
         if timeout_seconds == 0 || timeout_seconds > MAX_TIMEOUT_SECONDS {
-            return Err(ToolServiceError::InvalidArguments(format!(
+            return Err(ToolError::InvalidArguments(format!(
                 "timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds"
             )));
         }
@@ -108,7 +108,7 @@ impl Tool for ShellTool {
             .sandbox_runner
             .run_shell(request)
             .await
-            .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
         Ok(json!({
             "exit_code": output.exit_code,
@@ -119,7 +119,7 @@ impl Tool for ShellTool {
     }
 }
 
-fn validate_hard_block(command: &str) -> Result<(), ToolServiceError> {
+fn validate_hard_block(command: &str) -> Result<(), ToolError> {
     let normalized = command.to_lowercase();
 
     let blocked_patterns = [
@@ -154,14 +154,14 @@ fn validate_hard_block(command: &str) -> Result<(), ToolServiceError> {
         .iter()
         .any(|pattern| normalized.contains(pattern))
     {
-        return Err(ToolServiceError::ExecutionFailed(
+        return Err(ToolError::ExecutionFailed(
             "command is blocked by shell safety policy".to_string(),
         ));
     }
 
     for word in ["sudo", "sudoedit", "su", "doas", "pkexec"] {
         if contains_shell_word(&normalized, word) {
-            return Err(ToolServiceError::ExecutionFailed(
+            return Err(ToolError::ExecutionFailed(
                 "command is blocked by shell safety policy".to_string(),
             ));
         }
@@ -179,7 +179,7 @@ fn contains_shell_word(command: &str, word: &str) -> bool {
 fn resolve_workspace_cwd(
     workspace_root: &Path,
     cwd: Option<&str>,
-) -> Result<Option<PathBuf>, ToolServiceError> {
+) -> Result<Option<PathBuf>, ToolError> {
     let Some(cwd) = cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) else {
         return Ok(None);
     };
@@ -187,7 +187,7 @@ fn resolve_workspace_cwd(
     let path = Path::new(cwd);
 
     if path.is_absolute() {
-        return Err(ToolServiceError::InvalidArguments(
+        return Err(ToolError::InvalidArguments(
             "cwd must be relative to the workspace root".to_string(),
         ));
     }
@@ -196,22 +196,22 @@ fn resolve_workspace_cwd(
 
     let workspace_root = workspace_root
         .canonicalize()
-        .map_err(|err| ToolServiceError::ExecutionFailed(err.to_string()))?;
+        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 
     let candidate = candidate.canonicalize().map_err(|err| {
-        ToolServiceError::InvalidArguments(format!(
+        ToolError::InvalidArguments(format!(
             "cwd must be an existing directory inside the workspace: {err}"
         ))
     })?;
 
     if !candidate.starts_with(&workspace_root) {
-        return Err(ToolServiceError::InvalidArguments(
+        return Err(ToolError::InvalidArguments(
             "cwd must stay inside the workspace root".to_string(),
         ));
     }
 
     if !candidate.is_dir() {
-        return Err(ToolServiceError::InvalidArguments(
+        return Err(ToolError::InvalidArguments(
             "cwd must be a directory".to_string(),
         ));
     }
