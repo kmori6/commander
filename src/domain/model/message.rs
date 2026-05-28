@@ -19,15 +19,6 @@ impl Role {
             Self::Assistant => "assistant",
         }
     }
-
-    pub fn from_db(value: &str) -> Option<Self> {
-        match value {
-            "system" => Some(Self::System),
-            "user" => Some(Self::User),
-            "assistant" => Some(Self::Assistant),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,10 +87,6 @@ impl MessageContent {
         }
     }
 
-    pub fn can_persist(&self) -> bool {
-        !matches!(self, Self::InputImage { .. } | Self::InputFile { .. })
-    }
-
     pub fn fits_role(&self, role: Role) -> bool {
         match self {
             Self::InputText { .. } => matches!(role, Role::System | Role::User),
@@ -119,10 +106,6 @@ pub struct MessageUsage {
 }
 
 impl MessageUsage {
-    pub fn total_tokens(self) -> i64 {
-        self.input_tokens + self.output_tokens
-    }
-
     pub fn is_valid(self) -> bool {
         self.input_tokens >= 0
             && self.output_tokens >= 0
@@ -163,18 +146,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn usage_total_counts_input_and_output() {
-        let usage = MessageUsage {
-            input_tokens: 10,
-            output_tokens: 7,
-            cache_read_tokens: 100,
-            cache_write_tokens: 200,
-        };
-
-        assert_eq!(usage.total_tokens(), 17);
-    }
-
-    #[test]
     fn usage_rejects_negative_tokens() {
         let usage = MessageUsage {
             input_tokens: 0,
@@ -213,10 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn file_content_is_runtime_only() {
+    fn file_content_fits_user_only() {
         let content = MessageContent::input_file("a.txt", "data:text/plain;base64,xxx");
 
-        assert!(!content.can_persist());
         assert!(content.fits_role(Role::User));
+        assert!(!content.fits_role(Role::Assistant));
+        assert!(!content.fits_role(Role::System));
     }
 }

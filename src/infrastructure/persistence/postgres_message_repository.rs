@@ -122,7 +122,7 @@ fn map_sqlx_error(err: sqlx::Error) -> MessageRepositoryError {
 }
 
 fn row_to_message(row: MessageRow) -> Result<Message, MessageRepositoryError> {
-    let role = Role::from_db(&row.role)
+    let role = role_from_db(&row.role)
         .ok_or_else(|| MessageRepositoryError::Unexpected(format!("unknown role: {}", row.role)))?;
 
     Ok(Message {
@@ -136,11 +136,20 @@ fn row_to_message(row: MessageRow) -> Result<Message, MessageRepositoryError> {
     })
 }
 
+fn role_from_db(value: &str) -> Option<Role> {
+    match value {
+        "system" => Some(Role::System),
+        "user" => Some(Role::User),
+        "assistant" => Some(Role::Assistant),
+        _ => None,
+    }
+}
+
 fn validate_contents(
     role: Role,
     contents: &[MessageContent],
 ) -> Result<(), MessageRepositoryError> {
-    if contents.iter().any(|content| !content.can_persist()) {
+    if contents.iter().any(is_runtime_only_content) {
         return Err(MessageRepositoryError::InvalidMessage(
             "input_image and input_file are runtime-only contents and cannot be persisted"
                 .to_string(),
@@ -154,6 +163,13 @@ fn validate_contents(
     }
 
     Ok(())
+}
+
+fn is_runtime_only_content(content: &MessageContent) -> bool {
+    matches!(
+        content,
+        MessageContent::InputImage { .. } | MessageContent::InputFile { .. }
+    )
 }
 
 #[async_trait]
