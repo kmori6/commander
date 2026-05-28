@@ -108,14 +108,28 @@ impl LlmConfig {
             )
         })?;
 
-        Llm::restore(
-            model.id.clone(),
-            provider.kind,
-            model.model.clone(),
-            model.context_window,
-            provider.base_url.clone(),
-            provider.api_key_env.clone(),
-        )
+        let model_id = model.id.trim().to_string();
+        if model_id.is_empty() {
+            return Err("llm id must not be empty".to_string());
+        }
+
+        let model_name = model.model.trim().to_string();
+        if model_name.is_empty() {
+            return Err("llm model must not be empty".to_string());
+        }
+
+        if model.context_window <= 0 {
+            return Err("llm context_window must be positive".to_string());
+        }
+
+        Ok(Llm {
+            id: model_id,
+            provider: provider.kind,
+            model: model_name,
+            context_window: model.context_window,
+            base_url: provider.base_url.clone(),
+            api_key_env: provider.api_key_env.clone(),
+        })
     }
 
     fn list_llms(&self) -> Result<Vec<Llm>, String> {
