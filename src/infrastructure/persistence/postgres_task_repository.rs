@@ -40,19 +40,19 @@ impl TryFrom<TaskRow> for Task {
             TaskRepositoryError::Unexpected(format!("unknown task status: {}", row.status))
         })?;
 
-        Task::restore(
-            row.id,
+        let source = TaskSource::restore(row.session_id, row.schedule_id, row.scheduled_at)
+            .map_err(TaskRepositoryError::Unexpected)?;
+
+        Ok(Task {
+            id: row.id,
+            source,
             status,
-            row.session_id,
-            row.schedule_id,
-            row.scheduled_at,
-            row.error,
-            row.created_at,
-            row.updated_at,
-            row.started_at,
-            row.finished_at,
-        )
-        .map_err(Into::into)
+            error: row.error,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            started_at: row.started_at,
+            finished_at: row.finished_at,
+        })
     }
 }
 

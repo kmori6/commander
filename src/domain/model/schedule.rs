@@ -105,38 +105,6 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    pub fn restore(
-        id: Uuid,
-        title: String,
-        request: String,
-        cron: String,
-        timezone: String,
-        enabled: bool,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
-    ) -> Result<Self, String> {
-        let title = title.trim().to_string();
-        if title.is_empty() {
-            return Err("title must not be empty".to_string());
-        }
-
-        let request = request.trim().to_string();
-        if request.is_empty() {
-            return Err("request must not be empty".to_string());
-        }
-
-        Ok(Self {
-            id,
-            title,
-            request,
-            cron: CronExpression::parse(&cron)?,
-            timezone: ScheduleTimezone::parse(&timezone)?,
-            enabled,
-            created_at,
-            updated_at,
-        })
-    }
-
     pub fn due_time(&self, now: DateTime<Utc>, window: chrono::Duration) -> Option<DateTime<Utc>> {
         if !self.enabled {
             return None;
@@ -154,72 +122,16 @@ mod tests {
     fn test_schedule(cron: &str, timezone: &str) -> Schedule {
         let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
 
-        Schedule::restore(
-            Uuid::nil(),
-            "test schedule".to_string(),
-            "run test task".to_string(),
-            cron.to_string(),
-            timezone.to_string(),
-            true,
-            now,
-            now,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn restore_trims_title_and_request() {
-        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
-        let schedule = Schedule::restore(
-            Uuid::nil(),
-            "  test schedule  ".to_string(),
-            "  run test task  ".to_string(),
-            "0 9 * * *".to_string(),
-            "Asia/Tokyo".to_string(),
-            true,
-            now,
-            now,
-        )
-        .unwrap();
-
-        assert_eq!("test schedule", schedule.title);
-        assert_eq!("run test task", schedule.request);
-    }
-
-    #[test]
-    fn restore_rejects_empty_title() {
-        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
-
-        let result = Schedule::restore(
-            Uuid::nil(),
-            "  ".to_string(),
-            "run test task".to_string(),
-            "0 9 * * *".to_string(),
-            "Asia/Tokyo".to_string(),
-            true,
-            now,
-            now,
-        );
-
-        assert_eq!(Err("title must not be empty".to_string()), result);
-    }
-
-    #[test]
-    fn restore_rejects_empty_request() {
-        let now = Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap();
-
-        let result = Schedule::restore(
-            Uuid::nil(),
-            "test schedule".to_string(),
-            "  ".to_string(),
-            "0 9 * * *".to_string(),
-            "Asia/Tokyo".to_string(),
-            true,
-            now,
-            now,
-        );
-
-        assert_eq!(Err("request must not be empty".to_string()), result);
+        Schedule {
+            id: Uuid::nil(),
+            title: "test schedule".to_string(),
+            request: "run test task".to_string(),
+            cron: CronExpression::parse(cron).unwrap(),
+            timezone: ScheduleTimezone::parse(timezone).unwrap(),
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        }
     }
 
     #[test]

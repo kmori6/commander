@@ -117,31 +117,6 @@ pub struct Task {
 }
 
 impl Task {
-    // persisted row -> domain task
-    pub fn restore(
-        id: Uuid,
-        status: TaskStatus,
-        session_id: Option<Uuid>,
-        schedule_id: Option<Uuid>,
-        scheduled_at: Option<DateTime<Utc>>,
-        error: Option<String>,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
-        started_at: Option<DateTime<Utc>>,
-        finished_at: Option<DateTime<Utc>>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            id,
-            source: TaskSource::restore(session_id, schedule_id, scheduled_at)?,
-            status,
-            error,
-            created_at,
-            updated_at,
-            started_at,
-            finished_at,
-        })
-    }
-
     pub fn session_id(&self) -> Option<Uuid> {
         self.source.session_id()
     }

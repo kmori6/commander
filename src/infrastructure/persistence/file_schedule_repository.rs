@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::Schedule;
+use crate::domain::model::schedule::{CronExpression, Schedule, ScheduleTimezone};
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
@@ -50,21 +50,33 @@ struct StoredSchedule {
 impl StoredSchedule {
     fn try_into_model(self) -> Result<Schedule, ScheduleRepositoryError> {
         let id = self.id;
-
-        Schedule::restore(
-            self.id,
-            self.title,
-            self.request,
-            self.cron,
-            self.timezone,
-            self.enabled,
-            self.created_at,
-            self.updated_at,
-        )
-        .map_err(|message| {
+        stored_schedule_from(self).map_err(|message| {
             ScheduleRepositoryError::Unexpected(format!("invalid stored schedule {id}: {message}"))
         })
     }
+}
+
+fn stored_schedule_from(stored: StoredSchedule) -> Result<Schedule, String> {
+    Ok(Schedule {
+        id: stored.id,
+        title: required_text("title", stored.title)?,
+        request: required_text("request", stored.request)?,
+        cron: CronExpression::parse(&stored.cron)?,
+        timezone: ScheduleTimezone::parse(&stored.timezone)?,
+        enabled: stored.enabled,
+        created_at: stored.created_at,
+        updated_at: stored.updated_at,
+    })
+}
+
+fn required_text(field: &str, value: String) -> Result<String, String> {
+    let value = value.trim().to_string();
+
+    if value.is_empty() {
+        return Err(format!("{field} must not be empty"));
+    }
+
+    Ok(value)
 }
 
 impl FileScheduleRepository {
@@ -133,16 +145,16 @@ impl ScheduleRepository for FileScheduleRepository {
 
         let mut file = self.load().await?;
         let now = Utc::now();
-        let schedule = Schedule::restore(
-            Uuid::new_v4(),
-            input.title,
-            input.request,
-            input.cron,
-            input.timezone,
-            input.enabled,
-            now,
-            now,
-        )
+        let schedule = stored_schedule_from(StoredSchedule {
+            id: Uuid::new_v4(),
+            title: input.title,
+            request: input.request,
+            cron: input.cron,
+            timezone: input.timezone,
+            enabled: input.enabled,
+            created_at: now,
+            updated_at: now,
+        })
         .map_err(ScheduleRepositoryError::InvalidSchedule)?;
 
         file.schedules.push(StoredSchedule {
@@ -195,16 +207,16 @@ impl ScheduleRepository for FileScheduleRepository {
             .find(|schedule| schedule.id == id)
             .ok_or(ScheduleRepositoryError::NotFound(id))?;
 
-        let updated = Schedule::restore(
-            schedule.id,
-            input.title.unwrap_or_else(|| schedule.title.clone()),
-            input.request.unwrap_or_else(|| schedule.request.clone()),
-            input.cron.unwrap_or_else(|| schedule.cron.clone()),
-            input.timezone.unwrap_or_else(|| schedule.timezone.clone()),
-            input.enabled.unwrap_or(schedule.enabled),
-            schedule.created_at,
-            Utc::now(),
-        )
+        let updated = stored_schedule_from(StoredSchedule {
+            id: schedule.id,
+            title: input.title.unwrap_or_else(|| schedule.title.clone()),
+            request: input.request.unwrap_or_else(|| schedule.request.clone()),
+            cron: input.cron.unwrap_or_else(|| schedule.cron.clone()),
+            timezone: input.timezone.unwrap_or_else(|| schedule.timezone.clone()),
+            enabled: input.enabled.unwrap_or(schedule.enabled),
+            created_at: schedule.created_at,
+            updated_at: Utc::now(),
+        })
         .map_err(ScheduleRepositoryError::InvalidSchedule)?;
 
         schedule.title = updated.title.clone();
