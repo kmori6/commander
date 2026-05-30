@@ -1,7 +1,5 @@
 use crate::application::error::agent_runtime_error::AgentRuntimeError;
-use crate::application::runtime::subagent_call::{
-    SubagentCall, SubagentResult, SubagentResultStatus,
-};
+use crate::application::runtime::subagent_tool::SubagentTool;
 use crate::application::service::compaction_service::{CompactionConfig, CompactionService};
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
@@ -392,7 +390,7 @@ where
             .await?;
 
             // Subagent is a runtime call, so it is permitted only for the root agent.
-            let mode = if call.tool_name == SubagentCall::TOOL_NAME {
+            let mode = if call.tool_name == SubagentTool::name() {
                 ToolPermissionMode::Allow
             } else {
                 self.tool_service
@@ -445,7 +443,7 @@ where
                     return Ok(ToolRun::AwaitingApproval);
                 }
                 ToolPermissionMode::Allow => {
-                    if call.tool_name == SubagentCall::TOOL_NAME {
+                    if call.tool_name == SubagentTool::name() {
                         match self.run_subagent_call(task_id, &call).await {
                             Ok(output) => output,
                             Err(err) => {
@@ -491,24 +489,13 @@ where
         task_id: Uuid,
         call: &ToolCall,
     ) -> Result<ToolCallOutput, AgentRuntimeError> {
-        let subagent_call = SubagentCall::new(self.subagent_repository.list().await?);
-        let input = subagent_call
-            .parse(call.arguments.clone())
+        let profiles = self.subagent_repository.list().await?;
+        let tasks = SubagentTool::parse_tasks(&profiles, call.arguments.clone())
             .map_err(AgentRuntimeError::Unsupported)?;
 
         let mut results = Vec::new();
 
-        for (index, request) in input.tasks.into_iter().enumerate() {
-            let subagent = subagent_call
-                .find(&request.profile)
-                .cloned()
-                .ok_or_else(|| {
-                    AgentRuntimeError::Unsupported(format!(
-                        "unsupported profile: {}",
-                        request.profile
-                    ))
-                })?;
-
+        for (index, subagent, request) in tasks {
             let profile_name = subagent.name.clone();
 
             let mut instruction = self.instruction_service.build_agent_instruction();
@@ -519,7 +506,7 @@ where
 
             let initial_messages = vec![
                 LlmMessage::system_text(instruction),
-                LlmMessage::user_text(request.request),
+                LlmMessage::user_text(request),
             ];
 
             let outcome = self
@@ -527,34 +514,38 @@ where
                 .await;
 
             let (status, output, error) = match outcome {
-                Ok(LoopOutcome::Completed(output)) => {
-                    (SubagentResultStatus::Completed, Some(output), None)
+                Ok(LoopOutcome::Completed(output)) => ("completed", Some(output), None),
+                Ok(LoopOutcome::Stopped) => {
+                    ("cancelled", None, Some("parent task cancelled".to_string()))
                 }
-                Ok(LoopOutcome::Stopped) => (
-                    SubagentResultStatus::Cancelled,
-                    None,
-                    Some("parent task cancelled".to_string()),
-                ),
                 Ok(LoopOutcome::AwaitingApproval) => (
-                    SubagentResultStatus::Failed,
+                    "failed",
                     None,
                     Some("subagent cannot await tool approval".to_string()),
                 ),
-                Err(err) => (SubagentResultStatus::Failed, None, Some(err.to_string())),
+                Err(err) => ("failed", None, Some(err.to_string())),
             };
 
-            results.push(SubagentResult {
-                index,
-                profile: profile_name,
-                status,
-                output,
-                error,
+            let mut result = json!({
+                "index": index,
+                "profile": profile_name,
+                "status": status,
             });
+
+            if let Some(output) = output {
+                result["output"] = json!(output);
+            }
+
+            if let Some(error) = error {
+                result["error"] = json!(error);
+            }
+
+            results.push(result);
         }
 
         Ok(ToolCallOutput::success(
             call.call_id.clone(),
-            SubagentCall::output(results),
+            json!({ "results": results }),
         ))
     }
 
@@ -648,7 +639,7 @@ where
             )
             .await?;
 
-            let mode = if call.tool_name == SubagentCall::TOOL_NAME {
+            let mode = if call.tool_name == SubagentTool::name() {
                 ToolPermissionMode::Deny
             } else {
                 self.tool_service
@@ -769,8 +760,10 @@ where
     ) -> Result<Vec<ToolSpec>, AgentRuntimeError> {
         match subagent {
             None => {
-                let subagent_call = SubagentCall::new(self.subagent_repository.list().await?);
-                Ok(self.tool_service.specs_for(None, subagent_call.tool_spec()))
+                let profiles = self.subagent_repository.list().await?;
+                Ok(self
+                    .tool_service
+                    .specs_for(None, SubagentTool::spec(&profiles)))
             }
             Some(subagent) => Ok(self.tool_service.specs_for(
                 Some(subagent.allowed_tools.as_slice()),

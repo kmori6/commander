@@ -64,12 +64,7 @@ impl SubagentRepository for FileSubagentRepository {
                 }
             };
 
-            match Subagent::try_new(
-                name,
-                stored.description,
-                stored.instruction,
-                stored.allowed_tools,
-            ) {
+            match stored_subagent_from(name, stored) {
                 Ok(subagent) => subagents.push(subagent),
                 Err(err) => log::warn!("invalid subagent profile {}: {err}", path.display()),
             }
@@ -78,4 +73,35 @@ impl SubagentRepository for FileSubagentRepository {
         subagents.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(subagents)
     }
+}
+
+fn stored_subagent_from(name: &str, stored: StoredSubagent) -> Result<Subagent, String> {
+    let name = name.trim().to_string();
+    let description = stored.description.trim().to_string();
+    let instruction = stored.instruction.trim().to_string();
+
+    if name.is_empty() {
+        return Err("name must not be empty".to_string());
+    }
+
+    if instruction.is_empty() {
+        return Err("instruction must not be empty".to_string());
+    }
+
+    let mut allowed_tools = Vec::new();
+
+    for tool in stored.allowed_tools {
+        let tool = tool.trim().to_string();
+
+        if !tool.is_empty() && !allowed_tools.contains(&tool) {
+            allowed_tools.push(tool);
+        }
+    }
+
+    Ok(Subagent {
+        name,
+        description,
+        instruction,
+        allowed_tools,
+    })
 }

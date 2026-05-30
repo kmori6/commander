@@ -1,2 +1,2 @@
 pub mod agent_runtime;
-pub mod subagent_call;
+pub mod subagent_tool;
