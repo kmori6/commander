@@ -26,9 +26,6 @@ pub enum AgentRuntimeError {
     #[error("unsupported agent runtime operation: {0}")]
     Unsupported(String),
 
-    #[error("tool approval not found")]
-    ToolApprovalNotFound,
-
     #[error("failed to use tool service: {0}")]
     ToolService(#[from] ToolServiceError),
 
@@ -40,7 +37,4 @@ pub enum AgentRuntimeError {
 
     #[error("tool approval is still pending: {0}")]
     ToolApprovalPending(Uuid),
-
-    #[error("failed to access runtime file: {0}")]
-    Io(#[from] std::io::Error),
 }

@@ -6,9 +6,6 @@ pub enum ScheduleRepositoryError {
     #[error("schedule not found: {0}")]
     NotFound(Uuid),
 
-    #[error("task not found: {0}")]
-    TaskNotFound(Uuid),
-
     #[error("invalid schedule: {0}")]
     InvalidSchedule(String),
 

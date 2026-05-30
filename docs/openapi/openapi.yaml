@@ -68,11 +68,6 @@ paths:
       summary: List sessions
       operationId: listSessions
       parameters:
-        - name: kind
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/SessionKind"
         - $ref: "#/components/parameters/LimitQuery"
       responses:
         "200":
@@ -226,7 +221,7 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateTaskRequest"
       responses:
-        "201":
+        "202":
           description: Task.
           content:
             application/json:
@@ -255,25 +250,6 @@ paths:
         "500":
           $ref: "#/components/responses/Error"
 
-  /v1/tasks/{id}/result:
-    get:
-      tags:
-        - Tasks
-      summary: Get task result
-      operationId: getTaskResult
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: Task result.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TaskResult"
-        "404":
-          $ref: "#/components/responses/Error"
-        "500":
-          $ref: "#/components/responses/Error"
 
   /v1/tasks/{id}/cancel:
     post:
@@ -615,9 +591,9 @@ paths:
         "400":
           description: Invalid model.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   parameters:
@@ -679,39 +655,21 @@ components:
             message:
               type: string
 
-    SessionKind:
-      type: string
-      enum:
-        - chat
-        - task
-
-    SessionStatus:
-      type: string
-      enum:
-        - active
-        - closed
-
     Session:
       type: object
       required:
         - id
-        - kind
         - title
-        - status
         - created_at
         - updated_at
       properties:
         id:
           type: string
           format: uuid
-        kind:
-          $ref: "#/components/schemas/SessionKind"
         title:
           type:
             - string
             - "null"
-        status:
-          $ref: "#/components/schemas/SessionStatus"
         created_at:
           type: string
           format: date-time
@@ -722,8 +680,6 @@ components:
     CreateSessionRequest:
       type: object
       properties:
-        kind:
-          $ref: "#/components/schemas/SessionKind"
         title:
           type:
             - string
@@ -736,8 +692,6 @@ components:
           type:
             - string
             - "null"
-        status:
-          $ref: "#/components/schemas/SessionStatus"
 
     ListSessionsResponse:
       type: object
@@ -760,7 +714,7 @@ components:
       type: object
       required:
         - id
-        - session_id
+        - task_id
         - role
         - content
         - created_at
@@ -768,7 +722,7 @@ components:
         id:
           type: string
           format: uuid
-        session_id:
+        task_id:
           type: string
           format: uuid
         role:
@@ -784,6 +738,8 @@ components:
     MessageContent:
       oneOf:
         - $ref: "#/components/schemas/InputTextContent"
+        - $ref: "#/components/schemas/InputImageContent"
+        - $ref: "#/components/schemas/InputFileContent"
         - $ref: "#/components/schemas/OutputTextContent"
         - $ref: "#/components/schemas/ToolCallContent"
         - $ref: "#/components/schemas/ToolCallOutputContent"
@@ -812,6 +768,33 @@ components:
           type: string
           const: output_text
         text:
+          type: string
+
+    InputImageContent:
+      type: object
+      required:
+        - type
+        - image_url
+      properties:
+        type:
+          type: string
+          const: input_image
+        image_url:
+          type: string
+
+    InputFileContent:
+      type: object
+      required:
+        - type
+        - filename
+        - file_data
+      properties:
+        type:
+          type: string
+          const: input_file
+        filename:
+          type: string
+        file_data:
           type: string
 
     ToolCallContent:
@@ -897,6 +880,9 @@ components:
         - id
         - status
         - session_id
+        - schedule_id
+        - scheduled_at
+        - error
         - created_at
         - updated_at
         - started_at
@@ -908,7 +894,9 @@ components:
         status:
           $ref: "#/components/schemas/TaskStatus"
         session_id:
-          type: string
+          type:
+            - string
+            - "null"
           format: uuid
         schedule_id:
           type:
@@ -920,6 +908,10 @@ components:
             - string
             - "null"
           format: date-time
+        error:
+          type:
+            - string
+            - "null"
         created_at:
           type: string
           format: date-time
@@ -955,35 +947,6 @@ components:
           items:
             $ref: "#/components/schemas/Task"
 
-    TaskResultStatus:
-      type: string
-      enum:
-        - success
-        - failure
-        - cancelled
-
-    TaskResult:
-      type: object
-      required:
-        - id
-        - task_id
-        - status
-        - output
-        - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        task_id:
-          type: string
-          format: uuid
-        status:
-          $ref: "#/components/schemas/TaskResultStatus"
-        output:
-          type: string
-        created_at:
-          type: string
-          format: date-time
 
     TaskUsage:
       type: object
@@ -1183,25 +1146,13 @@ components:
     ToolPermission:
       type: object
       required:
-        - id
         - tool_name
         - mode
-        - created_at
-        - updated_at
       properties:
-        id:
-          type: string
-          format: uuid
         tool_name:
           type: string
         mode:
           $ref: "#/components/schemas/ToolPermissionMode"
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
 
     ListToolPermissionsResponse:
       type: object
@@ -1232,6 +1183,7 @@ components:
       type: object
       required:
         - id
+        - task_id
         - message_id
         - call_id
         - status
@@ -1239,6 +1191,9 @@ components:
         - resolved_at
       properties:
         id:
+          type: string
+          format: uuid
+        task_id:
           type: string
           format: uuid
         message_id:

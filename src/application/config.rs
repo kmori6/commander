@@ -30,15 +30,11 @@ impl CommanderPaths {
         Ok(())
     }
 
-    pub fn home_path(&self) -> &Path {
-        &self.home_path
-    }
-
     pub fn workspace_path(&self) -> &Path {
         &self.workspace_path
     }
 
-    pub fn config_dir(&self) -> PathBuf {
+    fn config_dir(&self) -> PathBuf {
         self.home_path.join("config")
     }
 
@@ -46,23 +42,7 @@ impl CommanderPaths {
         self.config_dir().join("models.json")
     }
 
-    pub fn memory_dir(&self) -> PathBuf {
-        self.workspace_path.join("memory")
-    }
-
-    pub fn memory_path(&self) -> PathBuf {
-        self.memory_dir().join("MEMORY.md")
-    }
-
-    pub fn journal_dir(&self) -> PathBuf {
-        self.memory_dir().join("journals")
-    }
-
-    pub fn skills_dir(&self) -> PathBuf {
-        self.workspace_path.join("skills")
-    }
-
-    pub fn tools_dir(&self) -> PathBuf {
+    fn tools_dir(&self) -> PathBuf {
         self.home_path.join("tools")
     }
 
@@ -70,7 +50,7 @@ impl CommanderPaths {
         self.tools_dir().join("permissions.json")
     }
 
-    pub fn schedules_dir(&self) -> PathBuf {
+    fn schedules_dir(&self) -> PathBuf {
         self.home_path.join("schedules")
     }
 
