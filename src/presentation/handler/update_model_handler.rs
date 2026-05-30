@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::domain::model::llm::Llm;
+use crate::presentation::dto::error::ErrorResponse;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -28,7 +29,13 @@ pub async fn update_model_handler(
         .llm_provider()
         .select_model(&request.model)
         .await
-        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
+        .map_err(|err| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("invalid_model", err.to_string())),
+            )
+                .into_response()
+        })?;
 
     Ok(Json(UpdateModelResponse { model }))
 }

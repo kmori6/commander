@@ -3,6 +3,7 @@ use axum::{Json, extract::State, http::StatusCode};
 use serde::Serialize;
 
 use crate::domain::port::llm_provider::LlmProvider;
+use crate::presentation::dto::error::ErrorResponse;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -18,7 +19,13 @@ pub async fn get_model_handler(
         .llm_provider()
         .current_model_id()
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("failed_to_get_model", err.to_string())),
+            )
+                .into_response()
+        })?;
 
     Ok(Json(GetModelResponse { model }))
 }

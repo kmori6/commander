@@ -1,10 +1,12 @@
-use crate::domain::model::task::{Task, TaskStatus};
+use crate::domain::model::task::TaskStatus;
+use crate::presentation::dto::error::ErrorResponse;
+use crate::presentation::dto::task::TaskResponse;
 use crate::presentation::state::app_state::AppState;
 use axum::{
     Json,
     extract::{Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -18,42 +20,24 @@ pub struct ListTaskQuery {
     pub limit: Option<usize>,
 }
 
-fn task_json(task: Task) -> serde_json::Value {
-    json!({
-        "id": task.id.to_string(),
-        "status": task.status.as_str(),
-        "session_id": task.session_id().map(|id| id.to_string()),
-        "schedule_id": task.schedule_id().map(|id| id.to_string()),
-        "scheduled_at": task.scheduled_at().map(|dt| dt.to_rfc3339()),
-        "error": task.error,
-        "created_at": task.created_at.to_rfc3339(),
-        "updated_at": task.updated_at.to_rfc3339(),
-        "started_at": task.started_at.map(|dt| dt.to_rfc3339()),
-        "finished_at": task.finished_at.map(|dt| dt.to_rfc3339()),
-    })
-}
-
 pub async fn list_task_handler(
     State(state): State<AppState>,
     Query(query): Query<ListTaskQuery>,
-) -> impl IntoResponse {
+) -> Response {
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
 
     match state.task_usecase.list(query.status, limit).await {
         Ok(tasks) => (
             StatusCode::OK,
             Json(json!({
-                "tasks": tasks.into_iter().map(task_json).collect::<Vec<_>>(),
+                "tasks": tasks.into_iter().map(TaskResponse::from).collect::<Vec<_>>(),
             })),
-        ),
+        )
+            .into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "code": "failed_to_list_tasks",
-                    "message": err.to_string(),
-                }
-            })),
-        ),
+            Json(ErrorResponse::new("failed_to_list_tasks", err.to_string())),
+        )
+            .into_response(),
     }
 }

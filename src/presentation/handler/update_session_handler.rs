@@ -5,26 +5,17 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::application::error::session_usecase_error::SessionUsecaseError;
 use crate::domain::error::session_repository_error::SessionRepositoryError;
-use crate::domain::model::session::Session;
+use crate::presentation::dto::error::ErrorResponse;
+use crate::presentation::dto::session::SessionResponse;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateSessionRequest {
     pub title: Option<String>,
-}
-
-fn session_json(session: Session) -> Value {
-    json!({
-        "id": session.id.to_string(),
-        "title": session.title,
-        "created_at": session.created_at.to_rfc3339(),
-        "updated_at": session.updated_at.to_rfc3339(),
-    })
 }
 
 pub async fn update_session_handler(
@@ -38,25 +29,21 @@ pub async fn update_session_handler(
         .await;
 
     match result {
-        Ok(session) => (StatusCode::OK, Json(session_json(session))).into_response(),
+        Ok(session) => (StatusCode::OK, Json(SessionResponse::from(session))).into_response(),
         Err(SessionUsecaseError::SessionRepository(SessionRepositoryError::NotFound(_))) => (
             StatusCode::NOT_FOUND,
-            Json(json!({
-                "error": {
-                    "code": "session_not_found",
-                    "message": format!("session not found: {session_id}"),
-                }
-            })),
+            Json(ErrorResponse::new(
+                "session_not_found",
+                format!("session not found: {session_id}"),
+            )),
         )
             .into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "code": "failed_to_update_session",
-                    "message": err.to_string(),
-                }
-            })),
+            Json(ErrorResponse::new(
+                "failed_to_update_session",
+                err.to_string(),
+            )),
         )
             .into_response(),
     }

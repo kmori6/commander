@@ -1,43 +1,29 @@
-use crate::domain::model::task::Task;
+use crate::presentation::dto::error::ErrorResponse;
+use crate::presentation::dto::task::TaskResponse;
 use crate::presentation::state::app_state::AppState;
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Deserialize;
-use serde_json::json;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTaskRequest {
     pub request: String,
 }
 
-fn task_json(task: Task) -> serde_json::Value {
-    json!({
-        "id": task.id.to_string(),
-        "status": task.status.as_str(),
-        "session_id": task.session_id().map(|id| id.to_string()),
-        "schedule_id": task.schedule_id().map(|id| id.to_string()),
-        "scheduled_at": task.scheduled_at().map(|dt| dt.to_rfc3339()),
-        "error": task.error,
-        "created_at": task.created_at.to_rfc3339(),
-        "updated_at": task.updated_at.to_rfc3339(),
-        "started_at": task.started_at.map(|dt| dt.to_rfc3339()),
-        "finished_at": task.finished_at.map(|dt| dt.to_rfc3339()),
-    })
-}
-
 pub async fn create_task_handler(
     State(state): State<AppState>,
     Json(request): Json<CreateTaskRequest>,
-) -> impl IntoResponse {
+) -> Response {
     match state.task_usecase.create(request.request).await {
-        Ok(task) => (StatusCode::ACCEPTED, Json(task_json(task))),
+        Ok(task) => (StatusCode::ACCEPTED, Json(TaskResponse::from(task))).into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "code": "failed_to_create_task",
-                    "message": err.to_string(),
-                }
-            })),
-        ),
+            Json(ErrorResponse::new("failed_to_create_task", err.to_string())),
+        )
+            .into_response(),
     }
 }

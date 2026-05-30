@@ -2,12 +2,13 @@ use axum::{
     Json,
     extract::{Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
-use crate::domain::model::session::Session;
+use crate::presentation::dto::error::ErrorResponse;
+use crate::presentation::dto::session::SessionResponse;
 use crate::presentation::state::app_state::AppState;
 
 const DEFAULT_LIMIT: usize = 20;
@@ -18,36 +19,30 @@ pub struct ListSessionQuery {
     pub limit: Option<usize>,
 }
 
-fn session_json(session: Session) -> Value {
-    json!({
-        "id": session.id.to_string(),
-        "title": session.title,
-        "created_at": session.created_at.to_rfc3339(),
-        "updated_at": session.updated_at.to_rfc3339(),
-    })
-}
-
 pub async fn list_session_handler(
     State(state): State<AppState>,
     Query(query): Query<ListSessionQuery>,
-) -> impl IntoResponse {
+) -> Response {
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
 
     match state.session_usecase.list(limit).await {
         Ok(sessions) => (
             StatusCode::OK,
             Json(json!({
-                "sessions": sessions.into_iter().map(session_json).collect::<Vec<_>>(),
+                "sessions": sessions
+                    .into_iter()
+                    .map(SessionResponse::from)
+                    .collect::<Vec<_>>(),
             })),
-        ),
+        )
+            .into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "code": "failed_to_list_sessions",
-                    "message": err.to_string(),
-                }
-            })),
-        ),
+            Json(ErrorResponse::new(
+                "failed_to_list_sessions",
+                err.to_string(),
+            )),
+        )
+            .into_response(),
     }
 }

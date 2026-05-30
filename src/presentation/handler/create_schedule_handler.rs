@@ -1,10 +1,15 @@
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::schedule::Schedule;
+use crate::presentation::dto::error::ErrorResponse;
+use crate::presentation::dto::schedule::ScheduleResponse;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -16,23 +21,10 @@ pub struct CreateScheduleRequest {
     pub enabled: Option<bool>,
 }
 
-fn schedule_json(schedule: Schedule) -> serde_json::Value {
-    json!({
-        "id": schedule.id.to_string(),
-        "title": schedule.title,
-        "request": schedule.request,
-        "cron": schedule.cron.as_str(),
-        "timezone": schedule.timezone.as_str(),
-        "enabled": schedule.enabled,
-        "created_at": schedule.created_at.to_rfc3339(),
-        "updated_at": schedule.updated_at.to_rfc3339(),
-    })
-}
-
 pub async fn create_schedule_handler(
     State(state): State<AppState>,
     Json(request): Json<CreateScheduleRequest>,
-) -> impl IntoResponse {
+) -> Response {
     match state
         .schedule_usecase
         .create(
@@ -44,26 +36,23 @@ pub async fn create_schedule_handler(
         )
         .await
     {
-        Ok(schedule) => (StatusCode::CREATED, Json(schedule_json(schedule))),
+        Ok(schedule) => {
+            (StatusCode::CREATED, Json(ScheduleResponse::from(schedule))).into_response()
+        }
         Err(ScheduleUsecaseError::ScheduleRepository(
             ScheduleRepositoryError::InvalidSchedule(message),
         )) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": {
-                    "code": "invalid_schedule",
-                    "message": message,
-                }
-            })),
-        ),
+            Json(ErrorResponse::new("invalid_schedule", message)),
+        )
+            .into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "code": "failed_to_create_schedule",
-                    "message": err.to_string(),
-                }
-            })),
-        ),
+            Json(ErrorResponse::new(
+                "failed_to_create_schedule",
+                err.to_string(),
+            )),
+        )
+            .into_response(),
     }
 }

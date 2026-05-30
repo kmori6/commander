@@ -4,30 +4,18 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::application::error::tool_approval_usecase_error::ToolApprovalUsecaseError;
 use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
-use crate::domain::model::tool_call::ToolApproval;
+use crate::presentation::dto::error::ErrorResponse;
+use crate::presentation::dto::tool::ToolApprovalResponse;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ToolApprovalResolution {
     Approve,
     Reject,
-}
-
-fn approval_json(approval: ToolApproval) -> serde_json::Value {
-    json!({
-        "id": approval.id.to_string(),
-        "task_id": approval.task_id.to_string(),
-        "message_id": approval.message_id.to_string(),
-        "call_id": approval.call_id,
-        "status": approval.status.as_str(),
-        "requested_at": approval.requested_at.to_rfc3339(),
-        "resolved_at": approval.resolved_at.map(|dt| dt.to_rfc3339()),
-    })
 }
 
 pub async fn approve_tool_approval_handler(
@@ -55,39 +43,32 @@ async fn resolve(
     };
 
     match result {
-        Ok(approval) => (StatusCode::OK, Json(approval_json(approval))).into_response(),
+        Ok(approval) => {
+            (StatusCode::OK, Json(ToolApprovalResponse::from(approval))).into_response()
+        }
         Err(ToolApprovalUsecaseError::ToolApprovalRepository(
             ToolApprovalRepositoryError::NotFound(_),
         )) => (
             StatusCode::NOT_FOUND,
-            Json(json!({
-                "error": {
-                    "code": "tool_approval_not_found",
-                    "message": format!("tool approval not found: {approval_id}"),
-                }
-            })),
+            Json(ErrorResponse::new(
+                "tool_approval_not_found",
+                format!("tool approval not found: {approval_id}"),
+            )),
         )
             .into_response(),
         Err(ToolApprovalUsecaseError::ToolApprovalRepository(
             ToolApprovalRepositoryError::InvalidApproval(message),
         )) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": {
-                    "code": "invalid_tool_approval",
-                    "message": message,
-                }
-            })),
+            Json(ErrorResponse::new("invalid_tool_approval", message)),
         )
             .into_response(),
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "code": "failed_to_resolve_tool_approval",
-                    "message": err.to_string(),
-                }
-            })),
+            Json(ErrorResponse::new(
+                "failed_to_resolve_tool_approval",
+                err.to_string(),
+            )),
         )
             .into_response(),
     }
