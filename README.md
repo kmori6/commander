@@ -21,13 +21,19 @@ AI agent for R&D software engineering work
    docker compose up -d postgres flyway-admin flyway-agent
    ```
 
-2. Copy `.env.sample` to `.env` and fill in your credentials:
+2. Build the shell tool sandbox image:
+
+   ```bash
+   docker build -t commander-shell:latest docker/
+   ```
+
+3. Copy `.env.sample` to `.env` and fill in your credentials:
 
    ```bash
    cp .env.sample .env
    ```
 
-3. Fill in your AWS credentials and other API keys in `.env` (see `.env.sample` for the full list of variables).
+4. Fill in your AWS credentials and other API keys in `.env` (see `.env.sample` for the full list of variables).
 
 ## Installation
 
