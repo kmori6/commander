@@ -67,11 +67,11 @@ struct FileListEntry {
 
 #[async_trait]
 impl Tool for FileListTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "file_list"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "List files and directories directly inside a workspace directory."
     }
 

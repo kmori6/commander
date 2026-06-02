@@ -90,11 +90,11 @@ struct TranscriptionSegment {
 
 #[async_trait]
 impl Tool for TranscribeTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "transcribe"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Transcribe a local audio file into timestamped speech segments."
     }
 

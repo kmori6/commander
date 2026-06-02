@@ -36,11 +36,11 @@ struct FileSearchMatch {
 
 #[async_trait]
 impl Tool for FileSearchTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "file_search"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Find workspace files whose paths match a glob pattern."
     }
 

@@ -69,11 +69,11 @@ struct VisualInspectArguments {
 
 #[async_trait]
 impl Tool for VisualInspectTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "visual_inspect"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Inspect a local image or PDF with a vision-capable model. Use when visual or layout information is needed from screenshots, rendered slides, charts, diagrams, scanned documents, or PDFs."
     }
 

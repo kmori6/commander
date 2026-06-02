@@ -68,11 +68,11 @@ struct PptxReadArguments {
 
 #[async_trait]
 impl Tool for PptxReadTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "pptx_read"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Extract readable text from a PPTX presentation as Markdown."
     }
 

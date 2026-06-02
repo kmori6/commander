@@ -72,11 +72,11 @@ enum MemoryTarget {
 
 #[async_trait]
 impl Tool for MemoryWriteTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "memory_write"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Append a concise note to long-term memory or the daily journal."
     }
 

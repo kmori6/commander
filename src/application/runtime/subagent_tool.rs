@@ -21,8 +21,8 @@ struct SubagentToolTask {
 pub struct SubagentTool;
 
 impl SubagentTool {
-    pub fn name() -> String {
-        "subagent".to_string()
+    pub fn name() -> &'static str {
+        "subagent"
     }
 
     pub fn spec(profiles: &[Subagent]) -> Option<ToolSpec> {
@@ -42,7 +42,7 @@ impl SubagentTool {
             .join(", ");
 
         Some(ToolSpec {
-            name: Self::name(),
+            name: Self::name().to_string(),
             description: format!(
                 "Run focused child tasks and return their results to the parent agent. Available profiles: {descriptions}."
             ),

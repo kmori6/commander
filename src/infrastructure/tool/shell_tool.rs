@@ -42,11 +42,11 @@ struct ShellArguments {
 
 #[async_trait]
 impl Tool for ShellTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "shell"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Run a non-interactive shell command in the Docker sandbox and return stdout, stderr, and exit_code."
     }
 

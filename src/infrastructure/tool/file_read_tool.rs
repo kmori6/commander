@@ -65,11 +65,11 @@ struct FileReadArguments {
 
 #[async_trait]
 impl Tool for FileReadTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "file_read"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Read selected lines from a UTF-8 text file inside the workspace."
     }
 

@@ -90,11 +90,11 @@ struct FileWriteArguments {
 
 #[async_trait]
 impl Tool for FileWriteTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "file_write"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Write UTF-8 text to a file inside the workspace. Creates parent directories as needed and overwrites existing files."
     }
 

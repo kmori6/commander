@@ -70,11 +70,11 @@ struct TextSearchMatch {
 
 #[async_trait]
 impl Tool for TextSearchTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "text_search"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Search UTF-8 workspace files for lines that match a regular expression."
     }
 

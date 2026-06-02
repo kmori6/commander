@@ -42,11 +42,11 @@ struct WebFetchArguments {
 
 #[async_trait]
 impl Tool for WebFetchTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "web_fetch"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Read one web page and return extracted text. Use when you already have the URL."
     }
 

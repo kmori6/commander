@@ -67,11 +67,11 @@ struct TextEdit {
 
 #[async_trait]
 impl Tool for FileEditTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "file_edit"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Edit a UTF-8 text file inside the workspace by applying exact text replacements in order. If any replacement fails, the file is not changed."
     }
 

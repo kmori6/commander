@@ -85,11 +85,11 @@ struct TavilySearchResult {
 
 #[async_trait]
 impl Tool for WebSearchTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "web_search"
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         "Find web pages with Tavily. Returns titles, URLs, and content excerpts for choosing sources."
     }
 
