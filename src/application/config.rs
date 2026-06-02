@@ -65,6 +65,10 @@ impl CommanderPaths {
     pub fn sandbox_env_path(&self) -> PathBuf {
         self.config_dir().join(".env")
     }
+
+    pub fn mcp_config_path(&self) -> PathBuf {
+        self.config_dir().join("mcp.json")
+    }
 }
 
 fn user_home_dir() -> io::Result<PathBuf> {

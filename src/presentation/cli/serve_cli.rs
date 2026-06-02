@@ -9,8 +9,10 @@ use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
+use crate::domain::port::tool::Tool;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
+use crate::infrastructure::mcp::manager::McpManager;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
@@ -24,6 +26,7 @@ use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
 use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
+use crate::infrastructure::tool::mcp_tool::McpTool;
 use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
 use crate::infrastructure::tool::pptx_read_tool::PptxReadTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
@@ -104,29 +107,41 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .map_err(std::io::Error::other)?;
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(workspace_root.clone()));
+    let mut tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(FileReadTool::new(workspace_root.clone())),
+        Arc::new(PptxReadTool::new(workspace_root.clone())),
+        Arc::new(FileWriteTool::new(workspace_root.clone())),
+        Arc::new(FileEditTool::new(workspace_root.clone())),
+        Arc::new(FileListTool::new(workspace_root.clone())),
+        Arc::new(FileSearchTool::new(workspace_root.clone())),
+        Arc::new(TextSearchTool::new(workspace_root.clone())),
+        Arc::new(TranscribeTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
+        Arc::new(ShellTool::new(
+            workspace_root.clone(),
+            paths.sandbox_env_path(),
+            sandbox_image,
+        )),
+        Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
+        Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
+        Arc::new(VisualInspectTool::new(
+            workspace_root.clone(),
+            visual_inspect_provider,
+        )),
+        Arc::new(MemoryWriteTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
+    ];
+
+    // append MCP tools
+    if let Some(mcp_manager) = McpManager::from_config_path(paths.mcp_config_path())
+        .await
+        .map_err(std::io::Error::other)?
+    {
+        for discovered in mcp_manager.tools() {
+            tools.push(Arc::new(McpTool::new(discovered, Arc::clone(&mcp_manager))));
+        }
+    }
+
     let tool_service = Arc::new(ToolService::new(
-        vec![
-            Arc::new(FileReadTool::new(workspace_root.clone())),
-            Arc::new(PptxReadTool::new(workspace_root.clone())),
-            Arc::new(FileWriteTool::new(workspace_root.clone())),
-            Arc::new(FileEditTool::new(workspace_root.clone())),
-            Arc::new(FileListTool::new(workspace_root.clone())),
-            Arc::new(FileSearchTool::new(workspace_root.clone())),
-            Arc::new(TextSearchTool::new(workspace_root.clone())),
-            Arc::new(TranscribeTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
-            Arc::new(ShellTool::new(
-                workspace_root.clone(),
-                paths.sandbox_env_path(),
-                sandbox_image,
-            )),
-            Arc::new(WebSearchTool::from_env().map_err(std::io::Error::other)?),
-            Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
-            Arc::new(VisualInspectTool::new(
-                workspace_root.clone(),
-                visual_inspect_provider,
-            )),
-            Arc::new(MemoryWriteTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
-        ],
+        tools,
         tool_permission_repository.clone(),
         tool_approval_repository.clone(),
     ));
