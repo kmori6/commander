@@ -12,7 +12,6 @@ use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::port::tool::Tool;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
-use crate::infrastructure::mcp::manager::McpManager;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
@@ -26,7 +25,7 @@ use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
 use crate::infrastructure::tool::file_search_tool::FileSearchTool;
 use crate::infrastructure::tool::file_write_tool::FileWriteTool;
-use crate::infrastructure::tool::mcp_tool::McpTool;
+use crate::infrastructure::tool::mcp_tool::load_mcp_tools;
 use crate::infrastructure::tool::memory_write_tool::MemoryWriteTool;
 use crate::infrastructure::tool::pptx_read_tool::PptxReadTool;
 use crate::infrastructure::tool::shell_tool::ShellTool;
@@ -131,14 +130,11 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     ];
 
     // append MCP tools
-    if let Some(mcp_manager) = McpManager::from_config_path(paths.mcp_config_path())
-        .await
-        .map_err(std::io::Error::other)?
-    {
-        for discovered in mcp_manager.tools() {
-            tools.push(Arc::new(McpTool::new(discovered, Arc::clone(&mcp_manager))));
-        }
-    }
+    tools.extend(
+        load_mcp_tools(paths.mcp_config_path())
+            .await
+            .map_err(std::io::Error::other)?,
+    );
 
     let tool_service = Arc::new(ToolService::new(
         tools,
