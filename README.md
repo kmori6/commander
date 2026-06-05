@@ -146,6 +146,26 @@ Memory stores workspace context in two files; edit them directly to add or updat
 - Long-term: `~/.commander/workspace/memory/MEMORY.md`
 - Short-term: `~/.commander/workspace/memory/journals/YYYY-MM-DD.md`
 
+### MCP Tools
+
+Commander loads stdio MCP servers from `~/.commander/config/mcp.json` when `commander serve` starts.
+Create the file with one or more servers:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/root"],
+      "env": {}
+    }
+  }
+}
+```
+
+Restart `commander serve`, then run `/tools` in `commander chat`.
+MCP tools are exposed as `mcp__<server>__<tool>`, and permissions can be changed with `/tool mcp__filesystem__read_file ask`.
+
 ### Schedule
 
 Schedule creates recurring tasks from saved requests.
