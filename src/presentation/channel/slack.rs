@@ -185,19 +185,21 @@ async fn handle_event(
             .map(ToString::to_string)
     };
 
-    // workspace + channel + thread timestamp = conversation id
-    // example: "slack:T_WORKSPACE:C_CHANNEL:1234567890.000000"
+    // channel mention: workspace + channel + thread timestamp = conversation id
+    // example: "slack:T_WORKSPACE:channel:C_CHANNEL:thread:1234567890.000000"
+    // DM: workspace + DM channel = conversation id
+    // example: "slack:T_WORKSPACE:dm:D_CHANNEL"
     let team_id = payload
         .get("team_id")
         .or_else(|| envelope.get("team_id"))
         .and_then(Value::as_str)
         .unwrap_or("unknown");
-    let conversation_ts = event
-        .get("thread_ts")
-        .or_else(|| event.get("ts"))
-        .and_then(Value::as_str)
-        .unwrap_or("default");
-    let conversation_id = format!("slack:{team_id}:{channel}:{conversation_ts}");
+    let conversation_id = if is_dm {
+        format!("slack:{team_id}:dm:{channel}")
+    } else {
+        let conversation_ts = thread_ts.as_deref().unwrap_or("default");
+        format!("slack:{team_id}:channel:{channel}:thread:{conversation_ts}")
+    };
 
     let reply = if let Some(id) = text.strip_prefix("!approve ") {
         match Uuid::parse_str(id.trim()) {

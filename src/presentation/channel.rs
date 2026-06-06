@@ -1,7 +1,7 @@
 pub mod slack;
 
 use serde_json::{Value, json};
-use std::io;
+use std::{collections::HashMap, io};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -19,11 +19,11 @@ impl AgentClient {
         }
     }
 
-    async fn create_session(&self, title: &str) -> io::Result<Uuid> {
+    async fn create_session(&self) -> io::Result<Uuid> {
         let value = self
             .http
             .post(format!("{}/v1/sessions", self.base_url))
-            .json(&json!({ "title": title }))
+            .json(&json!({}))
             .send()
             .await
             .map_err(io::Error::other)?
@@ -200,26 +200,26 @@ impl AgentClient {
 
 struct SessionResolver {
     client: AgentClient,
-    session_id: Mutex<Option<Uuid>>,
+    sessions: Mutex<HashMap<String, Uuid>>,
 }
 
 impl SessionResolver {
     fn new(client: AgentClient) -> Self {
         Self {
             client,
-            session_id: Mutex::new(None),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
-    async fn resolve(&self, _conversation_id: &str) -> io::Result<Uuid> {
-        let mut session_id = self.session_id.lock().await;
+    async fn resolve(&self, conversation_id: &str) -> io::Result<Uuid> {
+        let mut sessions = self.sessions.lock().await;
 
-        if let Some(session_id) = *session_id {
-            return Ok(session_id);
+        if let Some(session_id) = sessions.get(conversation_id) {
+            return Ok(*session_id);
         }
 
-        let created = self.client.create_session("Commander Slack").await?;
-        *session_id = Some(created);
+        let created = self.client.create_session().await?;
+        sessions.insert(conversation_id.to_string(), created);
 
         Ok(created)
     }
