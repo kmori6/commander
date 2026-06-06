@@ -59,6 +59,7 @@ use crate::presentation::handler::resolve_tool_approval_handler::{
     approve_tool_approval_handler, reject_tool_approval_handler,
 };
 use crate::presentation::handler::run_schedule_handler::run_schedule_handler;
+use crate::presentation::handler::run_watch_handler::run_watch_handler;
 use crate::presentation::handler::update_model_handler::update_model_handler;
 use crate::presentation::handler::update_schedule_handler::update_schedule_handler;
 use crate::presentation::handler::update_session_handler::update_session_handler;
@@ -66,10 +67,8 @@ use crate::presentation::handler::update_tool_permission_handler::update_tool_pe
 use crate::presentation::state::app_state::AppState;
 use crate::presentation::worker::schedule_daemon::ScheduleDaemon;
 use crate::presentation::worker::task_runner::TaskRunner;
-use axum::{
-    Router,
-    routing::{get, post, put},
-};
+use axum::Router;
+use axum::routing::{get, post, put};
 use sqlx::PgPool;
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
@@ -194,6 +193,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_usecase,
         agent_runtime,
         event_service,
+        instruction_service,
         tool_usecase,
         schedule_usecase,
         tool_approval_usecase,
@@ -243,6 +243,7 @@ pub fn build_router(app_state: AppState) -> Router {
         )
         .route("/schedules/{id}/run", post(run_schedule_handler))
         .route("/schedules/{id}/runs", get(list_schedule_run_handler))
+        .route("/watch/run", post(run_watch_handler))
         .route("/tools", get(list_tool_handler))
         .route("/tools/permissions", get(list_tool_permission_handler))
         .route(

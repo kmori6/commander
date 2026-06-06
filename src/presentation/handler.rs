@@ -21,6 +21,7 @@ pub mod list_tool_handler;
 pub mod list_tool_permission_handler;
 pub mod resolve_tool_approval_handler;
 pub mod run_schedule_handler;
+pub mod run_watch_handler;
 pub mod update_model_handler;
 pub mod update_schedule_handler;
 pub mod update_session_handler;

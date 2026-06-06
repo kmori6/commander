@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::service::event_service::EventService;
+use crate::application::service::instruction_service::InstructionService;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
@@ -21,6 +22,7 @@ use crate::infrastructure::persistence::postgres_tool_approval_repository::Postg
 pub struct AppState {
     // services
     pub event_service: Arc<EventService>,
+    pub instruction_service: Arc<InstructionService>,
     // usecases
     pub session_usecase: Arc<SessionUsecase<PostgresSessionRepository>>,
     pub message_usecase: Arc<

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Commander API
   version: 0.1.0
-  description: HTTP API for sessions, messages, tasks, schedules, tools, approvals, events, and models.
+  description: HTTP API for sessions, messages, tasks, schedules, watch, tools, approvals, events, and models.
 
 tags:
   - name: Health
@@ -17,6 +17,8 @@ tags:
     description: Task APIs.
   - name: Schedules
     description: Schedule APIs.
+  - name: Watch
+    description: Watch APIs.
   - name: Tools
     description: Tool APIs.
   - name: Approvals
@@ -411,6 +413,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/ListScheduleRunsResponse"
         "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /v1/watch/run:
+    post:
+      tags:
+        - Watch
+      summary: Run watch
+      operationId: runWatch
+      responses:
+        "202":
+          description: Watch run accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunWatchResponse"
+        "400":
           $ref: "#/components/responses/Error"
         "500":
           $ref: "#/components/responses/Error"
@@ -1100,6 +1120,14 @@ components:
       properties:
         run:
           $ref: "#/components/schemas/ScheduleRun"
+        task:
+          $ref: "#/components/schemas/Task"
+
+    RunWatchResponse:
+      type: object
+      required:
+        - task
+      properties:
         task:
           $ref: "#/components/schemas/Task"
 
