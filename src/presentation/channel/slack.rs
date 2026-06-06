@@ -144,11 +144,14 @@ async fn handle_event(
     // NOTE: we only handle types:
     // 1. app_mention: @commander in a channel
     // 2. message + channel_type: im: direct message to commander
-    let is_dm =
-        event_type == "message" && event.get("channel_type").and_then(Value::as_str) == Some("im");
+    // 3. message + thread_ts: follow-up in an active channel thread
+    let channel_type = event.get("channel_type").and_then(Value::as_str);
+    let is_message = event_type == "message";
+    let is_dm = is_message && channel_type == Some("im");
     let is_mention = event_type == "app_mention";
+    let is_thread_message = is_message && !is_dm && event.get("thread_ts").is_some();
 
-    if !is_dm && !is_mention {
+    if !is_dm && !is_mention && !is_thread_message {
         return Ok(());
     }
 
@@ -200,6 +203,10 @@ async fn handle_event(
         let conversation_ts = thread_ts.as_deref().unwrap_or("default");
         format!("slack:{team_id}:channel:{channel}:thread:{conversation_ts}")
     };
+
+    if is_thread_message && !resolver.has_session(&conversation_id).await {
+        return Ok(());
+    }
 
     let reply = if let Some(id) = text.strip_prefix("!approve ") {
         match Uuid::parse_str(id.trim()) {

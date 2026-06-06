@@ -223,4 +223,8 @@ impl SessionResolver {
 
         Ok(created)
     }
+
+    async fn has_session(&self, conversation_id: &str) -> bool {
+        self.sessions.lock().await.contains_key(conversation_id)
+    }
 }
