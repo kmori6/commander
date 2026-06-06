@@ -2,6 +2,7 @@ use clap::Parser;
 use dotenvy::dotenv;
 use log::info;
 
+use commander::presentation::channel::slack;
 use commander::presentation::cli::{Cli, Commands, chat_cli, serve_cli};
 
 #[tokio::main]
@@ -22,6 +23,10 @@ async fn main() -> Result<(), std::io::Error> {
         } => {
             info!("Starting chat CLI...");
             chat_cli::run(base_url, session_id).await?;
+        }
+        Commands::Slack { base_url } => {
+            info!("Starting Slack channel...");
+            slack::run(base_url).await?;
         }
     }
 

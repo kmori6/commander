@@ -1,3 +1,4 @@
+pub mod channel;
 pub mod cli;
 pub mod dto;
 pub mod error;
