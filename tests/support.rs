@@ -80,11 +80,12 @@ pub async fn test_app() -> Router {
         message_repository,
         subagent_repository,
         event_service.clone(),
-        instruction_service,
+        instruction_service.clone(),
     ));
 
     build_router(AppState {
         event_service,
+        instruction_service,
         session_usecase,
         message_usecase,
         task_usecase,
