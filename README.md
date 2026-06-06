@@ -82,6 +82,20 @@ commander chat --session-id <uuid>
 | `/usage`                          | Show session token usage       |
 | `/exit`                           | Quit                           |
 
+### Slack
+
+Start the Slack channel process after `commander serve` is running.
+
+```bash
+commander slack
+```
+
+Environment variables:
+
+- `SLACK_APP_TOKEN`
+- `SLACK_BOT_TOKEN`
+- `SLACK_PROACTIVE_CHANNEL` (optional) channel ID for schedule/watch notifications
+
 ## Architecture
 
 ```mermaid
@@ -112,6 +126,17 @@ flowchart LR
 ```
 
 Reference: [A Survey on Large Language Model based Autonomous Agents](https://arxiv.org/abs/2308.11432)
+
+### Channels
+
+Channels are optional presentation processes that connect chat apps to `commander serve`.
+
+```text
+Slack -> commander slack -> commander serve
+Schedule / Watch -> commander serve SSE -> commander slack -> Slack
+```
+
+Slack keeps thread-to-session mappings in memory. Proactive notifications use live SSE events, so they are not queued while `commander slack` is stopped.
 
 ## Features
 
