@@ -117,14 +117,7 @@ impl AgentClient {
     }
 
     async fn wait_task(&self, task_id: Uuid) -> io::Result<String> {
-        let mut response = self
-            .http
-            .get(format!("{}/v1/events?task_id={}", self.base_url, task_id))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?;
+        let mut response = self.connect_events(Some(task_id)).await?;
 
         let mut buffer = String::new();
 
@@ -195,6 +188,34 @@ impl AgentClient {
         }
 
         Ok("task stream closed".to_string())
+    }
+
+    async fn connect_events(&self, task_id: Option<Uuid>) -> io::Result<reqwest::Response> {
+        let url = match task_id {
+            Some(task_id) => format!("{}/v1/events?task_id={}", self.base_url, task_id),
+            None => format!("{}/v1/events", self.base_url),
+        };
+
+        self.http
+            .get(url)
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)
+    }
+
+    async fn get_task(&self, task_id: Uuid) -> io::Result<Value> {
+        self.http
+            .get(format!("{}/v1/tasks/{}", self.base_url, task_id))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?
+            .json::<Value>()
+            .await
+            .map_err(io::Error::other)
     }
 }
 

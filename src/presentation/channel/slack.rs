@@ -3,6 +3,7 @@ use futures::{SinkExt, StreamExt};
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::{env, io, sync::Arc};
+use tokio::time::{Duration, sleep};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
@@ -20,6 +21,17 @@ pub async fn run(base_url: String) -> io::Result<()> {
 
     let agent = AgentClient::new(base_url);
     let resolver = Arc::new(SessionResolver::new(agent.clone()));
+
+    // Optionally watch proactive events (schedule/watch)
+    if let Ok(channel) = env::var("SLACK_PROACTIVE_CHANNEL") {
+        let http = http.clone();
+        let bot_token = bot_token.clone();
+        let agent = agent.clone();
+
+        tokio::spawn(async move {
+            watch_proactive_events(http, bot_token, agent, channel).await;
+        });
+    }
 
     // Slack Socket Mode -> WebSocket -> reader.next()
     while let Some(message) = reader.next().await {
@@ -226,6 +238,113 @@ async fn handle_event(
     };
 
     post_message(http, bot_token, channel, thread_ts.as_deref(), &reply).await
+}
+
+async fn watch_proactive_events(
+    http: Client,
+    bot_token: String,
+    agent: AgentClient,
+    channel: String,
+) {
+    // commander serve -> SSE /v1/events -> commander slack -> proactive channel
+    loop {
+        let mut response = match agent.connect_events(None).await {
+            Ok(response) => response,
+            Err(err) => {
+                log::warn!("failed to connect proactive events: {err}");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        let mut buffer = String::new();
+
+        loop {
+            // SSE chunk -> buffer -> event
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(err) => {
+                    log::warn!("failed to read proactive events: {err}");
+                    break;
+                }
+            };
+
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(index) = buffer.find("\n\n") {
+                let raw_event = buffer[..index].to_string();
+                buffer = buffer[index + 2..].to_string();
+
+                let mut event_name = "";
+                let mut event_data = String::new();
+
+                for line in raw_event.lines() {
+                    let line = line.trim_end_matches('\r');
+
+                    if let Some(value) = line.strip_prefix("event:") {
+                        event_name = value.trim();
+                    } else if let Some(value) = line.strip_prefix("data:") {
+                        event_data.push_str(value.trim());
+                    }
+                }
+
+                if event_name != "task_completed" && event_name != "task_failed" {
+                    continue;
+                }
+
+                // event -> task_id -> /v1/tasks/{task_id} -> schedule/watch check
+                let Ok(data) = serde_json::from_str::<Value>(&event_data) else {
+                    continue;
+                };
+
+                let Some(task_id) = data
+                    .get("task_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| Uuid::parse_str(id).ok())
+                else {
+                    continue;
+                };
+
+                let Ok(task) = agent.get_task(task_id).await else {
+                    continue;
+                };
+
+                let is_proactive = task.get("schedule_id").and_then(Value::as_str).is_some()
+                    || task.get("scheduled_at").and_then(Value::as_str).is_some();
+
+                if !is_proactive {
+                    continue;
+                }
+
+                let payload = data.get("payload").unwrap_or(&Value::Null);
+                // task_completed/task_failed -> text -> Slack proactive channel
+                let text = match event_name {
+                    "task_completed" => payload
+                        .get("output")
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.trim().is_empty())
+                        .unwrap_or("done")
+                        .to_string(),
+                    "task_failed" => format!(
+                        "task failed: {}",
+                        payload
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .filter(|text| !text.trim().is_empty())
+                            .unwrap_or("unknown error")
+                    ),
+                    _ => continue,
+                };
+
+                if let Err(err) = post_message(&http, &bot_token, &channel, None, &text).await {
+                    log::warn!("failed to post proactive message: {err}");
+                }
+            }
+        }
+
+        sleep(Duration::from_secs(5)).await;
+    }
 }
 
 // text -> slack
