@@ -42,4 +42,19 @@ impl ToolService {
         let output = tool.execute(call.arguments).await?;
         Ok(ToolCallOutput::success(call.call_id, output))
     }
+
+    pub async fn execute_scoped(
+        &self,
+        call: ToolCall,
+        allowed_tools: &[String],
+    ) -> Result<ToolCallOutput, ToolServiceError> {
+        if !allowed_tools
+            .iter()
+            .any(|tool_name| tool_name == &call.tool_name)
+        {
+            return Err(ToolServiceError::ToolNotAllowed(call.tool_name));
+        }
+
+        self.execute(call).await
+    }
 }

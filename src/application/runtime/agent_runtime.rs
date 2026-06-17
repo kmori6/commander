@@ -489,21 +489,13 @@ where
             )
             .await?;
 
-            let output = if call.tool_name == SubagentTool::name()
-                || !subagent
-                    .allowed_tools
-                    .iter()
-                    .any(|tool_name| tool_name == &call.tool_name)
+            let output = match self
+                .tool_service
+                .execute_scoped(call.clone(), &subagent.allowed_tools)
+                .await
             {
-                ToolCallOutput::error(
-                    call.call_id.clone(),
-                    format!("tool execution denied: {}", call.tool_name),
-                )
-            } else {
-                match self.tool_service.execute(call.clone()).await {
-                    Ok(output) => output,
-                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
-                }
+                Ok(output) => output,
+                Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
             };
 
             self.emit(

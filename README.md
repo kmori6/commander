@@ -75,7 +75,7 @@ commander chat --session-id <uuid>
 | Command                           | Description                    |
 | --------------------------------- | ------------------------------ |
 | `/new`                            | Start a new session            |
-| `/tools`                          | Show tool execution status     |
+| `/tools`                          | Show available tools           |
 | `/usage`                          | Show session token usage       |
 | `/exit`                           | Quit                           |
 
@@ -102,7 +102,7 @@ flowchart LR
     subgraph Agent[Agent]
         Profiling[Profiling<br/>AGENTS / Skills]
         Memory[Memory<br/>Long / Short]
-        Planning[Planning<br/>Loop / Delegate / Approve]
+        Planning[Planning<br/>Loop / Delegate]
         Action[Action<br/>Tools / Sandbox]
         Trace[Persistence / Trace]
     end
