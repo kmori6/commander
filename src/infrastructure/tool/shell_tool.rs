@@ -1,5 +1,4 @@
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 use crate::infrastructure::process::docker_sandbox_runner::DockerSandboxRunner;
 use crate::infrastructure::process::process_types::ProcessRequest;
@@ -48,10 +47,6 @@ impl Tool for ShellTool {
 
     fn description(&self) -> &str {
         "Run a non-interactive shell command in the Docker sandbox and return stdout, stderr, and exit_code."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

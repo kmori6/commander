@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 #[derive(Debug, Clone)]
@@ -96,10 +95,6 @@ impl Tool for FileWriteTool {
 
     fn description(&self) -> &str {
         "Write UTF-8 text to a file inside the workspace. Creates parent directories as needed and overwrites existing files."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

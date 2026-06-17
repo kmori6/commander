@@ -13,7 +13,6 @@ use commander::application::usecase::tool_usecase::ToolUsecase;
 use commander::infrastructure::llm::llm_gateway::LlmGateway;
 use commander::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use commander::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
-use commander::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use commander::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use commander::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use commander::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -32,14 +31,12 @@ pub async fn test_app() -> Router {
     let task_repository = PostgresTaskRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
 
-    let tool_permission_repository =
-        FileToolPermissionRepository::new(root.join("tool_permissions.json"));
     let schedule_repository = FileScheduleRepository::new(root.join("schedules.json"));
     let subagent_repository = FileSubagentRepository::new(root.join("subagents"));
 
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(root.clone()));
-    let tool_service = Arc::new(ToolService::new(vec![], tool_permission_repository.clone()));
+    let tool_service = Arc::new(ToolService::new(vec![]));
 
     let llm_gateway = LlmGateway::from_config_path(root.join("models.json"))
         .await

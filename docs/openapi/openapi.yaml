@@ -447,54 +447,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ListToolsResponse"
 
-  /v1/tools/permissions:
-    get:
-      tags:
-        - Tools
-      summary: List tool permissions
-      operationId: listToolPermissions
-      responses:
-        "200":
-          description: Tool permissions.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListToolPermissionsResponse"
-        "500":
-          $ref: "#/components/responses/Error"
-
-  /v1/tools/permissions/{tool_name}:
-    put:
-      tags:
-        - Tools
-      summary: Update tool permission
-      operationId: updateToolPermission
-      parameters:
-        - name: tool_name
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateToolPermissionRequest"
-      responses:
-        "200":
-          description: Tool permission.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ToolPermission"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-        "500":
-          $ref: "#/components/responses/Error"
-
   /v1/models:
     get:
       tags:
@@ -1094,41 +1046,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Tool"
-
-    ToolPermissionMode:
-      type: string
-      enum:
-        - allow
-        - deny
-
-    ToolPermission:
-      type: object
-      required:
-        - tool_name
-        - mode
-      properties:
-        tool_name:
-          type: string
-        mode:
-          $ref: "#/components/schemas/ToolPermissionMode"
-
-    ListToolPermissionsResponse:
-      type: object
-      required:
-        - permissions
-      properties:
-        permissions:
-          type: array
-          items:
-            $ref: "#/components/schemas/ToolPermission"
-
-    UpdateToolPermissionRequest:
-      type: object
-      required:
-        - mode
-      properties:
-        mode:
-          $ref: "#/components/schemas/ToolPermissionMode"
 
     ModelSpec:
       type: object

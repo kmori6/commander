@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const MAX_MATCHES: usize = 200;
@@ -42,10 +41,6 @@ impl Tool for FileSearchTool {
 
     fn description(&self) -> &str {
         "Find workspace files whose paths match a glob pattern."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

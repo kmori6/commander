@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 #[derive(Debug, Clone)]
@@ -73,10 +72,6 @@ impl Tool for FileEditTool {
 
     fn description(&self) -> &str {
         "Edit a UTF-8 text file inside the workspace by applying exact text replacements in order. If any replacement fails, the file is not changed."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

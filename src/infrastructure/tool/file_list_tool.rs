@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const MAX_ENTRIES: usize = 200;
@@ -73,10 +72,6 @@ impl Tool for FileListTool {
 
     fn description(&self) -> &str {
         "List files and directories directly inside a workspace directory."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

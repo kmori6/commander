@@ -24,7 +24,6 @@ impl CommanderPaths {
 
     pub async fn ensure_dirs(&self) -> io::Result<()> {
         tokio::fs::create_dir_all(self.config_dir()).await?;
-        tokio::fs::create_dir_all(self.tools_dir()).await?;
         tokio::fs::create_dir_all(self.schedules_dir()).await?;
         tokio::fs::create_dir_all(&self.workspace_path).await?;
         Ok(())
@@ -40,14 +39,6 @@ impl CommanderPaths {
 
     pub fn model_config_path(&self) -> PathBuf {
         self.config_dir().join("models.json")
-    }
-
-    fn tools_dir(&self) -> PathBuf {
-        self.home_path.join("tools")
-    }
-
-    pub fn tool_permissions_path(&self) -> PathBuf {
-        self.tools_dir().join("permissions.json")
     }
 
     fn schedules_dir(&self) -> PathBuf {

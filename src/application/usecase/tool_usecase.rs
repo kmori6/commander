@@ -1,34 +1,17 @@
-use crate::application::error::tool_service_error::ToolServiceError;
 use crate::application::service::tool_service::ToolService;
-use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode, ToolSpec};
-use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
+use crate::domain::model::tool_call::ToolSpec;
 use std::sync::Arc;
 
-pub struct ToolUsecase<P> {
-    tool_service: Arc<ToolService<P>>,
+pub struct ToolUsecase {
+    tool_service: Arc<ToolService>,
 }
 
-impl<P> ToolUsecase<P>
-where
-    P: ToolPermissionRepository,
-{
-    pub fn new(tool_service: Arc<ToolService<P>>) -> Self {
+impl ToolUsecase {
+    pub fn new(tool_service: Arc<ToolService>) -> Self {
         Self { tool_service }
     }
 
     pub fn list_tools(&self) -> Vec<ToolSpec> {
         self.tool_service.list_tools()
-    }
-
-    pub async fn list_permissions(&self) -> Result<Vec<ToolPermission>, ToolServiceError> {
-        self.tool_service.list_permissions().await
-    }
-
-    pub async fn update_permission(
-        &self,
-        tool_name: &str,
-        mode: ToolPermissionMode,
-    ) -> Result<ToolPermission, ToolServiceError> {
-        self.tool_service.update_permission(tool_name, mode).await
     }
 }

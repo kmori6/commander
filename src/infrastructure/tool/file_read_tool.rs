@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const MAX_LINES: usize = 10_000;
@@ -71,10 +70,6 @@ impl Tool for FileReadTool {
 
     fn description(&self) -> &str {
         "Read selected lines from a UTF-8 text file inside the workspace."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

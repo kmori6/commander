@@ -2,15 +2,13 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::{ToolPermissionMode, ToolSpec};
+use crate::domain::model::tool_call::ToolSpec;
 
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
 
     fn description(&self) -> &str;
-
-    fn default_permission(&self) -> ToolPermissionMode;
 
     fn parameters(&self) -> Value;
 

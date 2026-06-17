@@ -8,7 +8,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const MAX_MATCHES: usize = 200;
@@ -76,10 +75,6 @@ impl Tool for TextSearchTool {
 
     fn description(&self) -> &str {
         "Search UTF-8 workspace files for lines that match a regular expression."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

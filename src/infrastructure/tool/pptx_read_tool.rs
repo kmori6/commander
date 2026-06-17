@@ -10,7 +10,6 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const MAX_SOURCE_BYTES: u64 = 1_000_000_000;
@@ -74,10 +73,6 @@ impl Tool for PptxReadTool {
 
     fn description(&self) -> &str {
         "Extract readable text from a PPTX presentation as Markdown."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

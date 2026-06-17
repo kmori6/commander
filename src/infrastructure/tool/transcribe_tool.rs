@@ -8,7 +8,6 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const MODEL: &str = "deepdml/faster-whisper-large-v3-turbo-ct2";
@@ -96,10 +95,6 @@ impl Tool for TranscribeTool {
 
     fn description(&self) -> &str {
         "Transcribe a local audio file into timestamped speech segments."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

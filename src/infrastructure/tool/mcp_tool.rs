@@ -10,7 +10,6 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc};
 use tokio::process::Command;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 use crate::infrastructure::mcp::config::McpConfig;
 
@@ -32,10 +31,6 @@ impl Tool for McpTool {
 
     fn description(&self) -> &str {
         &self.description
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

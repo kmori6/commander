@@ -52,12 +52,6 @@ struct ToolResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct ToolPermissionResponse {
-    tool_name: String,
-    mode: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct ListTasksResponse {
     tasks: Vec<TaskResponse>,
 }
@@ -291,27 +285,6 @@ impl ChatApiClient {
         Ok(response.model)
     }
 
-    async fn update_tool_permission(
-        &self,
-        tool_name: &str,
-        mode: &str,
-    ) -> io::Result<ToolPermissionResponse> {
-        self.http
-            .put(format!(
-                "{}/v1/tools/permissions/{}",
-                self.base_url, tool_name
-            ))
-            .json(&serde_json::json!({ "mode": mode }))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<ToolPermissionResponse>()
-            .await
-            .map_err(io::Error::other)
-    }
-
     async fn list_tasks(&self) -> io::Result<Vec<TaskResponse>> {
         let response = self
             .http
@@ -539,28 +512,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                                 println!("  {:<20} {}", tool.name, tool.description);
                             }
                         }
-                    }
-                    _ if line.starts_with("/tool ") => {
-                        let parts = line.split_whitespace().collect::<Vec<_>>();
-
-                        if parts.len() != 3 {
-                            println!("usage: /tool <tool_name> <allow|deny>");
-                            continue;
-                        }
-
-                        let tool_name = parts[1];
-                        let mode = parts[2];
-
-                        if !matches!(mode, "allow" | "deny") {
-                            println!("usage: /tool <tool_name> <allow|deny>");
-                            continue;
-                        }
-
-                        let permission = client.update_tool_permission(tool_name, mode).await?;
-
-                        println!("tool permission saved");
-                        println!("  tool  {}", permission.tool_name);
-                        println!("  mode  {}", permission.mode);
                     }
                     // task
                     "/tasks" => {

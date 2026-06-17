@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 #[derive(Clone)]
@@ -78,10 +77,6 @@ impl Tool for MemoryWriteTool {
 
     fn description(&self) -> &str {
         "Append a concise note to long-term memory or the daily journal."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

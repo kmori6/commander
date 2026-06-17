@@ -6,7 +6,6 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const DEFAULT_MAX_CHARS: usize = 100_000;
@@ -48,10 +47,6 @@ impl Tool for WebFetchTool {
 
     fn description(&self) -> &str {
         "Read one web page and return extracted text. Use when you already have the URL."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

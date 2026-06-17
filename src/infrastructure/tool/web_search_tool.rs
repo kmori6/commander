@@ -4,7 +4,6 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 use crate::domain::error::tool_error::ToolError;
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::tool::Tool;
 
 const TAVILY_SEARCH_URL: &str = "https://api.tavily.com/search";
@@ -91,10 +90,6 @@ impl Tool for WebSearchTool {
 
     fn description(&self) -> &str {
         "Find web pages with Tavily. Returns titles, URLs, and content excerpts for choosing sources."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

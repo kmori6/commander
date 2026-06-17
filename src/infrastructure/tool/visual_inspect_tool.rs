@@ -6,7 +6,6 @@ use tokio::fs;
 
 use crate::domain::error::tool_error::ToolError;
 use crate::domain::model::message::{MessageContent, Role};
-use crate::domain::model::tool_call::ToolPermissionMode;
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::port::tool::Tool;
 use crate::domain::util::data_uri::encode_data_uri;
@@ -75,10 +74,6 @@ impl Tool for VisualInspectTool {
 
     fn description(&self) -> &str {
         "Inspect a local image or PDF with a vision-capable model. Use when visual or layout information is needed from screenshots, rendered slides, charts, diagrams, scanned documents, or PDFs."
-    }
-
-    fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {

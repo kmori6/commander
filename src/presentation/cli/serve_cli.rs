@@ -13,7 +13,6 @@ use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
-use crate::infrastructure::persistence::file_tool_permission_repository::FileToolPermissionRepository;
 use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
@@ -51,18 +50,16 @@ use crate::presentation::handler::list_schedule_run_handler::list_schedule_run_h
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_task_handler::list_task_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
-use crate::presentation::handler::list_tool_permission_handler::list_tool_permission_handler;
 use crate::presentation::handler::run_schedule_handler::run_schedule_handler;
 use crate::presentation::handler::run_watch_handler::run_watch_handler;
 use crate::presentation::handler::update_model_handler::update_model_handler;
 use crate::presentation::handler::update_schedule_handler::update_schedule_handler;
 use crate::presentation::handler::update_session_handler::update_session_handler;
-use crate::presentation::handler::update_tool_permission_handler::update_tool_permission_handler;
 use crate::presentation::state::app_state::AppState;
 use crate::presentation::worker::schedule_daemon::ScheduleDaemon;
 use crate::presentation::worker::task_runner::TaskRunner;
 use axum::Router;
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use sqlx::PgPool;
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
@@ -83,8 +80,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // repositories
     let session_repository = PostgresSessionRepository::new(pool.clone());
     let task_repository = PostgresTaskRepository::new(pool.clone());
-    let tool_permission_repository =
-        FileToolPermissionRepository::new(paths.tool_permissions_path());
     let schedule_repository = FileScheduleRepository::new(paths.schedules_path());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
@@ -128,7 +123,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             .map_err(std::io::Error::other)?,
     );
 
-    let tool_service = Arc::new(ToolService::new(tools, tool_permission_repository.clone()));
+    let tool_service = Arc::new(ToolService::new(tools));
 
     // usecases
     let session_usecase = Arc::new(SessionUsecase::new(session_repository.clone()));
@@ -227,11 +222,6 @@ pub fn build_router(app_state: AppState) -> Router {
         .route("/schedules/{id}/runs", get(list_schedule_run_handler))
         .route("/watch/run", post(run_watch_handler))
         .route("/tools", get(list_tool_handler))
-        .route("/tools/permissions", get(list_tool_permission_handler))
-        .route(
-            "/tools/permissions/{tool_name}",
-            put(update_tool_permission_handler),
-        )
         .route("/models", get(list_model_handler))
         .route("/model", get(get_model_handler).put(update_model_handler))
         .with_state(app_state);

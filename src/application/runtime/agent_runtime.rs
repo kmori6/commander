@@ -7,12 +7,11 @@ use crate::application::service::tool_service::ToolService;
 use crate::domain::model::message::{Message, Role};
 use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
-use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec};
+use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolSpec};
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest, LlmResponse};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::subagent_repository::SubagentRepository;
 use crate::domain::repository::task_repository::TaskRepository;
-use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -29,9 +28,9 @@ enum ToolRun {
     Stopped,
 }
 
-pub struct AgentRuntime<L, T, M, S, P> {
+pub struct AgentRuntime<L, T, M, S> {
     llm_provider: L,
-    tool_service: Arc<ToolService<P>>,
+    tool_service: Arc<ToolService>,
     task_repository: T,
     message_repository: M,
     subagent_repository: S,
@@ -39,17 +38,16 @@ pub struct AgentRuntime<L, T, M, S, P> {
     instruction_service: Arc<InstructionService>,
 }
 
-impl<L, T, M, S, P> AgentRuntime<L, T, M, S, P>
+impl<L, T, M, S> AgentRuntime<L, T, M, S>
 where
     L: LlmProvider,
     T: TaskRepository,
     M: MessageRepository,
     S: SubagentRepository,
-    P: ToolPermissionRepository,
 {
     pub fn new(
         llm_provider: L,
-        tool_service: Arc<ToolService<P>>,
+        tool_service: Arc<ToolService>,
         task_repository: T,
         message_repository: M,
         subagent_repository: S,
@@ -311,20 +309,6 @@ where
             )
             .await?;
 
-            // Root agent runs tools directly; approvals and root permissions are being phased out.
-            let mode = ToolPermissionMode::Allow;
-
-            self.emit(
-                task_id,
-                "tool_call_permission_resolved",
-                json!({
-                    "call_id": call.call_id,
-                    "tool_name": call.tool_name,
-                    "mode": mode.as_str(),
-                }),
-            )
-            .await?;
-
             let output = if call.tool_name == SubagentTool::name() {
                 match self.run_subagent_call(task_id, &call).await {
                     Ok(output) => output,
@@ -505,34 +489,21 @@ where
             )
             .await?;
 
-            let mode = if call.tool_name == SubagentTool::name() {
-                ToolPermissionMode::Deny
-            } else {
-                self.tool_service
-                    .permission_mode(&call.tool_name, Some(subagent.allowed_tools.as_slice()))
-                    .await?
-            };
-
-            self.emit(
-                task_id,
-                "tool_call_permission_resolved",
-                json!({
-                    "call_id": call.call_id,
-                    "tool_name": call.tool_name,
-                    "mode": mode.as_str(),
-                }),
-            )
-            .await?;
-
-            let output = match mode {
-                ToolPermissionMode::Allow => match self.tool_service.execute(call.clone()).await {
-                    Ok(output) => output,
-                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
-                },
-                _ => ToolCallOutput::error(
+            let output = if call.tool_name == SubagentTool::name()
+                || !subagent
+                    .allowed_tools
+                    .iter()
+                    .any(|tool_name| tool_name == &call.tool_name)
+            {
+                ToolCallOutput::error(
                     call.call_id.clone(),
                     format!("tool execution denied: {}", call.tool_name),
-                ),
+                )
+            } else {
+                match self.tool_service.execute(call.clone()).await {
+                    Ok(output) => output,
+                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
+                }
             };
 
             self.emit(

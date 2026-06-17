@@ -9,25 +9,23 @@ use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::subagent_repository::SubagentRepository;
 use crate::domain::repository::task_repository::TaskRepository;
-use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 
-pub struct TaskRunner<L, T, M, S, P> {
+pub struct TaskRunner<L, T, M, S> {
     task_usecase: Arc<TaskUsecase<T, M>>,
-    agent_runtime: Arc<AgentRuntime<L, T, M, S, P>>,
+    agent_runtime: Arc<AgentRuntime<L, T, M, S>>,
     poll_interval: Duration,
 }
 
-impl<L, T, M, S, P> TaskRunner<L, T, M, S, P>
+impl<L, T, M, S> TaskRunner<L, T, M, S>
 where
     L: LlmProvider,
     T: TaskRepository,
     M: MessageRepository,
     S: SubagentRepository,
-    P: ToolPermissionRepository,
 {
     pub fn new(
         task_usecase: Arc<TaskUsecase<T, M>>,
-        agent_runtime: Arc<AgentRuntime<L, T, M, S, P>>,
+        agent_runtime: Arc<AgentRuntime<L, T, M, S>>,
         poll_interval: Duration,
     ) -> Self {
         Self {
