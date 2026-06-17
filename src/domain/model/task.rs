@@ -47,7 +47,6 @@ impl TaskSource {
 pub enum TaskStatus {
     Queued,
     Running,
-    AwaitingApproval,
     Completed,
     Failed,
     Cancelled,
@@ -58,7 +57,6 @@ impl TaskStatus {
         match self {
             Self::Queued => "queued",
             Self::Running => "running",
-            Self::AwaitingApproval => "awaiting_approval",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -117,32 +115,6 @@ impl Task {
         Ok(())
     }
 
-    // status: running -> awaiting_approval
-    pub fn await_approval(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        if self.status != TaskStatus::Running {
-            return Err(invalid_transition(
-                self.status,
-                TaskStatus::AwaitingApproval,
-            ));
-        }
-
-        self.status = TaskStatus::AwaitingApproval;
-        self.updated_at = now;
-        Ok(())
-    }
-
-    // status: awaiting_approval -> queued
-    pub fn resume_after_approval(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        if self.status != TaskStatus::AwaitingApproval {
-            return Err(invalid_transition(self.status, TaskStatus::Queued));
-        }
-
-        self.status = TaskStatus::Queued;
-        self.updated_at = now;
-        self.finished_at = None;
-        Ok(())
-    }
-
     // status: running -> completed
     pub fn complete(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         if self.status != TaskStatus::Running {
@@ -157,7 +129,7 @@ impl Task {
         Ok(())
     }
 
-    // status: queued/running/awaiting_approval -> failed
+    // status: queued/running -> failed
     pub fn fail(&mut self, error: impl Into<String>, now: DateTime<Utc>) -> Result<(), String> {
         let error = error.into().trim().to_string();
         if error.is_empty() {
@@ -176,7 +148,7 @@ impl Task {
         Ok(())
     }
 
-    // status: queued/running/awaiting_approval -> cancelled
+    // status: queued/running -> cancelled
     pub fn cancel(&mut self, now: DateTime<Utc>) -> Result<(), String> {
         if self.status.is_terminal() {
             return Err(invalid_transition(self.status, TaskStatus::Cancelled));

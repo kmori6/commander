@@ -59,7 +59,6 @@ fn task_status_from_db(value: &str) -> Option<TaskStatus> {
     match value {
         "queued" => Some(TaskStatus::Queued),
         "running" => Some(TaskStatus::Running),
-        "awaiting_approval" => Some(TaskStatus::AwaitingApproval),
         "completed" => Some(TaskStatus::Completed),
         "failed" => Some(TaskStatus::Failed),
         "cancelled" => Some(TaskStatus::Cancelled),
@@ -206,16 +205,6 @@ impl TaskRepository for PostgresTaskRepository {
 
     async fn start(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
         self.update_task(id, |task, now| task.start(now)).await
-    }
-
-    async fn await_approval(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
-        self.update_task(id, |task, now| task.await_approval(now))
-            .await
-    }
-
-    async fn resume_after_approval(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
-        self.update_task(id, |task, now| task.resume_after_approval(now))
-            .await
     }
 
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {

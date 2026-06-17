@@ -11,10 +11,6 @@ pub trait TaskRepository: Send + Sync {
 
     async fn start(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
-    async fn await_approval(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
-
-    async fn resume_after_approval(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
-
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
     async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError>;

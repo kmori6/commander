@@ -4,7 +4,7 @@ CREATE TABLE tasks (
   schedule_id UUID,
   scheduled_at TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'queued' CHECK (
-    status IN ('queued', 'running', 'awaiting_approval', 'completed', 'failed', 'cancelled')
+    status IN ('queued', 'running', 'completed', 'failed', 'cancelled')
   ),
   error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
