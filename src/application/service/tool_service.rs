@@ -75,7 +75,6 @@ where
         &self,
         tool_name: &str,
         allowed_tools: Option<&[String]>,
-        allow_approval: bool,
     ) -> Result<ToolPermissionMode, ToolServiceError> {
         if let Some(allowed) = allowed_tools
             && !allowed.iter().any(|t| t == tool_name)
@@ -83,19 +82,13 @@ where
             return Ok(ToolPermissionMode::Deny);
         }
 
-        let mode = if let Some(p) = self.permission_repository.find(tool_name).await? {
+        Ok(if let Some(p) = self.permission_repository.find(tool_name).await? {
             p.mode
         } else {
             self.tools
                 .get(tool_name)
                 .map(|t| t.default_permission())
                 .unwrap_or(ToolPermissionMode::Deny)
-        };
-
-        Ok(if allow_approval {
-            mode
-        } else {
-            mode.without_approval()
         })
     }
 }

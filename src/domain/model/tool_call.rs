@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermissionMode {
     Allow,
-    Ask,
     Deny,
 }
 
@@ -14,15 +13,7 @@ impl ToolPermissionMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Allow => "allow",
-            Self::Ask => "ask",
             Self::Deny => "deny",
-        }
-    }
-
-    pub fn without_approval(self) -> Self {
-        match self {
-            Self::Allow => Self::Allow,
-            Self::Ask | Self::Deny => Self::Deny,
         }
     }
 }
@@ -101,22 +92,6 @@ impl ToolCallOutput {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn permission_without_approval_denies_ask() {
-        assert_eq!(
-            ToolPermissionMode::Allow.without_approval(),
-            ToolPermissionMode::Allow
-        );
-        assert_eq!(
-            ToolPermissionMode::Ask.without_approval(),
-            ToolPermissionMode::Deny
-        );
-        assert_eq!(
-            ToolPermissionMode::Deny.without_approval(),
-            ToolPermissionMode::Deny
-        );
-    }
 
     #[test]
     fn tool_call_from_message_content_extracts_call() {

@@ -544,15 +544,15 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         let parts = line.split_whitespace().collect::<Vec<_>>();
 
                         if parts.len() != 3 {
-                            println!("usage: /tool <tool_name> <allow|ask|deny>");
+                            println!("usage: /tool <tool_name> <allow|deny>");
                             continue;
                         }
 
                         let tool_name = parts[1];
                         let mode = parts[2];
 
-                        if !matches!(mode, "allow" | "ask" | "deny") {
-                            println!("usage: /tool <tool_name> <allow|ask|deny>");
+                        if !matches!(mode, "allow" | "deny") {
+                            println!("usage: /tool <tool_name> <allow|deny>");
                             continue;
                         }
 

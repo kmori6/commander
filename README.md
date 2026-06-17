@@ -76,7 +76,7 @@ commander chat --session-id <uuid>
 | --------------------------------- | ------------------------------ |
 | `/new`                            | Start a new session            |
 | `/tools`                          | Show tool execution status     |
-| `/tool <tool> <allow\|ask\|deny>` | Set a tool execution rule      |
+| `/tool <tool> <allow\|deny>`      | Set a tool execution rule      |
 | `/usage`                          | Show session token usage       |
 | `/exit`                           | Quit                           |
 
@@ -187,7 +187,7 @@ Create the file with one or more servers:
 ```
 
 Restart `commander serve`, then run `/tools` in `commander chat`.
-MCP tools are exposed as `mcp__<server>__<tool>`, and permissions can be changed with `/tool mcp__filesystem__read_file ask`.
+MCP tools are exposed as `mcp__<server>__<tool>`, and permissions can be changed with `/tool mcp__filesystem__read_file deny`.
 
 ### Schedule
 

@@ -1099,7 +1099,6 @@ components:
       type: string
       enum:
         - allow
-        - ask
         - deny
 
     ToolPermission:

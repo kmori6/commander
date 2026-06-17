@@ -509,11 +509,7 @@ where
                 ToolPermissionMode::Deny
             } else {
                 self.tool_service
-                    .permission_mode(
-                        &call.tool_name,
-                        Some(subagent.allowed_tools.as_slice()),
-                        false,
-                    )
+                    .permission_mode(&call.tool_name, Some(subagent.allowed_tools.as_slice()))
                     .await?
             };
 
