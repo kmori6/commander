@@ -1,4 +1,3 @@
-use crate::domain::error::tool_approval_repository_error::ToolApprovalRepositoryError;
 use crate::domain::error::tool_error::ToolError;
 use crate::domain::error::tool_permission_repository_error::ToolPermissionRepositoryError;
 use thiserror::Error;
@@ -13,7 +12,4 @@ pub enum ToolServiceError {
 
     #[error("failed to access permission repository: {0}")]
     PermissionRepository(#[from] ToolPermissionRepositoryError),
-
-    #[error("failed to access approval repository: {0}")]
-    ApprovalRepository(#[from] ToolApprovalRepositoryError),
 }

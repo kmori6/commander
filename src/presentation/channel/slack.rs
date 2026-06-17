@@ -220,17 +220,7 @@ async fn handle_event(
         return Ok(());
     }
 
-    let reply = if let Some(id) = text.strip_prefix("!approve ") {
-        match Uuid::parse_str(id.trim()) {
-            Ok(approval_id) => agent.approve(approval_id).await?,
-            Err(_) => "usage: !approve <approval_id>".to_string(),
-        }
-    } else if let Some(id) = text.strip_prefix("!reject ") {
-        match Uuid::parse_str(id.trim()) {
-            Ok(approval_id) => agent.reject(approval_id).await?,
-            Err(_) => "usage: !reject <approval_id>".to_string(),
-        }
-    } else {
+    let reply = {
         // 1. POST /v1/sessions/{session_id}/messages
         // 2. GET /v1/events?task_id=... and while loop until get the task_completed event
         let session_id = resolver.resolve(&conversation_id).await?;

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Commander API
   version: 0.1.0
-  description: HTTP API for sessions, messages, tasks, schedules, watch, tools, approvals, events, and models.
+  description: HTTP API for sessions, messages, tasks, schedules, watch, tools, events, and models.
 
 tags:
   - name: Health
@@ -21,8 +21,6 @@ tags:
     description: Watch APIs.
   - name: Tools
     description: Tool APIs.
-  - name: Approvals
-    description: Tool approval APIs.
   - name: Models
     description: Model APIs.
 
@@ -490,72 +488,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ToolPermission"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-        "500":
-          $ref: "#/components/responses/Error"
-
-  /v1/tools/approvals:
-    get:
-      tags:
-        - Approvals
-      summary: List approvals
-      operationId: listToolApprovals
-      parameters:
-        - name: status
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/ToolApprovalStatus"
-      responses:
-        "200":
-          description: Tool approvals.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListToolApprovalsResponse"
-        "500":
-          $ref: "#/components/responses/Error"
-
-  /v1/tools/approvals/{id}/approve:
-    post:
-      tags:
-        - Approvals
-      summary: Approve tool call
-      operationId: approveToolApproval
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: Tool approval.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ToolApproval"
-        "400":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-        "500":
-          $ref: "#/components/responses/Error"
-
-  /v1/tools/approvals/{id}/reject:
-    post:
-      tags:
-        - Approvals
-      summary: Reject tool call
-      operationId: rejectToolApproval
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: Tool approval.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ToolApproval"
         "400":
           $ref: "#/components/responses/Error"
         "404":
@@ -1198,56 +1130,6 @@ components:
       properties:
         mode:
           $ref: "#/components/schemas/ToolPermissionMode"
-
-    ToolApprovalStatus:
-      type: string
-      enum:
-        - pending
-        - approved
-        - rejected
-
-    ToolApproval:
-      type: object
-      required:
-        - id
-        - task_id
-        - message_id
-        - call_id
-        - status
-        - requested_at
-        - resolved_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        task_id:
-          type: string
-          format: uuid
-        message_id:
-          type: string
-          format: uuid
-        call_id:
-          type: string
-        status:
-          $ref: "#/components/schemas/ToolApprovalStatus"
-        requested_at:
-          type: string
-          format: date-time
-        resolved_at:
-          type:
-            - string
-            - "null"
-          format: date-time
-
-    ListToolApprovalsResponse:
-      type: object
-      required:
-        - approvals
-      properties:
-        approvals:
-          type: array
-          items:
-            $ref: "#/components/schemas/ToolApproval"
 
     ModelSpec:
       type: object

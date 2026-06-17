@@ -1,20 +1,18 @@
 use crate::application::error::tool_service_error::ToolServiceError;
 use crate::application::service::tool_service::ToolService;
 use crate::domain::model::tool_call::{ToolPermission, ToolPermissionMode, ToolSpec};
-use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use std::sync::Arc;
 
-pub struct ToolUsecase<P, A> {
-    tool_service: Arc<ToolService<P, A>>,
+pub struct ToolUsecase<P> {
+    tool_service: Arc<ToolService<P>>,
 }
 
-impl<P, A> ToolUsecase<P, A>
+impl<P> ToolUsecase<P>
 where
     P: ToolPermissionRepository,
-    A: ToolApprovalRepository,
 {
-    pub fn new(tool_service: Arc<ToolService<P, A>>) -> Self {
+    pub fn new(tool_service: Arc<ToolService<P>>) -> Self {
         Self { tool_service }
     }
 

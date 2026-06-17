@@ -7,7 +7,6 @@ use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
-use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::port::tool::Tool;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
@@ -19,7 +18,6 @@ use crate::infrastructure::persistence::file_watch_repository::FileWatchReposito
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use crate::infrastructure::tool::file_edit_tool::FileEditTool;
 use crate::infrastructure::tool::file_list_tool::FileListTool;
 use crate::infrastructure::tool::file_read_tool::FileReadTool;
@@ -52,12 +50,8 @@ use crate::presentation::handler::list_schedule_handler::list_schedule_handler;
 use crate::presentation::handler::list_schedule_run_handler::list_schedule_run_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
 use crate::presentation::handler::list_task_handler::list_task_handler;
-use crate::presentation::handler::list_tool_approval_handler::list_tool_approval_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
 use crate::presentation::handler::list_tool_permission_handler::list_tool_permission_handler;
-use crate::presentation::handler::resolve_tool_approval_handler::{
-    approve_tool_approval_handler, reject_tool_approval_handler,
-};
 use crate::presentation::handler::run_schedule_handler::run_schedule_handler;
 use crate::presentation::handler::run_watch_handler::run_watch_handler;
 use crate::presentation::handler::update_model_handler::update_model_handler;
@@ -92,7 +86,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let tool_permission_repository =
         FileToolPermissionRepository::new(paths.tool_permissions_path());
     let schedule_repository = FileScheduleRepository::new(paths.schedules_path());
-    let tool_approval_repository = PostgresToolApprovalRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
     let subagent_repository = FileSubagentRepository::new(workspace_root.join("subagents"));
@@ -135,11 +128,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
             .map_err(std::io::Error::other)?,
     );
 
-    let tool_service = Arc::new(ToolService::new(
-        tools,
-        tool_permission_repository.clone(),
-        tool_approval_repository.clone(),
-    ));
+    let tool_service = Arc::new(ToolService::new(tools, tool_permission_repository.clone()));
 
     // usecases
     let session_usecase = Arc::new(SessionUsecase::new(session_repository.clone()));
@@ -158,11 +147,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_approval_usecase = Arc::new(ToolApprovalUsecase::new(
-        tool_approval_repository.clone(),
-        task_repository.clone(),
-    ));
-
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
         tool_service.clone(),
@@ -176,7 +160,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // workers
     let task_runner = TaskRunner::new(
         task_usecase.clone(),
-        tool_approval_usecase.clone(),
         agent_runtime.clone(),
         Duration::from_secs(1),
     );
@@ -196,7 +179,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         instruction_service,
         tool_usecase,
         schedule_usecase,
-        tool_approval_usecase,
     };
 
     tokio::spawn(async move {
@@ -249,15 +231,6 @@ pub fn build_router(app_state: AppState) -> Router {
         .route(
             "/tools/permissions/{tool_name}",
             put(update_tool_permission_handler),
-        )
-        .route("/tools/approvals", get(list_tool_approval_handler))
-        .route(
-            "/tools/approvals/{id}/approve",
-            post(approve_tool_approval_handler),
-        )
-        .route(
-            "/tools/approvals/{id}/reject",
-            post(reject_tool_approval_handler),
         )
         .route("/models", get(list_model_handler))
         .route("/model", get(get_model_handler).put(update_model_handler))

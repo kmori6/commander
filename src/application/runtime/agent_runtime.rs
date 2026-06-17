@@ -12,7 +12,6 @@ use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest, Llm
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::subagent_repository::SubagentRepository;
 use crate::domain::repository::task_repository::TaskRepository;
-use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -30,9 +29,9 @@ enum ToolRun {
     Stopped,
 }
 
-pub struct AgentRuntime<L, T, M, S, P, A> {
+pub struct AgentRuntime<L, T, M, S, P> {
     llm_provider: L,
-    tool_service: Arc<ToolService<P, A>>,
+    tool_service: Arc<ToolService<P>>,
     task_repository: T,
     message_repository: M,
     subagent_repository: S,
@@ -40,18 +39,17 @@ pub struct AgentRuntime<L, T, M, S, P, A> {
     instruction_service: Arc<InstructionService>,
 }
 
-impl<L, T, M, S, P, A> AgentRuntime<L, T, M, S, P, A>
+impl<L, T, M, S, P> AgentRuntime<L, T, M, S, P>
 where
     L: LlmProvider,
     T: TaskRepository,
     M: MessageRepository,
     S: SubagentRepository,
     P: ToolPermissionRepository,
-    A: ToolApprovalRepository,
 {
     pub fn new(
         llm_provider: L,
-        tool_service: Arc<ToolService<P, A>>,
+        tool_service: Arc<ToolService<P>>,
         task_repository: T,
         message_repository: M,
         subagent_repository: S,

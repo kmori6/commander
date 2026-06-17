@@ -1,31 +1,22 @@
 use std::{collections::HashMap, sync::Arc};
 
-use uuid::Uuid;
-
 use crate::application::error::tool_service_error::ToolServiceError;
 use crate::domain::model::tool_call::{
-    ToolApproval, ToolCall, ToolCallOutput, ToolPermission, ToolPermissionMode, ToolSpec,
+    ToolCall, ToolCallOutput, ToolPermission, ToolPermissionMode, ToolSpec,
 };
 use crate::domain::port::tool::Tool;
-use crate::domain::repository::tool_approval_repository::ToolApprovalRepository;
 use crate::domain::repository::tool_permission_repository::ToolPermissionRepository;
 
-pub struct ToolService<P, A> {
+pub struct ToolService<P> {
     tools: HashMap<String, Arc<dyn Tool>>,
     permission_repository: P,
-    approval_repository: A,
 }
 
-impl<P, A> ToolService<P, A>
+impl<P> ToolService<P>
 where
     P: ToolPermissionRepository,
-    A: ToolApprovalRepository,
 {
-    pub fn new(
-        tools: Vec<Arc<dyn Tool>>,
-        permission_repository: P,
-        approval_repository: A,
-    ) -> Self {
+    pub fn new(tools: Vec<Arc<dyn Tool>>, permission_repository: P) -> Self {
         let tools = tools
             .into_iter()
             .map(|t| (t.name().to_string(), t))
@@ -33,7 +24,6 @@ where
         Self {
             tools,
             permission_repository,
-            approval_repository,
         }
     }
 
@@ -107,27 +97,5 @@ where
         } else {
             mode.without_approval()
         })
-    }
-
-    pub async fn request_approval(
-        &self,
-        task_id: Uuid,
-        message_id: Uuid,
-        call_id: &str,
-    ) -> Result<ToolApproval, ToolServiceError> {
-        self.approval_repository
-            .create_pending(task_id, message_id, call_id)
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn ready_approvals(
-        &self,
-        task_id: Uuid,
-    ) -> Result<Vec<ToolApproval>, ToolServiceError> {
-        self.approval_repository
-            .ready_for_task(task_id)
-            .await
-            .map_err(Into::into)
     }
 }

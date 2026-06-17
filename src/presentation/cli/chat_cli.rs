@@ -38,7 +38,6 @@ struct CreateMessageResponse {
 enum AgentTurnOutcome {
     Completed,
     Failed,
-    AwaitingApproval,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,18 +55,6 @@ struct ToolResponse {
 struct ToolPermissionResponse {
     tool_name: String,
     mode: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ListToolApprovalsResponse {
-    approvals: Vec<ToolApprovalResponse>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ToolApprovalResponse {
-    id: Uuid,
-    call_id: String,
-    status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -325,57 +312,6 @@ impl ChatApiClient {
             .map_err(io::Error::other)
     }
 
-    async fn list_tool_approvals(&self) -> io::Result<Vec<ToolApprovalResponse>> {
-        let response = self
-            .http
-            .get(format!(
-                "{}/v1/tools/approvals?status=pending",
-                self.base_url
-            ))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<ListToolApprovalsResponse>()
-            .await
-            .map_err(io::Error::other)?;
-
-        Ok(response.approvals)
-    }
-
-    async fn approve(&self, approval_id: Uuid) -> io::Result<ToolApprovalResponse> {
-        self.http
-            .post(format!(
-                "{}/v1/tools/approvals/{}/approve",
-                self.base_url, approval_id
-            ))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<ToolApprovalResponse>()
-            .await
-            .map_err(io::Error::other)
-    }
-
-    async fn reject(&self, approval_id: Uuid) -> io::Result<ToolApprovalResponse> {
-        self.http
-            .post(format!(
-                "{}/v1/tools/approvals/{}/reject",
-                self.base_url, approval_id
-            ))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<ToolApprovalResponse>()
-            .await
-            .map_err(io::Error::other)
-    }
-
     async fn list_tasks(&self) -> io::Result<Vec<TaskResponse>> {
         let response = self
             .http
@@ -477,7 +413,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
         None => client.create_session().await?,
     };
 
-    let mut awaiting_task_id: Option<Uuid> = None;
     let mut current_model = client.get_model().await?;
     let mut prompt = build_prompt(&current_model, session.id);
 
@@ -627,61 +562,6 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         println!("  tool  {}", permission.tool_name);
                         println!("  mode  {}", permission.mode);
                     }
-                    "/approvals" => {
-                        let approvals = client.list_tool_approvals().await?;
-
-                        if approvals.is_empty() {
-                            println!("no pending approvals");
-                        } else {
-                            println!("pending approvals");
-                            println!("  {:<36}  {:<10}  call", "approval", "status");
-
-                            for approval in approvals {
-                                println!(
-                                    "  {:<36}  {:<10}  {}",
-                                    approval.id, approval.status, approval.call_id
-                                );
-                            }
-                        }
-                    }
-                    _ if line.starts_with("/approve ") => {
-                        let id = line.trim_start_matches("/approve ").trim();
-
-                        let Ok(approval_id) = Uuid::parse_str(id) else {
-                            println!("invalid approval id: {id}");
-                            continue;
-                        };
-
-                        let approval = client.approve(approval_id).await?;
-                        println!("approved: {}", approval.id);
-
-                        if let Some(task_id) = awaiting_task_id.take() {
-                            let outcome = wait_events(&client, task_id).await?;
-
-                            if matches!(outcome, AgentTurnOutcome::AwaitingApproval) {
-                                awaiting_task_id = Some(task_id);
-                            }
-                        }
-                    }
-                    _ if line.starts_with("/reject ") => {
-                        let id = line.trim_start_matches("/reject ").trim();
-
-                        let Ok(approval_id) = Uuid::parse_str(id) else {
-                            println!("invalid approval id: {id}");
-                            continue;
-                        };
-
-                        let approval = client.reject(approval_id).await?;
-                        println!("rejected: {}", approval.id);
-
-                        if let Some(task_id) = awaiting_task_id.take() {
-                            let outcome = wait_events(&client, task_id).await?;
-
-                            if matches!(outcome, AgentTurnOutcome::AwaitingApproval) {
-                                awaiting_task_id = Some(task_id);
-                            }
-                        }
-                    }
                     // task
                     "/tasks" => {
                         let tasks = client.list_tasks().await?;
@@ -810,11 +690,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                             println!("  session  {session_id}");
                         }
 
-                        let outcome = wait_events(&client, task.id).await?;
-
-                        if matches!(outcome, AgentTurnOutcome::AwaitingApproval) {
-                            awaiting_task_id = Some(task.id);
-                        }
+                        wait_events(&client, task.id).await?;
                     }
                     "/schedule-run" => {
                         println!("usage: /schedule-run <schedule_id>");
@@ -829,11 +705,7 @@ pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::E
                         let task_id = client.post_message(session.id, line).await?;
                         prompt = build_prompt(&current_model, session.id);
 
-                        let outcome = wait_events(&client, task_id).await?;
-
-                        if matches!(outcome, AgentTurnOutcome::AwaitingApproval) {
-                            awaiting_task_id = Some(task_id);
-                        }
+                        wait_events(&client, task_id).await?;
                     }
                 }
             }
@@ -973,24 +845,6 @@ async fn wait_events(client: &ChatApiClient, task_id: Uuid) -> io::Result<AgentT
                     }
 
                     start_spinner(&mut spinner);
-                }
-                "tool_approval_requested" => {
-                    stop_spinner(&mut spinner);
-
-                    let approval_id = payload
-                        .get("approval_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("-");
-
-                    let tool_name = payload
-                        .get("tool_name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("tool");
-
-                    println!("[approval requested] {tool_name}");
-                    println!("Run /approve {approval_id} or /reject {approval_id}.");
-
-                    return Ok(AgentTurnOutcome::AwaitingApproval);
                 }
                 "task_completed" => {
                     stop_spinner(&mut spinner);

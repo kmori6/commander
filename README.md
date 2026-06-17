@@ -75,8 +75,6 @@ commander chat --session-id <uuid>
 | Command                           | Description                    |
 | --------------------------------- | ------------------------------ |
 | `/new`                            | Start a new session            |
-| `/approve`                        | Approve pending tool execution |
-| `/deny`                           | Deny pending tool execution    |
 | `/tools`                          | Show tool execution status     |
 | `/tool <tool> <allow\|ask\|deny>` | Set a tool execution rule      |
 | `/usage`                          | Show session token usage       |

@@ -7,7 +7,6 @@ use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
-use crate::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
@@ -16,7 +15,6 @@ use crate::infrastructure::persistence::file_tool_permission_repository::FileToo
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use crate::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -36,10 +34,7 @@ pub struct AppState {
     pub schedule_usecase: Arc<
         ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository, PostgresMessageRepository>,
     >,
-    pub tool_usecase:
-        Arc<ToolUsecase<FileToolPermissionRepository, PostgresToolApprovalRepository>>,
-    pub tool_approval_usecase:
-        Arc<ToolApprovalUsecase<PostgresToolApprovalRepository, PostgresTaskRepository>>,
+    pub tool_usecase: Arc<ToolUsecase<FileToolPermissionRepository>>,
     // runtimes
     pub agent_runtime: Arc<
         AgentRuntime<
@@ -48,7 +43,6 @@ pub struct AppState {
             PostgresMessageRepository,
             FileSubagentRepository,
             FileToolPermissionRepository,
-            PostgresToolApprovalRepository,
         >,
     >,
 }

@@ -9,7 +9,6 @@ use commander::application::usecase::message_usecase::MessageUsecase;
 use commander::application::usecase::schedule_usecase::ScheduleUsecase;
 use commander::application::usecase::session_usecase::SessionUsecase;
 use commander::application::usecase::task_usecase::TaskUsecase;
-use commander::application::usecase::tool_approval_usecase::ToolApprovalUsecase;
 use commander::application::usecase::tool_usecase::ToolUsecase;
 use commander::infrastructure::llm::llm_gateway::LlmGateway;
 use commander::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
@@ -18,7 +17,6 @@ use commander::infrastructure::persistence::file_tool_permission_repository::Fil
 use commander::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use commander::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use commander::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
-use commander::infrastructure::persistence::postgres_tool_approval_repository::PostgresToolApprovalRepository;
 use commander::presentation::cli::serve_cli::build_router;
 use commander::presentation::state::app_state::AppState;
 use sqlx::PgPool;
@@ -33,7 +31,6 @@ pub async fn test_app() -> Router {
     let session_repository = PostgresSessionRepository::new(pool.clone());
     let task_repository = PostgresTaskRepository::new(pool.clone());
     let message_repository = PostgresMessageRepository::new(pool.clone());
-    let tool_approval_repository = PostgresToolApprovalRepository::new(pool);
 
     let tool_permission_repository =
         FileToolPermissionRepository::new(root.join("tool_permissions.json"));
@@ -42,11 +39,7 @@ pub async fn test_app() -> Router {
 
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(root.clone()));
-    let tool_service = Arc::new(ToolService::new(
-        vec![],
-        tool_permission_repository.clone(),
-        tool_approval_repository.clone(),
-    ));
+    let tool_service = Arc::new(ToolService::new(vec![], tool_permission_repository.clone()));
 
     let llm_gateway = LlmGateway::from_config_path(root.join("models.json"))
         .await
@@ -68,11 +61,6 @@ pub async fn test_app() -> Router {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_approval_usecase = Arc::new(ToolApprovalUsecase::new(
-        tool_approval_repository.clone(),
-        task_repository.clone(),
-    ));
-
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
         tool_service,
@@ -91,7 +79,6 @@ pub async fn test_app() -> Router {
         task_usecase,
         schedule_usecase,
         tool_usecase,
-        tool_approval_usecase,
         agent_runtime,
     })
 }
@@ -108,7 +95,7 @@ async fn test_pool() -> PgPool {
 
     let pool = PgPool::connect(&database_url).await.unwrap();
 
-    sqlx::query("TRUNCATE tool_approvals, messages, tasks, sessions CASCADE")
+    sqlx::query("TRUNCATE messages, tasks, sessions CASCADE")
         .execute(&pool)
         .await
         .unwrap();

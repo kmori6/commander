@@ -66,56 +66,6 @@ impl AgentClient {
         self.wait_task(task_id).await
     }
 
-    async fn approve(&self, approval_id: Uuid) -> io::Result<String> {
-        let value = self
-            .http
-            .post(format!(
-                "{}/v1/tools/approvals/{}/approve",
-                self.base_url, approval_id
-            ))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<Value>()
-            .await
-            .map_err(io::Error::other)?;
-
-        let task_id = value
-            .get("task_id")
-            .and_then(Value::as_str)
-            .and_then(|id| Uuid::parse_str(id).ok())
-            .ok_or_else(|| io::Error::other("approval task id is missing"))?;
-
-        self.wait_task(task_id).await
-    }
-
-    async fn reject(&self, approval_id: Uuid) -> io::Result<String> {
-        let value = self
-            .http
-            .post(format!(
-                "{}/v1/tools/approvals/{}/reject",
-                self.base_url, approval_id
-            ))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<Value>()
-            .await
-            .map_err(io::Error::other)?;
-
-        let task_id = value
-            .get("task_id")
-            .and_then(Value::as_str)
-            .and_then(|id| Uuid::parse_str(id).ok())
-            .ok_or_else(|| io::Error::other("approval task id is missing"))?;
-
-        self.wait_task(task_id).await
-    }
-
     async fn wait_task(&self, task_id: Uuid) -> io::Result<String> {
         let mut response = self.connect_events(Some(task_id)).await?;
 
@@ -167,20 +117,6 @@ impl AgentClient {
                             .filter(|text| !text.trim().is_empty())
                             .unwrap_or("task failed")
                             .to_string());
-                    }
-                    "tool_approval_requested" => {
-                        let approval_id = payload
-                            .get("approval_id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("-");
-                        let tool_name = payload
-                            .get("tool_name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("tool");
-
-                        return Ok(format!(
-                            "承認が必要です: {tool_name}\n`!approve {approval_id}` または `!reject {approval_id}`"
-                        ));
                     }
                     _ => {}
                 }
