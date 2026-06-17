@@ -7,9 +7,7 @@ use crate::application::service::tool_service::ToolService;
 use crate::domain::model::message::{Message, Role};
 use crate::domain::model::subagent::Subagent;
 use crate::domain::model::task::{Task, TaskStatus};
-use crate::domain::model::tool_call::{
-    ToolApprovalStatus, ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec,
-};
+use crate::domain::model::tool_call::{ToolCall, ToolCallOutput, ToolPermissionMode, ToolSpec};
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest, LlmResponse};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::subagent_repository::SubagentRepository;
@@ -24,13 +22,11 @@ const MAX_LLM_STEPS: usize = 30;
 
 enum LoopOutcome {
     Completed(String),
-    AwaitingApproval,
     Stopped,
 }
 
 enum ToolRun {
     Continue,
-    AwaitingApproval,
     Stopped,
 }
 
@@ -183,11 +179,9 @@ where
                 return Ok(());
             }
 
-            self.apply_approvals(task_id).await?;
-
             match self.run_durable_loop(task_id, &task).await? {
                 LoopOutcome::Completed(output) => self.complete(task_id, output).await?,
-                LoopOutcome::AwaitingApproval | LoopOutcome::Stopped => {}
+                LoopOutcome::Stopped => {}
             }
 
             Ok(())
@@ -203,70 +197,6 @@ where
                 Err(err)
             }
         }
-    }
-
-    // (task: awaiting_approval -> queued -> running, approval: pending -> approved/rejected) -> tool execution/result -> tool call output
-    async fn apply_approvals(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
-        let approvals = self.tool_service.ready_approvals(task_id).await?;
-
-        for approval in approvals {
-            if !approval.status.is_resolved() {
-                return Err(AgentRuntimeError::ToolApprovalPending(approval.id));
-            }
-
-            let task = self
-                .task_repository
-                .find_by_id(approval.task_id)
-                .await?
-                .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-            if self.is_cancelled(task.id).await? {
-                continue;
-            }
-
-            let message = self
-                .message_repository
-                .find_by_id(approval.message_id)
-                .await?
-                .ok_or(AgentRuntimeError::MessageNotFound(approval.message_id))?;
-
-            let call = message
-                .contents
-                .iter()
-                .filter_map(ToolCall::from_message_content)
-                .find(|call| call.call_id == approval.call_id)
-                .ok_or_else(|| AgentRuntimeError::ToolCallNotFound(approval.call_id.clone()))?;
-
-            let output = match approval.status {
-                ToolApprovalStatus::Approved => match self.tool_service.execute(call.clone()).await
-                {
-                    Ok(output) => output,
-                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
-                },
-                ToolApprovalStatus::Rejected => ToolCallOutput::error(
-                    call.call_id.clone(),
-                    format!("tool execution rejected: {}", call.tool_name),
-                ),
-                ToolApprovalStatus::Pending => unreachable!(),
-            };
-
-            self.emit(
-                task.id,
-                "tool_call_finished",
-                json!({
-                    "call_id": output.call_id,
-                    "output": output.output,
-                    "status": output.status.as_str(),
-                }),
-            )
-            .await?;
-
-            self.message_repository
-                .save(task.id, Role::User, vec![output.into_message_content()])
-                .await?;
-        }
-
-        Ok(())
     }
 
     async fn is_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
@@ -318,8 +248,7 @@ where
                 )
                 .await?;
 
-            let assistant_message = self
-                .message_repository
+            self.message_repository
                 .save_response(
                     task_id,
                     response.message.contents.clone(),
@@ -343,12 +272,8 @@ where
                 return Ok(LoopOutcome::Completed(response.output_text("\n")));
             }
 
-            match self
-                .run_durable_tools(task_id, assistant_message.id, tool_calls)
-                .await?
-            {
+            match self.run_durable_tools(task_id, tool_calls).await? {
                 ToolRun::Continue => {}
-                ToolRun::AwaitingApproval => return Ok(LoopOutcome::AwaitingApproval),
                 ToolRun::Stopped => return Ok(LoopOutcome::Stopped),
             }
         }
@@ -362,7 +287,6 @@ where
     async fn run_durable_tools(
         &self,
         task_id: Uuid,
-        assistant_message_id: Uuid,
         tool_calls: Vec<ToolCall>,
     ) -> Result<ToolRun, AgentRuntimeError> {
         let mut outputs = Vec::new();
@@ -403,55 +327,15 @@ where
             )
             .await?;
 
-            let output = match mode {
-                ToolPermissionMode::Deny => ToolCallOutput::error(
-                    call.call_id.clone(),
-                    format!("tool execution denied: {}", call.tool_name),
-                ),
-                ToolPermissionMode::Ask => {
-                    if !outputs.is_empty() {
-                        self.message_repository
-                            .save(task_id, Role::User, std::mem::take(&mut outputs))
-                            .await?;
-                    }
-
-                    let approval = self
-                        .tool_service
-                        .request_approval(task_id, assistant_message_id, &call.call_id)
-                        .await?;
-
-                    self.task_repository.await_approval(task_id).await?;
-
-                    self.emit(
-                        task_id,
-                        "tool_approval_requested",
-                        json!({
-                            "approval_id": approval.id.to_string(),
-                            "message_id": assistant_message_id.to_string(),
-                            "call_id": call.call_id,
-                            "tool_name": call.tool_name,
-                        }),
-                    )
-                    .await?;
-
-                    return Ok(ToolRun::AwaitingApproval);
+            let output = if call.tool_name == SubagentTool::name() {
+                match self.run_subagent_call(task_id, &call).await {
+                    Ok(output) => output,
+                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
                 }
-                ToolPermissionMode::Allow => {
-                    if call.tool_name == SubagentTool::name() {
-                        match self.run_subagent_call(task_id, &call).await {
-                            Ok(output) => output,
-                            Err(err) => {
-                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
-                            }
-                        }
-                    } else {
-                        match self.tool_service.execute(call.clone()).await {
-                            Ok(output) => output,
-                            Err(err) => {
-                                ToolCallOutput::error(call.call_id.clone(), err.to_string())
-                            }
-                        }
-                    }
+            } else {
+                match self.tool_service.execute(call.clone()).await {
+                    Ok(output) => output,
+                    Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
                 }
             };
 
@@ -512,11 +396,6 @@ where
                 Ok(LoopOutcome::Stopped) => {
                     ("cancelled", None, Some("parent task cancelled".to_string()))
                 }
-                Ok(LoopOutcome::AwaitingApproval) => (
-                    "failed",
-                    None,
-                    Some("subagent cannot await tool approval".to_string()),
-                ),
                 Err(err) => ("failed", None, Some(err.to_string())),
             };
 
@@ -590,11 +469,6 @@ where
             {
                 ToolRun::Continue => {}
                 ToolRun::Stopped => return Ok(LoopOutcome::Stopped),
-                ToolRun::AwaitingApproval => {
-                    return Err(AgentRuntimeError::Unsupported(
-                        "subagent cannot await tool approval".to_string(),
-                    ));
-                }
             }
         }
 
@@ -661,7 +535,7 @@ where
                     Ok(output) => output,
                     Err(err) => ToolCallOutput::error(call.call_id.clone(), err.to_string()),
                 },
-                ToolPermissionMode::Deny | ToolPermissionMode::Ask => ToolCallOutput::error(
+                _ => ToolCallOutput::error(
                     call.call_id.clone(),
                     format!("tool execution denied: {}", call.tool_name),
                 ),

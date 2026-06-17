@@ -4,7 +4,6 @@ use crate::domain::error::message_repository_error::MessageRepositoryError;
 use crate::domain::error::subagent_repository_error::SubagentRepositoryError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum AgentRuntimeError {
@@ -28,13 +27,4 @@ pub enum AgentRuntimeError {
 
     #[error("failed to use tool service: {0}")]
     ToolService(#[from] ToolServiceError),
-
-    #[error("message not found: {0}")]
-    MessageNotFound(Uuid),
-
-    #[error("tool call not found: {0}")]
-    ToolCallNotFound(String),
-
-    #[error("tool approval is still pending: {0}")]
-    ToolApprovalPending(Uuid),
 }
