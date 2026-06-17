@@ -389,14 +389,8 @@ where
             )
             .await?;
 
-            // Subagent is a runtime call, so it is permitted only for the root agent.
-            let mode = if call.tool_name == SubagentTool::name() {
-                ToolPermissionMode::Allow
-            } else {
-                self.tool_service
-                    .permission_mode(&call.tool_name, None, true)
-                    .await?
-            };
+            // Root agent runs tools directly; approvals and root permissions are being phased out.
+            let mode = ToolPermissionMode::Allow;
 
             self.emit(
                 task_id,

@@ -51,7 +51,7 @@ impl Tool for ShellTool {
     }
 
     fn default_permission(&self) -> ToolPermissionMode {
-        ToolPermissionMode::Ask
+        ToolPermissionMode::Allow
     }
 
     fn parameters(&self) -> Value {
