@@ -7,7 +7,6 @@ use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
-use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::domain::port::tool::Tool;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
@@ -136,7 +135,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_usecase = Arc::new(ToolUsecase::new(tool_service.clone()));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
         task_repository.clone(),
@@ -172,7 +170,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         agent_runtime,
         event_service,
         instruction_service,
-        tool_usecase,
+        tool_service,
         schedule_usecase,
     };
 

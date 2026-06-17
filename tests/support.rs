@@ -9,7 +9,6 @@ use commander::application::usecase::message_usecase::MessageUsecase;
 use commander::application::usecase::schedule_usecase::ScheduleUsecase;
 use commander::application::usecase::session_usecase::SessionUsecase;
 use commander::application::usecase::task_usecase::TaskUsecase;
-use commander::application::usecase::tool_usecase::ToolUsecase;
 use commander::infrastructure::llm::llm_gateway::LlmGateway;
 use commander::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use commander::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
@@ -52,7 +51,6 @@ pub async fn test_app() -> Router {
         task_repository.clone(),
         message_repository.clone(),
     ));
-    let tool_usecase = Arc::new(ToolUsecase::new(tool_service.clone()));
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
         task_repository.clone(),
@@ -60,7 +58,7 @@ pub async fn test_app() -> Router {
     ));
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_gateway,
-        tool_service,
+        tool_service.clone(),
         task_repository,
         message_repository,
         subagent_repository,
@@ -75,7 +73,7 @@ pub async fn test_app() -> Router {
         message_usecase,
         task_usecase,
         schedule_usecase,
-        tool_usecase,
+        tool_service,
         agent_runtime,
     })
 }

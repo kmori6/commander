@@ -3,11 +3,11 @@ use std::sync::Arc;
 use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::service::event_service::EventService;
 use crate::application::service::instruction_service::InstructionService;
+use crate::application::service::tool_service::ToolService;
 use crate::application::usecase::message_usecase::MessageUsecase;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
-use crate::application::usecase::tool_usecase::ToolUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
@@ -20,6 +20,7 @@ pub struct AppState {
     // services
     pub event_service: Arc<EventService>,
     pub instruction_service: Arc<InstructionService>,
+    pub tool_service: Arc<ToolService>,
     // usecases
     pub session_usecase: Arc<SessionUsecase<PostgresSessionRepository>>,
     pub message_usecase: Arc<
@@ -33,7 +34,6 @@ pub struct AppState {
     pub schedule_usecase: Arc<
         ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository, PostgresMessageRepository>,
     >,
-    pub tool_usecase: Arc<ToolUsecase>,
     // runtimes
     pub agent_runtime: Arc<
         AgentRuntime<
