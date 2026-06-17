@@ -21,19 +21,6 @@ impl ToolService {
         self.tools.values().map(|t| t.spec()).collect()
     }
 
-    pub fn specs_for(
-        &self,
-        allowed_tools: Option<&[String]>,
-        extra_specs: impl IntoIterator<Item = ToolSpec>,
-    ) -> Vec<ToolSpec> {
-        let mut specs = self.list_tools();
-        specs.extend(extra_specs);
-        if let Some(allowed) = allowed_tools {
-            specs.retain(|s| allowed.iter().any(|t| t == &s.name));
-        }
-        specs
-    }
-
     pub async fn execute(&self, call: ToolCall) -> Result<ToolCallOutput, ToolServiceError> {
         let tool = self
             .tools
@@ -41,20 +28,5 @@ impl ToolService {
             .ok_or_else(|| ToolServiceError::ToolNotFound(call.tool_name.clone()))?;
         let output = tool.execute(call.arguments).await?;
         Ok(ToolCallOutput::success(call.call_id, output))
-    }
-
-    pub async fn execute_scoped(
-        &self,
-        call: ToolCall,
-        allowed_tools: &[String],
-    ) -> Result<ToolCallOutput, ToolServiceError> {
-        if !allowed_tools
-            .iter()
-            .any(|tool_name| tool_name == &call.tool_name)
-        {
-            return Err(ToolServiceError::ToolNotAllowed(call.tool_name));
-        }
-
-        self.execute(call).await
     }
 }

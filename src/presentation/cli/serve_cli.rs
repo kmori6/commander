@@ -11,7 +11,6 @@ use crate::domain::port::tool::Tool;
 use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
-use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
@@ -82,7 +81,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let schedule_repository = FileScheduleRepository::new(paths.schedules_path());
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
-    let subagent_repository = FileSubagentRepository::new(workspace_root.join("subagents"));
 
     let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
 
@@ -145,7 +143,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         tool_service.clone(),
         task_repository.clone(),
         message_repository.clone(),
-        subagent_repository,
         event_service.clone(),
         instruction_service.clone(),
     ));

@@ -11,7 +11,6 @@ use commander::application::usecase::session_usecase::SessionUsecase;
 use commander::application::usecase::task_usecase::TaskUsecase;
 use commander::infrastructure::llm::llm_gateway::LlmGateway;
 use commander::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
-use commander::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use commander::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use commander::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use commander::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -31,7 +30,6 @@ pub async fn test_app() -> Router {
     let message_repository = PostgresMessageRepository::new(pool.clone());
 
     let schedule_repository = FileScheduleRepository::new(root.join("schedules.json"));
-    let subagent_repository = FileSubagentRepository::new(root.join("subagents"));
 
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(root.clone()));
@@ -61,7 +59,6 @@ pub async fn test_app() -> Router {
         tool_service.clone(),
         task_repository,
         message_repository,
-        subagent_repository,
         event_service.clone(),
         instruction_service.clone(),
     ));

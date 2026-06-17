@@ -10,7 +10,6 @@ use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::infrastructure::llm::llm_gateway::LlmGateway;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
-use crate::infrastructure::persistence::file_subagent_repository::FileSubagentRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use crate::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
 use crate::infrastructure::persistence::postgres_task_repository::PostgresTaskRepository;
@@ -35,12 +34,6 @@ pub struct AppState {
         ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository, PostgresMessageRepository>,
     >,
     // runtimes
-    pub agent_runtime: Arc<
-        AgentRuntime<
-            LlmGateway,
-            PostgresTaskRepository,
-            PostgresMessageRepository,
-            FileSubagentRepository,
-        >,
-    >,
+    pub agent_runtime:
+        Arc<AgentRuntime<LlmGateway, PostgresTaskRepository, PostgresMessageRepository>>,
 }

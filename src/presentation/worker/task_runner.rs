@@ -7,25 +7,23 @@ use crate::application::runtime::agent_runtime::AgentRuntime;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::domain::port::llm_provider::LlmProvider;
 use crate::domain::repository::message_repository::MessageRepository;
-use crate::domain::repository::subagent_repository::SubagentRepository;
 use crate::domain::repository::task_repository::TaskRepository;
 
-pub struct TaskRunner<L, T, M, S> {
+pub struct TaskRunner<L, T, M> {
     task_usecase: Arc<TaskUsecase<T, M>>,
-    agent_runtime: Arc<AgentRuntime<L, T, M, S>>,
+    agent_runtime: Arc<AgentRuntime<L, T, M>>,
     poll_interval: Duration,
 }
 
-impl<L, T, M, S> TaskRunner<L, T, M, S>
+impl<L, T, M> TaskRunner<L, T, M>
 where
     L: LlmProvider,
     T: TaskRepository,
     M: MessageRepository,
-    S: SubagentRepository,
 {
     pub fn new(
         task_usecase: Arc<TaskUsecase<T, M>>,
-        agent_runtime: Arc<AgentRuntime<L, T, M, S>>,
+        agent_runtime: Arc<AgentRuntime<L, T, M>>,
         poll_interval: Duration,
     ) -> Self {
         Self {
