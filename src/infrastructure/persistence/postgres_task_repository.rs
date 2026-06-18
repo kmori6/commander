@@ -203,10 +203,6 @@ impl TaskRepository for PostgresTaskRepository {
         row.try_into()
     }
 
-    async fn start(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
-        self.update_task(id, |task, now| task.start(now)).await
-    }
-
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
         self.update_task(id, |task, now| task.complete(now)).await
     }
@@ -258,32 +254,25 @@ impl TaskRepository for PostgresTaskRepository {
         Ok(tasks)
     }
 
-    async fn requeue_running(&self) -> Result<u64, TaskRepositoryError> {
-        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
-
-        let rows = sqlx::query_as::<_, TaskRow>(&format!(
+    async fn fail_interrupted(&self) -> Result<u64, TaskRepositoryError> {
+        let now = Utc::now();
+        let result = sqlx::query(
             r#"
-            SELECT {TASK_COLUMNS}
-            FROM tasks
+            UPDATE tasks
+            SET status = 'failed',
+                error = 'task interrupted by server restart',
+                updated_at = $1,
+                started_at = COALESCE(started_at, $1),
+                finished_at = $1
             WHERE status = 'running'
-            FOR UPDATE
-            "#
-        ))
-        .fetch_all(&mut *tx)
+            "#,
+        )
+        .bind(now)
+        .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
 
-        let now = Utc::now();
-        let count = rows.len() as u64;
-
-        for row in rows {
-            let mut task: Task = row.try_into()?;
-            task.recover_interrupted(now)?;
-            persist_task(&mut tx, &task).await?;
-        }
-
-        tx.commit().await.map_err(map_sqlx_error)?;
-        Ok(count)
+        Ok(result.rows_affected())
     }
 
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Task>, TaskRepositoryError> {

@@ -142,30 +142,29 @@ where
     }
 
     // root agent entry
-    // run
-    //   -> run_durable_loop
-    //        -> run_durable_tools
+    // run -> run_loop -> run_tools
     pub async fn run(&self, task_id: Uuid) -> Result<(), AgentRuntimeError> {
+        let task = self
+            .task_repository
+            .find_by_id(task_id)
+            .await?
+            .ok_or(AgentRuntimeError::TaskNotFound)?;
+
+        if task.status != TaskStatus::Running {
+            return Err(AgentRuntimeError::Unsupported(format!(
+                "agent runtime requires running task, got {}",
+                task.status.as_str()
+            )));
+        }
+
         let result = async {
-            let task = self
-                .task_repository
-                .find_by_id(task_id)
-                .await?
-                .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-            let task = if task.status == TaskStatus::Running {
-                task
-            } else {
-                self.task_repository.start(task_id).await?
-            };
-
             self.emit(task_id, "task_started", json!({})).await?;
 
             if self.is_cancelled(task_id).await? {
                 return Ok(());
             }
 
-            match self.run_durable_loop(task_id, &task).await? {
+            match self.run_loop(task_id, &task).await? {
                 LoopOutcome::Completed(output) => self.complete(task_id, output).await?,
                 LoopOutcome::Stopped => {}
             }
@@ -211,11 +210,7 @@ where
     }
 
     // agent loop (durable with database, for root agent)
-    async fn run_durable_loop(
-        &self,
-        task_id: Uuid,
-        task: &Task,
-    ) -> Result<LoopOutcome, AgentRuntimeError> {
+    async fn run_loop(&self, task_id: Uuid, task: &Task) -> Result<LoopOutcome, AgentRuntimeError> {
         for step in 0..MAX_LLM_STEPS {
             if self.is_cancelled(task_id).await? {
                 return Ok(LoopOutcome::Stopped);
@@ -258,7 +253,7 @@ where
                 return Ok(LoopOutcome::Completed(response.output_text("\n")));
             }
 
-            match self.run_durable_tools(task_id, tool_calls).await? {
+            match self.run_tools(task_id, tool_calls).await? {
                 ToolRun::Continue => {}
                 ToolRun::Stopped => return Ok(LoopOutcome::Stopped),
             }
@@ -270,7 +265,7 @@ where
     }
 
     // tool calls (durable with database, for root agent)
-    async fn run_durable_tools(
+    async fn run_tools(
         &self,
         task_id: Uuid,
         tool_calls: Vec<ToolCall>,

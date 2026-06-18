@@ -17,12 +17,9 @@ async fn main() -> Result<(), std::io::Error> {
             info!("Starting server on {}", addr);
             serve_cli::run(addr).await?;
         }
-        Commands::Chat {
-            base_url,
-            session_id,
-        } => {
+        Commands::Chat { base_url } => {
             info!("Starting chat CLI...");
-            chat_cli::run(base_url, session_id).await?;
+            chat_cli::run(base_url).await?;
         }
         Commands::Slack { base_url } => {
             info!("Starting Slack channel...");

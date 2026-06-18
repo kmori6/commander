@@ -90,12 +90,12 @@ where
             .map_err(Into::into)
     }
 
-    // task statuses: running -> queued
-    pub async fn recover_interrupted(&self) -> Result<(), TaskUsecaseError> {
-        let count = self.task_repository.requeue_running().await?;
+    // task statuses: running -> failed
+    pub async fn fail_interrupted(&self) -> Result<(), TaskUsecaseError> {
+        let count = self.task_repository.fail_interrupted().await?;
 
         if count > 0 {
-            log::warn!("requeued {count} interrupted running task(s)");
+            log::warn!("marked {count} interrupted running task(s) as failed");
         }
 
         Ok(())

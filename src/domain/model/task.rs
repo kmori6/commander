@@ -160,20 +160,6 @@ impl Task {
         self.error = None;
         Ok(())
     }
-
-    // reset status: running -> queued
-    pub fn recover_interrupted(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        if self.status != TaskStatus::Running {
-            return Err(invalid_transition(self.status, TaskStatus::Queued));
-        }
-
-        self.status = TaskStatus::Queued;
-        self.updated_at = now;
-        self.started_at = None;
-        self.finished_at = None;
-        self.error = None;
-        Ok(())
-    }
 }
 
 fn invalid_transition(from: TaskStatus, to: TaskStatus) -> String {

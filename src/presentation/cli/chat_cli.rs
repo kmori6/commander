@@ -376,16 +376,12 @@ impl ChatApiClient {
     }
 }
 
-pub async fn run(base_url: String, session_id: Option<Uuid>) -> Result<(), io::Error> {
+pub async fn run(base_url: String) -> Result<(), io::Error> {
     let client = ChatApiClient::new(base_url);
 
     client.health().await?;
 
-    let mut session = match session_id {
-        Some(id) => client.get_session(id).await?,
-        None => client.create_session().await?,
-    };
-
+    let mut session = client.create_session().await?;
     let mut current_model = client.get_model().await?;
     let mut prompt = build_prompt(&current_model, session.id);
 

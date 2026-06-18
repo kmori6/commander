@@ -34,8 +34,8 @@ where
     }
 
     pub async fn run(self) {
-        if let Err(err) = self.task_usecase.recover_interrupted().await {
-            log::warn!("task runner recovery failed: {err}");
+        if let Err(err) = self.task_usecase.fail_interrupted().await {
+            log::warn!("task runner startup cleanup failed: {err}");
         }
 
         let mut interval = time::interval(self.poll_interval);

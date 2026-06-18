@@ -9,8 +9,6 @@ use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 pub trait TaskRepository: Send + Sync {
     async fn create(&self, source: TaskSource) -> Result<Task, TaskRepositoryError>;
 
-    async fn start(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
-
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 
     async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError>;
@@ -27,7 +25,7 @@ pub trait TaskRepository: Send + Sync {
 
     async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError>;
 
-    async fn requeue_running(&self) -> Result<u64, TaskRepositoryError>;
+    async fn fail_interrupted(&self) -> Result<u64, TaskRepositoryError>;
 
     async fn list_runs(&self, schedule_id: Uuid) -> Result<Vec<Task>, TaskRepositoryError>;
 
