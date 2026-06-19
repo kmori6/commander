@@ -73,12 +73,8 @@ where
         Ok(())
     }
 
-    // task + model -> instruction + compacted context -> llm messages
-    async fn build_llm_messages(
-        &self,
-        task: &Task,
-        model: &str,
-    ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
+    // task -> instruction + compacted context -> llm messages
+    async fn build_llm_messages(&self, task: &Task) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let instruction = self.instruction_service.build_agent_instruction();
 
         let context_messages = if let Some(session_id) = task.session_id() {
@@ -90,27 +86,28 @@ where
         };
 
         let mut messages = vec![LlmMessage::system_text(instruction)];
-        messages.extend(self.compact_messages(model, context_messages).await?);
+        messages.extend(self.compact_messages(context_messages).await?);
 
         Ok(messages)
     }
 
     async fn compact_messages(
         &self,
-        model: &str,
         messages: Vec<Message>,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
         let context_window = self
             .llm_provider
-            .context_window(model)
-            .await
+            .context_window()
+            .await?
             .try_into()
-            .map_err(|_| AgentRuntimeError::Unsupported(format!("unsupported model: {model}")))?;
+            .map_err(|_| {
+                AgentRuntimeError::Unsupported("unsupported context window".to_string())
+            })?;
 
         let service = CompactionService::new(CompactionConfig::for_window(context_window));
 
         let Some(result) = service
-            .compact(&self.llm_provider, model, messages.clone())
+            .compact(&self.llm_provider, messages.clone())
             .await?
         else {
             return Ok(messages
@@ -217,7 +214,7 @@ where
             }
 
             let model = self.llm_provider.current_model_id().await?;
-            let messages = self.build_llm_messages(task, &model).await?;
+            let messages = self.build_llm_messages(task).await?;
 
             let response = self
                 .call_llm(
@@ -342,7 +339,7 @@ where
 
         let response = match self
             .llm_provider
-            .respond(LlmRequest::new(model.to_string(), messages).with_tools(tools))
+            .response(LlmRequest::new(messages).with_tools(tools))
             .await
         {
             Ok(response) => response,

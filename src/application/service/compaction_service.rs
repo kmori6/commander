@@ -58,7 +58,6 @@ impl CompactionService {
     pub async fn compact<L: LlmProvider>(
         &self,
         llm_provider: &L,
-        model: &str,
         messages: Vec<Message>,
     ) -> Result<Option<CompactionResult>, LlmProviderError> {
         let Some(plan) = self.plan(messages) else {
@@ -68,10 +67,7 @@ impl CompactionService {
         let prompt = self.prompt(&plan);
 
         let response = llm_provider
-            .respond(LlmRequest::new(
-                model.to_string(),
-                vec![LlmMessage::user_text(prompt)],
-            ))
+            .response(LlmRequest::new(vec![LlmMessage::user_text(prompt)]))
             .await?;
 
         Ok(Some(CompactionResult {

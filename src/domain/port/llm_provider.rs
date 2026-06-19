@@ -44,15 +44,13 @@ impl LlmMessage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlmRequest {
-    pub model: String,
     pub messages: Vec<LlmMessage>,
     pub tools: Vec<ToolSpec>,
 }
 
 impl LlmRequest {
-    pub fn new(model: impl Into<String>, messages: Vec<LlmMessage>) -> Self {
+    pub fn new(messages: Vec<LlmMessage>) -> Self {
         Self {
-            model: model.into(),
             messages,
             tools: Vec::new(),
         }
@@ -78,9 +76,9 @@ impl LlmResponse {
 
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    async fn respond(&self, request: LlmRequest) -> Result<LlmResponse, LlmProviderError>;
+    async fn response(&self, request: LlmRequest) -> Result<LlmResponse, LlmProviderError>;
 
-    async fn context_window(&self, model: &str) -> i64;
+    async fn context_window(&self) -> Result<i64, LlmProviderError>;
 
     async fn current_model_id(&self) -> Result<String, LlmProviderError>;
 }

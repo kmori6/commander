@@ -9,7 +9,7 @@ use commander::application::usecase::message_usecase::MessageUsecase;
 use commander::application::usecase::schedule_usecase::ScheduleUsecase;
 use commander::application::usecase::session_usecase::SessionUsecase;
 use commander::application::usecase::task_usecase::TaskUsecase;
-use commander::infrastructure::llm::llm_gateway::LlmGateway;
+use commander::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
 use commander::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use commander::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
 use commander::infrastructure::persistence::postgres_session_repository::PostgresSessionRepository;
@@ -35,7 +35,7 @@ pub async fn test_app() -> Router {
     let instruction_service = Arc::new(InstructionService::new(root.clone()));
     let tool_service = Arc::new(ToolService::new(vec![]));
 
-    let llm_gateway = LlmGateway::from_config_path(root.join("models.json"))
+    let llm_provider = OpenaiLlmProvider::from_config_path(root.join("models.json"))
         .await
         .unwrap();
 
@@ -55,7 +55,7 @@ pub async fn test_app() -> Router {
         message_repository.clone(),
     ));
     let agent_runtime = Arc::new(AgentRuntime::new(
-        llm_gateway,
+        llm_provider,
         tool_service.clone(),
         task_repository,
         message_repository,

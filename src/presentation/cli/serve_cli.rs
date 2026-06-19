@@ -8,8 +8,7 @@ use crate::application::usecase::schedule_usecase::ScheduleUsecase;
 use crate::application::usecase::session_usecase::SessionUsecase;
 use crate::application::usecase::task_usecase::TaskUsecase;
 use crate::domain::port::tool::Tool;
-use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
-use crate::infrastructure::llm::llm_gateway::LlmGateway;
+use crate::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
 use crate::infrastructure::persistence::file_schedule_repository::FileScheduleRepository;
 use crate::infrastructure::persistence::file_watch_repository::FileWatchRepository;
 use crate::infrastructure::persistence::postgres_message_repository::PostgresMessageRepository;
@@ -82,10 +81,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let message_repository = PostgresMessageRepository::new(pool.clone());
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
 
-    let visual_inspect_provider = BedrockLlmProvider::from_default_config().await;
-
     // services
-    let llm_gateway = LlmGateway::from_config_path(paths.model_config_path())
+    let llm_provider = OpenaiLlmProvider::from_config_path(paths.model_config_path())
         .await
         .map_err(std::io::Error::other)?;
     let event_service = Arc::new(EventService::new());
@@ -108,7 +105,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         Arc::new(WebFetchTool::new().map_err(std::io::Error::other)?),
         Arc::new(VisualInspectTool::new(
             workspace_root.clone(),
-            visual_inspect_provider,
+            llm_provider.clone(),
         )),
         Arc::new(MemoryWriteTool::new(workspace_root.clone()).map_err(std::io::Error::other)?),
     ];
@@ -139,7 +136,7 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         message_repository.clone(),
     ));
     let agent_runtime = Arc::new(AgentRuntime::new(
-        llm_gateway,
+        llm_provider.clone(),
         tool_service.clone(),
         task_repository.clone(),
         message_repository.clone(),

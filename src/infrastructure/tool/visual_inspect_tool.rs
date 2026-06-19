@@ -9,19 +9,18 @@ use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::port::llm_provider::{LlmMessage, LlmProvider, LlmRequest};
 use crate::domain::port::tool::Tool;
 use crate::domain::util::data_uri::encode_data_uri;
-use crate::infrastructure::llm::bedrock_llm_provider::BedrockLlmProvider;
+use crate::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
 
-const MODEL: &str = "global.anthropic.claude-sonnet-4-6";
 const MAX_SOURCE_BYTES: u64 = 1_000_000_000;
 
 #[derive(Debug, Clone)]
 pub struct VisualInspectTool {
     workspace_root: PathBuf,
-    llm_provider: BedrockLlmProvider,
+    llm_provider: OpenaiLlmProvider,
 }
 
 impl VisualInspectTool {
-    pub fn new(workspace_root: PathBuf, llm_provider: BedrockLlmProvider) -> Self {
+    pub fn new(workspace_root: PathBuf, llm_provider: OpenaiLlmProvider) -> Self {
         Self {
             workspace_root,
             llm_provider,
@@ -134,25 +133,22 @@ impl Tool for VisualInspectTool {
             SourceKind::Pdf => MessageContent::input_file(filename(&path), data_uri),
         };
 
-        let request = LlmRequest::new(
-            MODEL,
-            vec![
-                LlmMessage::system_text(
-                    "You are a visual inspection tool. Answer the user's instruction using only the provided image or document. Be concise, factual, and preserve important visible text when extracting.",
-                ),
-                LlmMessage::new(
-                    Role::User,
-                    vec![
-                        MessageContent::input_text(args.instruction.clone()),
-                        visual_content,
-                    ],
-                ),
-            ],
-        );
+        let request = LlmRequest::new(vec![
+            LlmMessage::system_text(
+                "You are a visual inspection tool. Answer the user's instruction using only the provided image or document. Be concise, factual, and preserve important visible text when extracting.",
+            ),
+            LlmMessage::new(
+                Role::User,
+                vec![
+                    MessageContent::input_text(args.instruction.clone()),
+                    visual_content,
+                ],
+            ),
+        ]);
 
         let response = self
             .llm_provider
-            .respond(request)
+            .response(request)
             .await
             .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
 

@@ -1,5 +1,5 @@
 use clap::Parser;
-use dotenvy::dotenv;
+use dotenvy::dotenv_override;
 use log::info;
 
 use commander::presentation::channel::slack;
@@ -7,7 +7,7 @@ use commander::presentation::cli::{Cli, Commands, chat_cli, serve_cli};
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    dotenv().ok();
+    dotenv_override().ok();
     env_logger::init();
 
     let cli = Cli::parse();
