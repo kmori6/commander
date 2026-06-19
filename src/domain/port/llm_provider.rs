@@ -78,7 +78,7 @@ impl LlmResponse {
 pub trait LlmProvider: Send + Sync {
     async fn response(&self, request: LlmRequest) -> Result<LlmResponse, LlmProviderError>;
 
-    async fn context_window(&self) -> Result<i64, LlmProviderError>;
+    fn model(&self) -> &str;
 
-    async fn current_model_id(&self) -> Result<String, LlmProviderError>;
+    fn context_window(&self) -> i64;
 }

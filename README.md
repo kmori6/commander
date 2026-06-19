@@ -35,6 +35,10 @@ Simple personal AI agent
 
 4. Fill in your AWS credentials and other API keys in `.env` (see `.env.sample` for the full list of variables).
 
+   The LLM is selected at server startup with `LLM_MODEL`, `LLM_BASE_URL`, and
+   `LLM_CONTEXT_WINDOW`. Change these values and restart the server to use a
+   different OpenAI-compatible model.
+
 ## Installation
 
 ```bash

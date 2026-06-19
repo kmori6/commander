@@ -95,14 +95,9 @@ where
         &self,
         messages: Vec<Message>,
     ) -> Result<Vec<LlmMessage>, AgentRuntimeError> {
-        let context_window = self
-            .llm_provider
-            .context_window()
-            .await?
-            .try_into()
-            .map_err(|_| {
-                AgentRuntimeError::Unsupported("unsupported context window".to_string())
-            })?;
+        let context_window = self.llm_provider.context_window().try_into().map_err(|_| {
+            AgentRuntimeError::Unsupported("unsupported context window".to_string())
+        })?;
 
         let service = CompactionService::new(CompactionConfig::for_window(context_window));
 
@@ -213,7 +208,7 @@ where
                 return Ok(LoopOutcome::Stopped);
             }
 
-            let model = self.llm_provider.current_model_id().await?;
+            let model = self.llm_provider.model().to_string();
             let messages = self.build_llm_messages(task).await?;
 
             let response = self

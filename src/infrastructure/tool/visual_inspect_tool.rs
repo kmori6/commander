@@ -13,7 +13,7 @@ use crate::infrastructure::llm::openai_llm_provider::OpenaiLlmProvider;
 
 const MAX_SOURCE_BYTES: u64 = 1_000_000_000;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VisualInspectTool {
     workspace_root: PathBuf,
     llm_provider: OpenaiLlmProvider,

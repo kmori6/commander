@@ -10,7 +10,4 @@ pub enum LlmProviderError {
 
     #[error("failed to parse LLM response: {0}")]
     ResponseParse(String),
-
-    #[error("failed to access LLM provider: {0}")]
-    Unexpected(String),
 }

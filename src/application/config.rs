@@ -37,10 +37,6 @@ impl CommanderPaths {
         self.home_path.join("config")
     }
 
-    pub fn model_config_path(&self) -> PathBuf {
-        self.config_dir().join("models.json")
-    }
-
     fn schedules_dir(&self) -> PathBuf {
         self.home_path.join("schedules")
     }

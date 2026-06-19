@@ -41,7 +41,6 @@ use crate::presentation::handler::get_task_handler::get_task_handler;
 use crate::presentation::handler::get_task_usage_handler::get_task_usage_handler;
 use crate::presentation::handler::health_handler::health_handler;
 use crate::presentation::handler::list_message_handler::list_message_handler;
-use crate::presentation::handler::list_model_handler::list_model_handler;
 use crate::presentation::handler::list_schedule_handler::list_schedule_handler;
 use crate::presentation::handler::list_schedule_run_handler::list_schedule_run_handler;
 use crate::presentation::handler::list_session_handler::list_session_handler;
@@ -49,7 +48,6 @@ use crate::presentation::handler::list_task_handler::list_task_handler;
 use crate::presentation::handler::list_tool_handler::list_tool_handler;
 use crate::presentation::handler::run_schedule_handler::run_schedule_handler;
 use crate::presentation::handler::run_watch_handler::run_watch_handler;
-use crate::presentation::handler::update_model_handler::update_model_handler;
 use crate::presentation::handler::update_schedule_handler::update_schedule_handler;
 use crate::presentation::handler::update_session_handler::update_session_handler;
 use crate::presentation::state::app_state::AppState;
@@ -58,7 +56,7 @@ use crate::presentation::worker::task_runner::TaskRunner;
 use axum::Router;
 use axum::routing::{get, post};
 use sqlx::PgPool;
-use std::{env, net::SocketAddr, sync::Arc, time::Duration};
+use std::{env, io, net::SocketAddr, sync::Arc, time::Duration};
 
 pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     // env
@@ -66,6 +64,12 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::NotFound, err))?;
     let sandbox_image = env::var("SANDBOX_IMAGE")
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::NotFound, err))?;
+    let llm_model = required_env("LLM_MODEL")?;
+    let llm_base_url = required_env("LLM_BASE_URL")?;
+    let llm_context_window = required_env("LLM_CONTEXT_WINDOW")?
+        .parse::<i64>()
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+    let openai_api_key = env::var("OPENAI_API_KEY").unwrap_or_else(|_| "none".to_string());
     let paths = CommanderPaths::resolve().map_err(std::io::Error::other)?;
     paths.ensure_dirs().await.map_err(std::io::Error::other)?;
     let workspace_root = paths.workspace_path().to_path_buf();
@@ -82,9 +86,8 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let watch_repository = FileWatchRepository::new(paths.watch_config_path());
 
     // services
-    let llm_provider = OpenaiLlmProvider::from_config_path(paths.model_config_path())
-        .await
-        .map_err(std::io::Error::other)?;
+    let llm_provider =
+        OpenaiLlmProvider::new(llm_model, llm_base_url, llm_context_window, openai_api_key);
     let event_service = Arc::new(EventService::new());
     let instruction_service = Arc::new(InstructionService::new(workspace_root.clone()));
     let mut tools: Vec<Arc<dyn Tool>> = vec![
@@ -214,9 +217,17 @@ pub fn build_router(app_state: AppState) -> Router {
         .route("/schedules/{id}/runs", get(list_schedule_run_handler))
         .route("/watch/run", post(run_watch_handler))
         .route("/tools", get(list_tool_handler))
-        .route("/models", get(list_model_handler))
-        .route("/model", get(get_model_handler).put(update_model_handler))
+        .route("/model", get(get_model_handler))
         .with_state(app_state);
 
     Router::new().nest("/v1", api_routes)
+}
+
+fn required_env(name: &str) -> io::Result<String> {
+    env::var(name).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{name} is required: {err}"),
+        )
+    })
 }
