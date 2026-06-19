@@ -35,9 +35,8 @@ pub async fn test_app() -> Router {
     let instruction_service = Arc::new(InstructionService::new(root.clone()));
     let tool_service = Arc::new(ToolService::new(vec![]));
 
-    let llm_provider = OpenaiLlmProvider::from_config_path(root.join("models.json"))
-        .await
-        .unwrap();
+    let llm_provider =
+        OpenaiLlmProvider::new("test-model", "http://127.0.0.1:1/v1", 128_000, "none");
 
     let session_usecase = Arc::new(SessionUsecase::new(session_repository.clone()));
     let message_usecase = Arc::new(MessageUsecase::new(
