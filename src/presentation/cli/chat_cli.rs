@@ -256,19 +256,6 @@ impl ChatApiClient {
             .map_err(io::Error::other)
     }
 
-    async fn cancel_task(&self, task_id: Uuid) -> io::Result<TaskResponse> {
-        self.http
-            .post(format!("{}/v1/tasks/{}/cancel", self.base_url, task_id))
-            .send()
-            .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json::<TaskResponse>()
-            .await
-            .map_err(io::Error::other)
-    }
-
     async fn list_schedules(&self) -> io::Result<Vec<ScheduleResponse>> {
         let response = self
             .http
@@ -447,26 +434,12 @@ pub async fn run(base_url: String) -> Result<(), io::Error> {
                             println!("  finished {finished_at}");
                         }
 
-                        if matches!(task.status.as_str(), "completed" | "failed" | "cancelled")
+                        if matches!(task.status.as_str(), "completed" | "failed")
                             && let Some(result) = terminal_task_text(&task)
                         {
                             println!("\nresult");
                             termimad::print_text(result);
                         }
-                    }
-                    _ if line.starts_with("/cancel ") => {
-                        let id = line.trim_start_matches("/cancel ").trim();
-
-                        let Ok(task_id) = Uuid::parse_str(id) else {
-                            println!("invalid task id: {id}");
-                            continue;
-                        };
-
-                        let task = client.cancel_task(task_id).await?;
-
-                        println!("cancel requested");
-                        println!("  id      {}", task.id);
-                        println!("  status  {}", task.status);
                     }
                     // schedule
                     "/schedules" => {

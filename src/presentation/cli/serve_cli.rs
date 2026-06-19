@@ -28,7 +28,6 @@ use crate::infrastructure::tool::transcribe_tool::TranscribeTool;
 use crate::infrastructure::tool::visual_inspect_tool::VisualInspectTool;
 use crate::infrastructure::tool::web_fetch_tool::WebFetchTool;
 use crate::infrastructure::tool::web_search_tool::WebSearchTool;
-use crate::presentation::handler::cancel_task_handler::cancel_task_handler;
 use crate::presentation::handler::create_message_handler::create_message_handler;
 use crate::presentation::handler::create_schedule_handler::create_schedule_handler;
 use crate::presentation::handler::create_session_handler::create_session_handler;
@@ -203,7 +202,6 @@ pub fn build_router(app_state: AppState) -> Router {
         )
         .route("/tasks", get(list_task_handler).post(create_task_handler))
         .route("/tasks/{id}", get(get_task_handler))
-        .route("/tasks/{id}/cancel", post(cancel_task_handler))
         .route("/tasks/{id}/usage", get(get_task_usage_handler))
         .route(
             "/schedules",

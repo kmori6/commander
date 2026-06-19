@@ -1,4 +1,3 @@
-pub mod cancel_task_handler;
 pub mod create_message_handler;
 pub mod create_schedule_handler;
 pub mod create_session_handler;

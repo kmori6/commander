@@ -65,20 +65,6 @@ where
             .map_err(Into::into)
     }
 
-    pub async fn request_cancel(&self, id: Uuid) -> Result<Task, TaskUsecaseError> {
-        let task = self
-            .task_repository
-            .find_by_id(id)
-            .await?
-            .ok_or(TaskRepositoryError::NotFound(id))?;
-
-        if task.can_cancel() {
-            return self.task_repository.cancel(id).await.map_err(Into::into);
-        }
-
-        Ok(task)
-    }
-
     pub async fn find_usage(&self, task_id: Uuid) -> Result<TaskUsage, TaskUsecaseError> {
         if self.task_repository.find_by_id(task_id).await?.is_none() {
             return Err(TaskRepositoryError::NotFound(task_id).into());

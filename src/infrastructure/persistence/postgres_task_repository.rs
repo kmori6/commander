@@ -61,7 +61,6 @@ fn task_status_from_db(value: &str) -> Option<TaskStatus> {
         "running" => Some(TaskStatus::Running),
         "completed" => Some(TaskStatus::Completed),
         "failed" => Some(TaskStatus::Failed),
-        "cancelled" => Some(TaskStatus::Cancelled),
         _ => None,
     }
 }
@@ -210,10 +209,6 @@ impl TaskRepository for PostgresTaskRepository {
     async fn fail(&self, id: Uuid, error: String) -> Result<Task, TaskRepositoryError> {
         self.update_task(id, |task, now| task.fail(error, now))
             .await
-    }
-
-    async fn cancel(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {
-        self.update_task(id, |task, now| task.cancel(now)).await
     }
 
     async fn claim_queued(&self, limit: usize) -> Result<Vec<Task>, TaskRepositoryError> {

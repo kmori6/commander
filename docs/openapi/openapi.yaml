@@ -251,26 +251,6 @@ paths:
           $ref: "#/components/responses/Error"
 
 
-  /v1/tasks/{id}/cancel:
-    post:
-      tags:
-        - Tasks
-      summary: Cancel task
-      operationId: cancelTask
-      parameters:
-        - $ref: "#/components/parameters/IdPath"
-      responses:
-        "200":
-          description: Task.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Task"
-        "404":
-          $ref: "#/components/responses/Error"
-        "500":
-          $ref: "#/components/responses/Error"
-
   /v1/tasks/{id}/usage:
     get:
       tags:
@@ -737,7 +717,6 @@ components:
         - running
         - completed
         - failed
-        - cancelled
 
     Task:
       type: object

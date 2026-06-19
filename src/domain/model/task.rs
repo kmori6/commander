@@ -49,7 +49,6 @@ pub enum TaskStatus {
     Running,
     Completed,
     Failed,
-    Cancelled,
 }
 
 impl TaskStatus {
@@ -59,16 +58,11 @@ impl TaskStatus {
             Self::Running => "running",
             Self::Completed => "completed",
             Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
         }
     }
 
     pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
-    }
-
-    pub fn can_cancel(self) -> bool {
-        !self.is_terminal()
+        matches!(self, Self::Completed | Self::Failed)
     }
 }
 
@@ -95,10 +89,6 @@ impl Task {
 
     pub fn scheduled_at(&self) -> Option<DateTime<Utc>> {
         self.source.scheduled_at()
-    }
-
-    pub fn can_cancel(&self) -> bool {
-        self.status.can_cancel()
     }
 
     // status: queued -> running
@@ -145,19 +135,6 @@ impl Task {
         self.started_at = Some(self.started_at.unwrap_or(now));
         self.finished_at = Some(now);
         self.error = Some(error);
-        Ok(())
-    }
-
-    // status: queued/running -> cancelled
-    pub fn cancel(&mut self, now: DateTime<Utc>) -> Result<(), String> {
-        if self.status.is_terminal() {
-            return Err(invalid_transition(self.status, TaskStatus::Cancelled));
-        }
-
-        self.status = TaskStatus::Cancelled;
-        self.updated_at = now;
-        self.finished_at = Some(now);
-        self.error = None;
         Ok(())
     }
 }

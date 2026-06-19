@@ -15,16 +15,6 @@ use uuid::Uuid;
 
 const MAX_LLM_STEPS: usize = 30;
 
-enum LoopOutcome {
-    Completed(String),
-    Stopped,
-}
-
-enum ToolRun {
-    Continue,
-    Stopped,
-}
-
 pub struct AgentRuntime<L, T, M> {
     llm_provider: L,
     tool_service: Arc<ToolService>,
@@ -152,14 +142,8 @@ where
         let result = async {
             self.emit(task_id, "task_started", json!({})).await?;
 
-            if self.is_cancelled(task_id).await? {
-                return Ok(());
-            }
-
-            match self.run_loop(task_id, &task).await? {
-                LoopOutcome::Completed(output) => self.complete(task_id, output).await?,
-                LoopOutcome::Stopped => {}
-            }
+            let output = self.run_loop(task_id, &task).await?;
+            self.complete(task_id, output).await?;
 
             Ok(())
         }
@@ -174,16 +158,6 @@ where
                 Err(err)
             }
         }
-    }
-
-    async fn is_cancelled(&self, task_id: Uuid) -> Result<bool, AgentRuntimeError> {
-        let task = self
-            .task_repository
-            .find_by_id(task_id)
-            .await?
-            .ok_or(AgentRuntimeError::TaskNotFound)?;
-
-        Ok(task.status == TaskStatus::Cancelled)
     }
 
     async fn complete(&self, task_id: Uuid, output: String) -> Result<(), AgentRuntimeError> {
@@ -202,12 +176,8 @@ where
     }
 
     // agent loop (durable with database, for root agent)
-    async fn run_loop(&self, task_id: Uuid, task: &Task) -> Result<LoopOutcome, AgentRuntimeError> {
+    async fn run_loop(&self, task_id: Uuid, task: &Task) -> Result<String, AgentRuntimeError> {
         for step in 0..MAX_LLM_STEPS {
-            if self.is_cancelled(task_id).await? {
-                return Ok(LoopOutcome::Stopped);
-            }
-
             let model = self.llm_provider.model().to_string();
             let messages = self.build_llm_messages(task).await?;
 
@@ -238,17 +208,10 @@ where
                 .collect::<Vec<_>>();
 
             if tool_calls.is_empty() {
-                if self.is_cancelled(task_id).await? {
-                    return Ok(LoopOutcome::Stopped);
-                }
-
-                return Ok(LoopOutcome::Completed(response.output_text("\n")));
+                return Ok(response.output_text("\n"));
             }
 
-            match self.run_tools(task_id, tool_calls).await? {
-                ToolRun::Continue => {}
-                ToolRun::Stopped => return Ok(LoopOutcome::Stopped),
-            }
+            self.run_tools(task_id, tool_calls).await?;
         }
 
         Err(AgentRuntimeError::Unsupported(format!(
@@ -261,20 +224,10 @@ where
         &self,
         task_id: Uuid,
         tool_calls: Vec<ToolCall>,
-    ) -> Result<ToolRun, AgentRuntimeError> {
+    ) -> Result<(), AgentRuntimeError> {
         let mut outputs = Vec::new();
 
         for call in tool_calls {
-            if self.is_cancelled(task_id).await? {
-                if !outputs.is_empty() {
-                    self.message_repository
-                        .save(task_id, Role::User, std::mem::take(&mut outputs))
-                        .await?;
-                }
-
-                return Ok(ToolRun::Stopped);
-            }
-
             self.emit(
                 task_id,
                 "tool_call_started",
@@ -310,7 +263,7 @@ where
                 .save(task_id, Role::User, outputs)
                 .await?;
         }
-        Ok(ToolRun::Continue)
+        Ok(())
     }
 
     // emit event (llm_started) -> call llm provider -> emit event (llm_finished)
