@@ -135,7 +135,6 @@ pub async fn run(addr: SocketAddr) -> Result<(), std::io::Error> {
     let schedule_usecase = Arc::new(ScheduleUsecase::new(
         schedule_repository,
         task_repository.clone(),
-        message_repository.clone(),
     ));
     let agent_runtime = Arc::new(AgentRuntime::new(
         llm_provider.clone(),

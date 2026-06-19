@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::application::error::task_usecase_error::TaskUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::model::message::{MessageContent, Role, TaskUsage};
+use crate::domain::model::message::TaskUsage;
 use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::task_repository::TaskRepository;
@@ -25,26 +25,10 @@ where
     }
 
     pub async fn create(&self, request: String) -> Result<Task, TaskUsecaseError> {
-        let request = request.trim().to_string();
-
-        if request.is_empty() {
-            return Err(TaskRepositoryError::InvalidTask(
-                "task request must not be empty".to_string(),
-            )
-            .into());
-        }
-
-        let task = self.task_repository.create(TaskSource::Direct).await?;
-
-        self.message_repository
-            .save(
-                task.id,
-                Role::User,
-                vec![MessageContent::input_text(request)],
-            )
-            .await?;
-
-        Ok(task)
+        self.task_repository
+            .enqueue(TaskSource::Direct, request)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn find(&self, id: Uuid) -> Result<Option<Task>, TaskUsecaseError> {

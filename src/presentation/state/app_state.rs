@@ -30,9 +30,7 @@ pub struct AppState {
         >,
     >,
     pub task_usecase: Arc<TaskUsecase<PostgresTaskRepository, PostgresMessageRepository>>,
-    pub schedule_usecase: Arc<
-        ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository, PostgresMessageRepository>,
-    >,
+    pub schedule_usecase: Arc<ScheduleUsecase<FileScheduleRepository, PostgresTaskRepository>>,
     // runtimes
     pub agent_runtime:
         Arc<AgentRuntime<OpenaiLlmProvider, PostgresTaskRepository, PostgresMessageRepository>>,

@@ -6,6 +6,7 @@ use axum::{
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn message_submission_creates_queued_task() {
@@ -40,6 +41,7 @@ async fn message_submission_creates_queued_task() {
 
     let body = response_json(response).await;
     let task_id = body["task_id"].as_str().unwrap();
+    assert!(body.get("message").is_none());
 
     let response = app
         .clone()
@@ -53,6 +55,41 @@ async fn message_submission_creates_queued_task() {
 
     assert_eq!(task["status"], "queued");
     assert_eq!(task["session_id"], session_id);
+
+    let response = app
+        .oneshot(empty_request(
+            "GET",
+            &format!("/v1/sessions/{session_id}/messages"),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response_json(response).await;
+    let messages = body["messages"].as_array().unwrap();
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["task_id"], task_id);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[0]["content"][0]["text"], "hello");
+}
+
+#[tokio::test]
+async fn message_submission_to_missing_session_returns_not_found() {
+    let app = support::test_app().await;
+    let session_id = Uuid::new_v4();
+
+    let response = app
+        .oneshot(json_request(
+            "POST",
+            &format!("/v1/sessions/{session_id}/messages"),
+            json!({ "text": "hello" }),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 fn json_request(method: &str, uri: &str, body: Value) -> Request<Body> {

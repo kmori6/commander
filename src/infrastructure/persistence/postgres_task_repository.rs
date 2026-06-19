@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction, types::Json};
 use uuid::Uuid;
 
 use crate::domain::error::task_repository_error::TaskRepositoryError;
+use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 use crate::domain::repository::task_repository::TaskRepository;
 
@@ -180,7 +181,39 @@ impl PostgresTaskRepository {
 
 #[async_trait]
 impl TaskRepository for PostgresTaskRepository {
-    async fn create(&self, source: TaskSource) -> Result<Task, TaskRepositoryError> {
+    async fn enqueue(
+        &self,
+        source: TaskSource,
+        request: String,
+    ) -> Result<Task, TaskRepositoryError> {
+        let request = request.trim().to_string();
+
+        if request.is_empty() {
+            return Err(TaskRepositoryError::InvalidTask(
+                "task request must not be empty".to_string(),
+            ));
+        }
+
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+
+        if let Some(session_id) = source.session_id() {
+            let result = sqlx::query(
+                r#"
+                UPDATE sessions
+                SET updated_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+
+            if result.rows_affected() == 0 {
+                return Err(TaskRepositoryError::SessionNotFound(session_id));
+            }
+        }
+
         let row = sqlx::query_as::<_, TaskRow>(&format!(
             r#"
             INSERT INTO tasks (
@@ -195,11 +228,28 @@ impl TaskRepository for PostgresTaskRepository {
         .bind(source.session_id())
         .bind(source.schedule_id())
         .bind(source.scheduled_at())
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
 
-        row.try_into()
+        let task: Task = row.try_into()?;
+        let contents = vec![MessageContent::input_text(request)];
+
+        sqlx::query(
+            r#"
+            INSERT INTO messages (task_id, role, contents)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(task.id)
+        .bind(Role::User.as_str())
+        .bind(Json(contents))
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(task)
     }
 
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError> {

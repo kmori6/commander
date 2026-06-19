@@ -7,7 +7,11 @@ use crate::domain::model::task::{Task, TaskSource, TaskStatus};
 
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
-    async fn create(&self, source: TaskSource) -> Result<Task, TaskRepositoryError>;
+    async fn enqueue(
+        &self,
+        source: TaskSource,
+        request: String,
+    ) -> Result<Task, TaskRepositoryError>;
 
     async fn complete(&self, id: Uuid) -> Result<Task, TaskRepositoryError>;
 

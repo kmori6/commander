@@ -2,16 +2,11 @@ use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
 use crate::domain::error::task_repository_error::TaskRepositoryError;
-use crate::domain::model::message::{Message, MessageContent, Role};
+use crate::domain::model::message::Message;
 use crate::domain::model::task::{Task, TaskSource};
 use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::session_repository::SessionRepository;
 use crate::domain::repository::task_repository::TaskRepository;
-pub struct MessageTask {
-    pub message: Message,
-    pub task: Task,
-}
-
 pub struct MessageUsecase<M, S, T> {
     message_repository: M,
     session_repository: S,
@@ -36,29 +31,16 @@ where
         &self,
         session_id: Uuid,
         text: String,
-    ) -> Result<MessageTask, MessageUsecaseError> {
-        let text = text.trim().to_string();
-
-        if text.is_empty() {
-            return Err(TaskRepositoryError::InvalidTask(
-                "message text must not be empty".to_string(),
-            )
-            .into());
-        }
-
-        self.ensure_existing_session(session_id).await?;
-
-        let task = self
-            .task_repository
-            .create(TaskSource::Session { session_id })
-            .await?;
-
-        let message = self
-            .message_repository
-            .save(task.id, Role::User, vec![MessageContent::input_text(text)])
-            .await?;
-
-        Ok(MessageTask { message, task })
+    ) -> Result<Task, MessageUsecaseError> {
+        self.task_repository
+            .enqueue(TaskSource::Session { session_id }, text)
+            .await
+            .map_err(|err| match err {
+                TaskRepositoryError::SessionNotFound(id) => {
+                    MessageUsecaseError::SessionNotFound(id)
+                }
+                other => other.into(),
+            })
     }
 
     pub async fn list_for_session(

@@ -1,6 +1,5 @@
 use crate::application::service::instruction_service::InstructionService;
 use crate::application::usecase::schedule_usecase::ScheduleUsecase;
-use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::schedule_repository::ScheduleRepository;
 use crate::domain::repository::task_repository::TaskRepository;
 use crate::domain::repository::watch_repository::WatchRepository;
@@ -12,22 +11,21 @@ use tokio::time;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
 
-pub struct ScheduleDaemon<S, T, M, W> {
-    schedule_usecase: Arc<ScheduleUsecase<S, T, M>>,
+pub struct ScheduleDaemon<S, T, W> {
+    schedule_usecase: Arc<ScheduleUsecase<S, T>>,
     watch_repository: W,
     instruction_service: Arc<InstructionService>,
     last_tick_at: Option<DateTime<Utc>>,
 }
 
-impl<S, T, M, W> ScheduleDaemon<S, T, M, W>
+impl<S, T, W> ScheduleDaemon<S, T, W>
 where
     S: ScheduleRepository,
     T: TaskRepository,
-    M: MessageRepository,
     W: WatchRepository,
 {
     pub fn new(
-        schedule_usecase: Arc<ScheduleUsecase<S, T, M>>,
+        schedule_usecase: Arc<ScheduleUsecase<S, T>>,
         watch_repository: W,
         instruction_service: Arc<InstructionService>,
     ) -> Self {

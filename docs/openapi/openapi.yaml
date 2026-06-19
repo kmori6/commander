@@ -691,11 +691,8 @@ components:
     CreateMessageResponse:
       type: object
       required:
-        - message
         - task_id
       properties:
-        message:
-          $ref: "#/components/schemas/Message"
         task_id:
           type: string
           format: uuid

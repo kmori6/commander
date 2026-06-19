@@ -3,10 +3,8 @@ use uuid::Uuid;
 
 use crate::application::error::schedule_usecase_error::ScheduleUsecaseError;
 use crate::domain::error::schedule_repository_error::ScheduleRepositoryError;
-use crate::domain::model::message::{MessageContent, Role};
 use crate::domain::model::schedule::Schedule;
 use crate::domain::model::task::{Task, TaskSource};
-use crate::domain::repository::message_repository::MessageRepository;
 use crate::domain::repository::schedule_repository::{
     CreateSchedule, ScheduleRepository, UpdateSchedule,
 };
@@ -23,23 +21,20 @@ pub enum ScheduleRunOutcome {
     AlreadyRecorded(Task),
 }
 
-pub struct ScheduleUsecase<S, T, M> {
+pub struct ScheduleUsecase<S, T> {
     schedule_repository: S,
     task_repository: T,
-    message_repository: M,
 }
 
-impl<S, T, M> ScheduleUsecase<S, T, M>
+impl<S, T> ScheduleUsecase<S, T>
 where
     S: ScheduleRepository,
     T: TaskRepository,
-    M: MessageRepository,
 {
-    pub fn new(schedule_repository: S, task_repository: T, message_repository: M) -> Self {
+    pub fn new(schedule_repository: S, task_repository: T) -> Self {
         Self {
             schedule_repository,
             task_repository,
-            message_repository,
         }
     }
 
@@ -185,15 +180,7 @@ where
             None => TaskSource::Watch { scheduled_at },
         };
 
-        let task = self.task_repository.create(source).await?;
-
-        self.message_repository
-            .save(
-                task.id,
-                Role::User,
-                vec![MessageContent::input_text(request)],
-            )
-            .await?;
+        let task = self.task_repository.enqueue(source, request).await?;
 
         Ok(DueTaskOutcome::Started(task))
     }

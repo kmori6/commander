@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use crate::application::error::message_usecase_error::MessageUsecaseError;
 use crate::presentation::dto::error::ErrorResponse;
-use crate::presentation::dto::message::MessageResponse;
 use crate::presentation::state::app_state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -43,19 +42,14 @@ pub async fn create_message_handler(
     let text = request.text;
 
     match state.message_usecase.save_user_text(session_id, text).await {
-        Ok(message_task) => {
-            let task_id = message_task.task.id;
-
-            (
-                StatusCode::ACCEPTED,
-                Json(json!({
-                    "message": MessageResponse::from(message_task.message),
-                    "task_id": task_id.to_string(),
-                })),
-            )
-                .into_response()
-        }
-        Err(MessageUsecaseError::MessageRepository(_)) => (
+        Ok(task) => (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "task_id": task.id.to_string(),
+            })),
+        )
+            .into_response(),
+        Err(MessageUsecaseError::SessionNotFound(_)) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new(
                 "session_not_found",
