@@ -101,6 +101,12 @@ fn build_input(messages: &[LlmMessage]) -> Result<Value, LlmProviderError> {
     let mut input = Vec::new();
 
     for message in messages {
+        if message.contents.is_empty() {
+            return Err(LlmProviderError::RequestBuild(
+                "message must have at least one content item".to_string(),
+            ));
+        }
+
         let mut content = Vec::new();
 
         for item in &message.contents {
@@ -172,10 +178,12 @@ fn build_input(messages: &[LlmMessage]) -> Result<Value, LlmProviderError> {
             }
         }
 
-        if content.is_empty() {
-            return Err(LlmProviderError::RequestBuild(
-                "message must have at least one content item".to_string(),
-            ));
+        if !content.is_empty() {
+            input.push(json!({
+                "type": "message",
+                "role": message.role.as_str(),
+                "content": content,
+            }));
         }
     }
 
